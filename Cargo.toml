@@ -1,0 +1,118 @@
+[build]
+# target = "wasm32-unknown-unknown"
+# cargo-features = ["per-package-target"]
+[package]
+# default-target = "wasm32-unknown-unknown"
+name = "bevyspacegame"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+exclude = [
+    "dist",
+    "build",
+    "assets",
+    "credits",
+    "saves",
+    "resources",
+    "build.rs",
+]
+
+# # Enable a small amount of optimization in debug mode
+# [profile.dev]
+# opt-level = 1
+
+# # Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+# [profile.dev.package."*"]
+# opt-level = 3
+
+[profile]
+dev = {package."*" = {opt-level = 3}, opt-level = 1}
+release = {lto = "fat", codegen-units = 1, opt-level = 3}
+# wasm-release = {inherits = "release", lto = true, codegen-units = 1,opt-level = 3}
+# The profile that 'cargo dist' will build with
+dist = {inherits = "release", lto = "fat"}
+
+
+# # Enable a small amount of optimization in debug mode
+# [profile.release]
+# opt-level = 3
+
+# [workspace]
+# members = [
+# ]
+# resolver = "2"
+
+[dependencies]
+# bevy_utils = {path = "../bevy_utils"}
+# bevy_third_person_camera = {version = "0.1.8"}
+# bevy_sprite3d = "*"
+# wayland-client = "0.31.3"
+# bevy_mod_billboard = { git = "https://github.com/kulkalkul/bevy_mod_billboard", rev = "1fabd2214731dedb4b17ce0a0894d22182707759" }
+# bevy_meshem ={git = "https://github.com/Adamkob12/bevy_meshem", rev = "37163302e9db919941478d0647803acf527d4dbf"}
+
+rust_utils = {path = "../rust_utils"}
+rand = "*"
+# iter-comprehensions = "*"
+bevy_vox_scene ="*"
+bevy_sprite3d = "*"
+
+# bevy_meshem = "*"
+# num_enum = "*"
+# bevy_flycam = "0.14.0"
+bevy_mod_billboard = "*"
+# enum-map = "*"
+
+bevy_mod_picking = {version = "0.20.1",features = ["highlight"]}
+
+
+# # Enable a small amount of optimization in debug mode
+# [profile.dev]
+# opt-level = 1
+
+# # Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+# [profile.dev.package."*"]
+# opt-level = 3
+
+
+# # Enable a small amount of optimization in debug mode
+# [profile.release]
+# opt-level = 3
+
+bevy = { version = "0.14.1", default-features = false, features = [
+    "animation",
+    "bevy_asset",
+    "bevy_gilrs",
+    "bevy_scene",
+    "bevy_winit",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_gltf",
+    "bevy_render",
+    "bevy_sprite",
+    "bevy_text",
+    "bevy_ui",
+    "png",
+    "jpeg",
+    "ktx2",
+    "zstd",
+    "hdr",
+    "x11",
+    "bevy_gizmos",
+    "tonemapping_luts",
+    "default_font",
+    "webgl2",
+    # "wayland",
+] }
+avian3d = "*"
+bevy_embedded_assets = "*"
+enum-assoc = "*"
+# anymap = "0.12.1"
+by_address = "1.2.1"
+bevy_panorbit_camera = "0.19.3"
+# sickle_ui = "0.2.3"
+fancy_constructor = "1.3.0"
+bevy_quill = "0.1.7"
+bevy_quill_overlays = "0.1.2"
+uuid = "1.10.0"
+strum = "0.26.3"
+# cached = "0.53.1"
