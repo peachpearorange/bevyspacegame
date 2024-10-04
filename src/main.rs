@@ -1198,124 +1198,129 @@ fn colorful_texture() -> Image {
 pub struct Combat {
   pub hp: u32
 }
-#[derive(Clone)]
-enum SpawnableNPCKind {
-  NPC,
-  MushroomMan,
-  Enemy
-}
-#[derive(Debug, Assoc,Clone)]
-#[func(pub fn scale(&self) -> f32)]
-#[func(pub fn sprite(&self) -> MySprite)]
-#[func(pub fn item(&self) -> Item)]
-enum LootObjectKind {
-  #[assoc(scale = asteroid_scale())]
-  #[assoc(sprite = MySprite::CrystalAsteroid)]
-  #[assoc(item = Item::Crystal)]
-  CrystalAsteroid,
-  #[assoc(scale = asteroid_scale())]
-  #[assoc(sprite = MySprite::IceAsteroid)]
-  #[assoc(item = Item::DiHydrogenMonoxide)]
-  IceAsteroid,
-  #[assoc(scale = 1.3)]
-  #[assoc(sprite = MySprite::SpaceCat)]
-  #[assoc(item = Item::SpaceCat)]
-  SpaceCat,
-  #[assoc(scale = 1.2)]
-  #[assoc(sprite = MySprite::Coin)]
-  #[assoc(item = Item::Money)]
-  Money
-}
-
-// #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-// #[func(pub fn scale(&self) -> f32)]
-#[derive(Clone)]
-enum InertSpaceThing {
-  // #[assoc(scale = "white_corners.png")]
-  Asteroid,
-  // #[assoc(path = "white_corners.png")]
-  SphericalCow
-}
-#[derive(Clone)]
-enum SpawnableSpaceObjectKind {
-  SpaceObject {
-    scale: f32,
-    can_move: bool,
-    visuals: Visuals
-  },
-  // NPC {
-  //   kind: SpawnableNPCKind
-  // },
-  LootObject {
-    scale: f32,
-    sprite: MySprite,
-    item: Item,
-    name: String
-  },
-  SpaceCat,
-  NeutralNPC,
-  MushroomMan,
-  Enemy,
-  OldLootObject {
-    kind: LootObjectKind
-  },
-  // Item {
-  //   item: Item
-  // },
-  InertSpaceThing {
-    kind: InertSpaceThing
-  },
-  Planet {
-    planet: Planet
+comment!{
+  #[derive(Clone)]
+  enum SpawnableNPCKind {
+    NPC,
+    MushroomMan,
+    Enemy
   }
-}
-#[derive(Clone)]
-struct SpawnableSpaceObject {
-  translation: Vec3,
-  kind: SpawnableSpaceObjectKind
-}
+  #[derive(Debug, Assoc, Clone)]
+  #[func(pub fn scale(&self) -> f32)]
+  #[func(pub fn sprite(&self) -> MySprite)]
+  #[func(pub fn item(&self) -> Item)]
+  enum LootObjectKind {
+    #[assoc(scale = asteroid_scale())]
+    #[assoc(sprite = MySprite::CrystalAsteroid)]
+    #[assoc(item = Item::Crystal)]
+    CrystalAsteroid,
+    #[assoc(scale = asteroid_scale())]
+    #[assoc(sprite = MySprite::IceAsteroid)]
+    #[assoc(item = Item::DiHydrogenMonoxide)]
+    IceAsteroid,
+    #[assoc(scale = 1.3)]
+    #[assoc(sprite = MySprite::SpaceCat)]
+    #[assoc(item = Item::SpaceCat)]
+    SpaceCat,
+    #[assoc(scale = 1.2)]
+    #[assoc(sprite = MySprite::Coin)]
+    #[assoc(item = Item::Money)]
+    Money
+  }
 
-impl SpawnableSpaceObject {
-  fn with_kind(self, kind: SpawnableSpaceObjectKind) -> Self { Self { kind, ..self } }
-  fn spawn<'t>(self, mut c: &mut Commands<'_, '_>) -> &'t mut EntityCommands<'t> {
-    type Kind = SpawnableSpaceObjectKind;
-    let Self { translation, kind } = self;
-    match kind {
-      Kind::SpaceObject { scale,
-                          can_move,
-                          visuals } => {
-        &mut c.spawn(SpaceObjectBundle::new(translation, scale, can_move, visuals))
+  // #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
+  // #[func(pub fn scale(&self) -> f32)]
+  #[derive(Clone)]
+  enum InertSpaceThing {
+    // #[assoc(scale = "white_corners.png")]
+    Asteroid,
+    // #[assoc(path = "white_corners.png")]
+    SphericalCow
+  }
+  #[derive(Clone)]
+  enum SpawnableSpaceObjectKind {
+    SpaceObject {
+      scale: f32,
+      can_move: bool,
+      visuals: Visuals
+    },
+    // NPC {
+    //   kind: SpawnableNPCKind
+    // },
+    LootObject {
+      scale: f32,
+      sprite: MySprite,
+      item: Item,
+      name: String
+    },
+    SpaceCat,
+    NeutralNPC,
+    MushroomMan,
+    Enemy,
+    OldLootObject {
+      kind: LootObjectKind
+    },
+    // Item {
+    //   item: Item
+    // },
+    InertSpaceThing {
+      kind: InertSpaceThing
+    },
+    Planet {
+      planet: Planet
+    }
+  }
+  // #[derive(Clone)]
+  struct SpawnableSpaceObject<'t> {
+    c: &'t mut Commands<'t, 't>,
+    translation: Vec3,
+    kind: SpawnableSpaceObjectKind
+  }
+
+  impl SpawnableSpaceObject {
+    fn with_kind(self, kind: SpawnableSpaceObjectKind) -> Self { Self { kind, ..self } }
+    fn spawn<'t>(self, mut c: &'t mut Commands<'_, '_>) -> &'t mut EntityCommands<'t> {
+      type Kind = SpawnableSpaceObjectKind;
+      let Self { translation,
+                 kind,
+                 mut c } = self.clone();
+      match kind {
+        Kind::SpaceObject { scale,
+                            can_move,
+                            visuals } => {
+          &mut c.spawn(SpaceObjectBundle::new(translation, scale, can_move, visuals))
+        }
+        Kind::OldLootObject { kind } => {
+          let scale = kind.scale();
+          let sprite = kind.sprite();
+          let item = kind.item();
+          &mut c.spawn(item_in_space(sprite, translation, scale, debugfmt(kind), item))
+        }
+        Kind::InertSpaceThing { kind } => todo!(),
+        Kind::Planet { planet } => todo!(),
+        Kind::LootObject { scale,
+                           sprite,
+                           item,
+                           name } => {
+          self.with_kind(Kind::SpaceObject { scale,
+                                             can_move: true,
+                                             visuals: Visuals::sprite(sprite) })
+              .spawn(c)
+              .insert(Name::new(name))
+              .insert(Interact::Item(item))
+          // .reborrow()
+        }
+        Kind::SpaceCat => self.with_kind(Kind::LootObject { scale: 1.3,
+                                                            sprite: MySprite::SpaceCat,
+                                                            item: Item::SpaceCat,
+                                                            name: "space cat".into() })
+                              .spawn(c),
+        Kind::MushroomMan => todo!(),
+        // Kind::NPC => todo!(),
+        Kind::NeutralNPC => todo!(),
+        Kind::Enemy => todo!(),
+        Kind::InertSpaceThing { kind } => todo!()
       }
-      Kind::OldLootObject { kind } => {
-        let scale = kind.scale();
-        let sprite = kind.sprite();
-        let item = kind.item();
-        &mut c.spawn(item_in_space(sprite, translation, scale, debugfmt(kind), item))
-      }
-      Kind::InertSpaceThing { kind } => todo!(),
-      Kind::Planet { planet } => todo!(),
-      Kind::LootObject { scale,
-                         sprite,
-                         item,
-                         name } => {
-        self.with_kind(Kind::SpaceObject { scale,
-                                           can_move: true,
-                                           visuals: Visuals::sprite(sprite) })
-            .spawn(c)
-            .insert(Name::new(name))
-            .insert(Interact::Item(item))
-        // .reborrow()
-      }
-      Kind::SpaceCat => self.with_kind(Kind::LootObject { scale: 1.3,
-                                                          sprite: MySprite::SpaceCat,
-                                                          item: Item::SpaceCat,
-                                                          name: "space cat".into() })
-                            .spawn(c),
-      Kind::MushroomMan => todo!(),
-      // Kind::NPC => todo!(),
-      Kind::NeutralNPC => todo!(),
-      Kind::Enemy => todo!(),
-      Kind::InertSpaceThing { kind } => todo!()
     }
   }
 }
