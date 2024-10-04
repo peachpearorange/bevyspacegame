@@ -2103,7 +2103,7 @@ pub fn main() {
     .run();
 }
 
-// trunk build --release --public-url "bevy_space_game" --filehash false
+// trunk build --release --public-url "bevyspacegame" --filehash false
 
 // trunk serve
 

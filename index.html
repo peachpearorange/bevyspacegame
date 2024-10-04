@@ -17,10 +17,10 @@ html, body {
          <link data-trunk rel="copy-file" href="build/windows/icon.ico"/>
          <link rel="icon" href="icon.ico"> -->
     <!-- <link data-trunk rel="inline" href="build/web/styles.css"/> -->
-<link rel="preload" href="/bevy_game/target/wasm-bindgen/release/bevy_game_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
-<link rel="modulepreload" href="/bevy_game/target/wasm-bindgen/release/bevy_game.js">
-<link rel="preload" href="/bevy_space_game/bevyspacegame_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
-<link rel="modulepreload" href="/bevy_space_game/bevyspacegame.js"></head>
+<link rel="preload" href="/bevyspacegame/target/wasm-bindgen/release/bevy_game_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
+<link rel="preload" href="/bevyspacegame/bevyspacegame_bg.wasm" as="fetch" type="application/wasm" crossorigin="">
+<link rel="modulepreload" href="/bevyspacegame/target/wasm-bindgen/release/bevy_game.js">
+<link rel="modulepreload" href="/bevyspacespace_game/bevyspacegame.js"></head>
     <body style="background-color:#333333;">
         <!-- <link data-trunk rel="inline" href="build/web/sound.js"/> -->
 
@@ -44,8 +44,8 @@ html, body {
                  </canvas>
                  </div> -->
 
-<script type="module">import init from '/bevy_game/target/wasm-bindgen/release/bevy_game.js';init('/bevy_game/target/wasm-bindgen/release/bevy_game_bg.wasm');</script>
-<script type="module">import init from '/bevy_space_game/bevyspacegame.js';init('/bevy_space_game/bevyspacegame_bg.wasm');</script></body></html>
+<script type="module">import init from '/bevyspacegame/target/wasm-bindgen/release/bevyspacegame.js';init('/bevyspacegame/target/wasm-bindgen/release/bevyspacegame_bg.wasm');</script>
+<script type="module">import init from '/bevyspacegame/bevyspacegame.js';init('/bevyspacegame/bevyspacegame_bg.wasm');</script></body></html>
 
 
 
