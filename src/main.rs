@@ -1198,7 +1198,7 @@ fn colorful_texture() -> Image {
 pub struct Combat {
   pub hp: u32
 }
-comment!{
+comment! {
   #[derive(Clone)]
   enum SpawnableNPCKind {
     NPC,
@@ -2030,13 +2030,13 @@ pub fn main() {
       EmbeddedAssetPlugin::default(),
       // bevy::pbr::ScreenSpaceAmbientOcclusionPlugin
       DefaultPlugins
-        .set(RenderPlugin {
-          render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
-            backends: Some(bevy::render::settings::Backends::VULKAN),
-            ..default()
-          }),
-          ..default()
-        })
+        // .set(RenderPlugin {
+        //   render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
+        //     backends: Some(bevy::render::settings::Backends::VULKAN),
+        //     ..default()
+        //   }),
+        //   ..default()
+        // })
         .set(ImagePlugin{default_sampler})
         .set(WindowPlugin {
           primary_window: Some(Window {
