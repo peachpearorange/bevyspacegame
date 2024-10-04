@@ -21,7 +21,6 @@ pub mod bundletree;
 pub mod ui;
 
 pub use bevy::prelude::Name;
-use rust_utils::take;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
@@ -50,9 +49,9 @@ use {avian3d::prelude::*,
      dynamics::solver::SolverConfig,
      enum_assoc::Assoc,
      fancy_constructor::new,
-     rand::{random, thread_rng},
+     rand::{random, thread_rng, Rng},
      rust_utils::{comment, debug_println, debugfmt, filter, filter_map, least, map, mapv,
-                  println, sort_by_key, sum, vec, MutateTrait},
+                  println, sort_by_key, sum, take, vec, MutateTrait},
      ui::{ui_root_thing_in_the_world, Message, UIData, UIMainView}};
 
 comment! {
@@ -95,6 +94,8 @@ pub enum MySprite {
   IceAsteroid,
   #[assoc(path = "crystal_asteroid.png")]
   CrystalAsteroid,
+  #[assoc(path = "coin.png")]
+  Coin,
   #[assoc(path = "space_cat.png")]
   SpaceCat,
   #[assoc(path = "spherical_cow.png")]
@@ -1197,6 +1198,127 @@ fn colorful_texture() -> Image {
 pub struct Combat {
   pub hp: u32
 }
+#[derive(Clone)]
+enum SpawnableNPCKind {
+  NPC,
+  MushroomMan,
+  Enemy
+}
+#[derive(Debug, Assoc,Clone)]
+#[func(pub fn scale(&self) -> f32)]
+#[func(pub fn sprite(&self) -> MySprite)]
+#[func(pub fn item(&self) -> Item)]
+enum LootObjectKind {
+  #[assoc(scale = asteroid_scale())]
+  #[assoc(sprite = MySprite::CrystalAsteroid)]
+  #[assoc(item = Item::Crystal)]
+  CrystalAsteroid,
+  #[assoc(scale = asteroid_scale())]
+  #[assoc(sprite = MySprite::IceAsteroid)]
+  #[assoc(item = Item::DiHydrogenMonoxide)]
+  IceAsteroid,
+  #[assoc(scale = 1.3)]
+  #[assoc(sprite = MySprite::SpaceCat)]
+  #[assoc(item = Item::SpaceCat)]
+  SpaceCat,
+  #[assoc(scale = 1.2)]
+  #[assoc(sprite = MySprite::Coin)]
+  #[assoc(item = Item::Money)]
+  Money
+}
+
+// #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
+// #[func(pub fn scale(&self) -> f32)]
+#[derive(Clone)]
+enum InertSpaceThing {
+  // #[assoc(scale = "white_corners.png")]
+  Asteroid,
+  // #[assoc(path = "white_corners.png")]
+  SphericalCow
+}
+#[derive(Clone)]
+enum SpawnableSpaceObjectKind {
+  SpaceObject {
+    scale: f32,
+    can_move: bool,
+    visuals: Visuals
+  },
+  // NPC {
+  //   kind: SpawnableNPCKind
+  // },
+  LootObject {
+    scale: f32,
+    sprite: MySprite,
+    item: Item,
+    name: String
+  },
+  SpaceCat,
+  NeutralNPC,
+  MushroomMan,
+  Enemy,
+  OldLootObject {
+    kind: LootObjectKind
+  },
+  // Item {
+  //   item: Item
+  // },
+  InertSpaceThing {
+    kind: InertSpaceThing
+  },
+  Planet {
+    planet: Planet
+  }
+}
+#[derive(Clone)]
+struct SpawnableSpaceObject {
+  translation: Vec3,
+  kind: SpawnableSpaceObjectKind
+}
+
+impl SpawnableSpaceObject {
+  fn with_kind(self, kind: SpawnableSpaceObjectKind) -> Self { Self { kind, ..self } }
+  fn spawn<'t>(self, mut c: &mut Commands<'_, '_>) -> &'t mut EntityCommands<'t> {
+    type Kind = SpawnableSpaceObjectKind;
+    let Self { translation, kind } = self;
+    match kind {
+      Kind::SpaceObject { scale,
+                          can_move,
+                          visuals } => {
+        &mut c.spawn(SpaceObjectBundle::new(translation, scale, can_move, visuals))
+      }
+      Kind::OldLootObject { kind } => {
+        let scale = kind.scale();
+        let sprite = kind.sprite();
+        let item = kind.item();
+        &mut c.spawn(item_in_space(sprite, translation, scale, debugfmt(kind), item))
+      }
+      Kind::InertSpaceThing { kind } => todo!(),
+      Kind::Planet { planet } => todo!(),
+      Kind::LootObject { scale,
+                         sprite,
+                         item,
+                         name } => {
+        self.with_kind(Kind::SpaceObject { scale,
+                                           can_move: true,
+                                           visuals: Visuals::sprite(sprite) })
+            .spawn(c)
+            .insert(Name::new(name))
+            .insert(Interact::Item(item))
+        // .reborrow()
+      }
+      Kind::SpaceCat => self.with_kind(Kind::LootObject { scale: 1.3,
+                                                          sprite: MySprite::SpaceCat,
+                                                          item: Item::SpaceCat,
+                                                          name: "space cat".into() })
+                            .spawn(c),
+      Kind::MushroomMan => todo!(),
+      // Kind::NPC => todo!(),
+      Kind::NeutralNPC => todo!(),
+      Kind::Enemy => todo!(),
+      Kind::InertSpaceThing { kind } => todo!()
+    }
+  }
+}
 #[derive(Component)]
 pub struct Enemy;
 pub fn enemy(pos: Vec3, scale: f32) -> impl Bundle {
@@ -1235,57 +1357,6 @@ pub struct Missile {
   target: Entity
 }
 
-// #[derive(Debug, Clone, Copy)]
-// enum ContinuousTargetInteraction {
-//   Start,
-//   Stop,
-//   Invalid
-// }
-// #[derive(Debug, Clone, Copy)]
-// enum InstantTargetInteraction {
-//   Do,
-//   Invalid
-// }
-// #[derive(Debug, Clone)]
-// struct TargetInteractionOptions {
-//   pub approach: ContinuousTargetInteraction,
-//   pub shoot: ContinuousTargetInteraction,
-//   pub take: InstantTargetInteraction,
-//   pub trade: InstantTargetInteraction
-// }
-// cancel interaction when deselected
-// interactions that you can do
-// pub fn target_interaction(parent_q: Query<(Option<&Name>, &GlobalTransform)>,
-//                           target_q: Query<(Option<&Name>, &GlobalTransform)>,
-//                           keys: ResMut<ButtonInput<KeyCode>>,
-//                           mut player_q: Query<(&mut Player, &GlobalTransform)>) {
-//   if let Ok((mut player, player_globaltransform)) = player_q.get_single_mut() {
-//     if let Player { target: Some(target_entity) } = *player
-//        && let Ok((name, target_globaltransform)) = target_q.get(target_entity)
-//     {
-//       let interaction_number = find_map(|(key, n)| keys.just_pressed(key).then_some(n),
-//                                         [(KeyCode::Digit1, 0),
-//                                          (KeyCode::Digit2, 1),
-//                                          (KeyCode::Digit3, 2),
-//                                          (KeyCode::Digit4, 3),
-//                                          (KeyCode::Digit5, 4)]);
-//       let approach_option = (if approaching {
-//         "stop approaching"
-//       } else {
-//         "approach"
-//       });
-//       // let target_interaction_options =
-//       // there is a target
-//       let name = name.map_or("unnamed entity".to_string(), ToString::to_string);
-//       let distance = player_globaltransform.translation()
-//                                            .distance(target_globaltransform.translation());
-//       let target_data = TargetData { name, distance };
-//     } else {
-//       // no target
-//     }
-//   }
-// }
-
 #[derive(Component, Clone, Debug, Default)]
 pub struct Inventory(HashMap<Item, u32>);
 
@@ -1297,11 +1368,21 @@ impl Inventory {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Item {
   SpaceCat,
+  Coffee,
   Money,
   Crystal,
-  Ice,
+  DiHydrogenMonoxide,
   Rock
 }
+pub fn ndm(n: u32, m: u32) -> u32 {
+  let mut rng = rand::thread_rng();
+  (0..n).map(|_| rng.gen_range(1..=m)).sum()
+}
+pub fn nd6(n: u32) -> u32 { ndm(n, 6) }
+pub fn nd20(n: u32) -> u32 { ndm(n, 20) }
+pub fn one_d6() -> u32 { nd6(1) }
+pub fn two_d6() -> u32 { nd6(2) }
+pub fn one_d20() -> u32 { nd20(1) }
 #[derive(Component, Debug)]
 enum Interact {
   Message(String),
@@ -1475,7 +1556,7 @@ fn ui(mut c: Commands,
              format!("{name} d.:{:.1}", distance)
            },
            take(overview_max_len,
-                sort_by_key(|j| j.2 as u32,
+                sort_by_key(|(_, _, _2, _)| *_2 as u32,
                             filter_map(|(e, _, _, _, _)| get_target_data(e), &target_q))));
     let target_data = if let Some(player_target) = player.target()
                          && let Some((distance, name, _, oplanet)) =
@@ -1599,7 +1680,7 @@ enum Spawnable {
 }
 enum ZoneType {
   SpacePirateBase,
-  UnderAttack,
+  InvaderAttack,
   TradingZone,
   AsteroidField,
   IceAsteroidField
@@ -1641,6 +1722,7 @@ struct Gate;
 //   }
 // }
 
+fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
 impl Zone {
@@ -1649,7 +1731,7 @@ impl Zone {
     for _ in 0..num_objects {
       let object_pos =
         zone_pos + (random_normalized_vector() * self.zone_radius * rangerand(0.5, 1.0));
-      let asteroid_scale = || rangerand(0.8, 2.3);
+      // let asteroid_scale = || rangerand(0.8, 2.3);
       let spawn_probs = self.spawn_probs();
       for (spawnable, p) in spawn_probs {
         if prob(p) {
@@ -1681,7 +1763,8 @@ impl Zone {
                                               Visuals::sprite(MySprite::SphericalCow))));
             }
             Spawnable::TradeStation => {
-              let trade_buy = pick([Item::Ice, Item::Crystal, Item::SpaceCat]).unwrap();
+              let trade_buy =
+                pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
               let text = format!("space station\nbuys {:?}", trade_buy);
               c.spawn((name("space station"),
                        CanBeFollowedByNPC,
@@ -1722,7 +1805,7 @@ impl Zone {
                                     object_pos,
                                     asteroid_scale(),
                                     "ice",
-                                    Item::Ice));
+                                    Item::DiHydrogenMonoxide));
             }
             Spawnable::CrystalAsteroid => {
               c.spawn(item_in_space(MySprite::CrystalAsteroid,
@@ -2015,7 +2098,7 @@ pub fn main() {
     .run();
 }
 
-// trunk build --release --public-url "bevy_game" --filehash false
+// trunk build --release --public-url "bevy_space_game" --filehash false
 
 // trunk serve
 

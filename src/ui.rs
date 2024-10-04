@@ -1,13 +1,9 @@
-use {crate::{Inventory,  PlayerTargetInteractionState},
-     avian3d::parry::{either::IntoEither, simba::scalar::SupersetOf},
+use {crate::PlayerTargetInteractionState,
      bevy::{math::Vec3,
-            prelude::*,
-            render::render_resource::AsBindGroupShaderType,
-            utils::{tracing::{instrument::WithSubscriber, Instrument},
-                    HashSet}},
+            prelude::*},
      bevy_quill::{prelude::*, Portal, ViewChild},
      bevy_quill_overlays::{Overlay, PolygonOptions, StrokeMarker},
-     rust_utils::{concat_strings, debugfmt, fold, map, mapv, vec, MutateTrait}};
+     rust_utils::{concat_strings, MutateTrait}};
 
 const UI_BACKGROUND_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
 const UI_BORDER_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.7);
