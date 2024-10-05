@@ -12,6 +12,7 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(option_get_or_insert_default)]
 #![feature(let_chains)]
+#![feature(const_mut_refs)]
 
 // #![feature(int_roundings)]
 // #![recursion_limit = "1024"]
@@ -118,8 +119,20 @@ pub enum MySprite {
   HPBox,
   #[assoc(path = "floating_island.png")]
   FloatingIsland,
-  #[assoc(path = "pixelc/spaceshipwhite.png")]
+  #[assoc(path = "spaceshipwhite.png")]
   SpaceshipWhite,
+  #[assoc(path = "spaceshipblue.png")]
+  SpaceshipBlue,
+  #[assoc(path = "spaceshipred.png")]
+  SpaceshipRed,
+  #[assoc(path = "spaceshipdarkred.png")]
+  SpaceshipDarkRed,
+  #[assoc(path = "spaceshippurple.png")]
+  SpaceshipPurple,
+  #[assoc(path = "wizardspaceship.png")]
+  WizardSpaceShip,
+  #[assoc(path = "spaceshipgreen.png")]
+  SpaceshipGreen,
   #[assoc(path = "purpleenemyship.png")]
   PurpleEnemyShip,
   #[assoc(path = "spaceshipwhite2.png")]
@@ -267,6 +280,8 @@ pub enum MyScene {
   #[assoc(path_and_label = ("wat.glb", "Scene0"))]
   Wat
 }
+// struct GenMesh2(pub fn() -> Mesh);
+// const CUBE: GenMesh2 = GenMesh2(|| Cuboid::new(0.7, 0.7, 0.7).into());
 #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
 #[func(pub fn gen(&self) -> Mesh)]
 pub enum GenMesh {
@@ -336,6 +351,7 @@ pub struct VisualSprite;
 pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
                serv: Res<AssetServer>,
                mut c: Commands,
+               mut n: Local<u32>,
                mut visuals_q: Query<(Entity, Ref<Visuals>)>,
                mut visuals_sprites_q: Query<(&mut Transform, &GlobalTransform),
                      With<VisualSprite>>,
@@ -368,8 +384,14 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
     Highlight { hovered: Some(HighlightKind::Fixed(invisible_material.clone())),
                 pressed: Some(HighlightKind::Fixed(invisible_material.clone())),
                 selected: Some(HighlightKind::Fixed(invisible_material.clone())) };
+
   for (e, visuals) in &visuals_q {
     if visuals.is_changed() {
+      *n += 1;
+      // println(*n);
+      if *n % 100 == 0 {
+        println(*n);
+      }
       let main_visual_child =
         *(visual_child_entities.entry(e).or_insert_with(|| {
                                           c.spawn((PickableBundle::default(),
@@ -447,10 +469,7 @@ pub struct PlayerTargetInteractionState {
 
 #[derive(Component, Clone, Debug, Default)]
 pub struct Player {
-  pub target_interaction_state: Option<PlayerTargetInteractionState> // pub inventory: HashMap<Item, u32>,
-                                                                     // pub speed_boost: f32,
-                                                                     // // pub jump_charge_level: u16
-                                                                     // pub jump_charge_level: u32_bounded<PLAYER_JUMP_CHARGE_LEVEL_MAX>
+  pub target_interaction_state: Option<PlayerTargetInteractionState>
 }
 
 impl Player {
@@ -566,24 +585,9 @@ fn avg<T: std::iter::Sum + std::ops::Div<f32, Output = T>>(coll: impl IntoIterat
 pub fn capsule_from_height_and_radius(height: f32, radius: f32) -> Collider {
   Collider::capsule(height - (radius * 2.0), radius)
 }
-
-// #[derive(Component, Clone, Copy, Default)]
-// pub enum ApproachTarget {
-//   #[default]
-//   None,
-//   Entity {
-//     entity: Entity,
-//     range: f32
-//   },
-//   Translation {
-//     translation: Vec3,
-//     range: f32
-//   }
-// }
 #[derive(Component, Clone, Default)]
 pub struct SpaceObject {
-  pub scale: f32, // pub energy_strength: f32,
-  // pub approach_target: Option<ApproachTarget>,
+  pub scale: f32,
   pub click_target_entity: Option<Entity>
 }
 #[derive(Component, Clone)]
@@ -650,16 +654,11 @@ impl SpaceObjectBundle {
     Self::new(translation, scale, can_move, Visuals::sprite(sprite))
   }
 }
-pub fn asteroid(translation: Vec3, radius: f32) -> SpaceObjectBundle {
-  SpaceObjectBundle::new(translation,
-                         radius,
-                         false,
-                         Visuals::sprite(MySprite::Asteroid))
-}
 
 fn camera_follow_player(mut camq: Query<&mut PanOrbitCamera>,
                         playerq: Query<&Transform, With<Player>>) {
-  if let (Ok(player_transform), Ok(mut cam)) = (playerq.get_single(), camq.get_single_mut())
+  if let Ok(player_transform) = playerq.get_single()
+     && let Ok(mut cam) = camq.get_single_mut()
   {
     cam.target_focus = player_transform.translation;
   }
@@ -771,16 +770,6 @@ pub fn player_movement(keyboard_input: Res<ButtonInput<KeyCode>>,
     };
   }
 }
-fn item_in_space(image: MySprite,
-                 pos: Vec3,
-                 scale: f32,
-                 name: impl ToString,
-                 item_type: Item)
-                 -> impl Bundle {
-  (Name::new(name.to_string()),
-   Interact::Item(item_type),
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
-}
 #[derive(Bundle)]
 struct SceneSpaceObjectBundle((Handle<Scene>, SpaceObjectBundle));
 impl SceneSpaceObjectBundle {
@@ -807,29 +796,18 @@ pub fn spawn_mushroom_man(playerq: Query<&Transform, With<Player>>,
      && keyboard_input.just_pressed(KeyCode::KeyZ)
   {
     debug_println(player_transform);
-    c.spawn(mushroom_man(player_transform.translation, 1.1));
-    // c.spawn((PlayerFollower,
-    //          NPC::default(),
-    //          name("mushroom man"),
-    //          SpaceObjectBundle::new(player_transform.translation,
-    //                                 1.1,
-    //                                 true,
-    //                                 Visuals::sprite(MySprite::MushroomMan))));
+    c.spawn(mushroom_man(player_transform.translation));
   }
 }
 
 pub fn warp(mut playerq: Query<&mut Transform, With<Player>>,
             targetq: Query<&GlobalTransform>,
-            time: Res<TimeTicks>,
-            keyboard_input: Res<ButtonInput<KeyCode>>,
-            mut c: Commands) {
-  match (playerq.get_single_mut(), pick(&targetq)) {
-    (Ok(mut player_transform), Some(target_globaltransform))
-      if keyboard_input.just_pressed(KeyCode::KeyG) =>
-    {
-      player_transform.translation = target_globaltransform.translation();
-    }
-    _ => ()
+            keyboard_input: Res<ButtonInput<KeyCode>>) {
+  if let Ok(mut player_transform) = playerq.get_single_mut()
+     && let Some(target_globaltransform) = pick(&targetq)
+     && keyboard_input.just_pressed(KeyCode::KeyG)
+  {
+    player_transform.translation = target_globaltransform.translation();
   }
 }
 #[derive(Default, Resource)]
@@ -912,212 +890,6 @@ struct NPCProps {
   sprite: MySprite,
   magic_ability: Option<MagicAbility>
 }
-const SpacePirate: NPCProps = NPCProps { faction: Faction::SpacePirates,
-                                         name: Some("space pirate"),
-                                         base_hp: 100,
-                                         thrust: 200.0,
-                                         sprite: MySprite::PurpleEnemyShip,
-                                         magic_ability: None };
-const Trader: NPCProps = NPCProps { faction: Faction::Traders,
-                                    name: Some("trader"),
-                                    base_hp: 80,
-                                    thrust: 150.0,
-                                    sprite: MySprite::SpaceshipWhite2,
-                                    magic_ability: None };
-const SpaceCop: NPCProps = NPCProps { faction: Faction::SpacePolice,
-                                      name: Some("space cop"),
-                                      base_hp: 120,
-                                      thrust: 180.0,
-                                      sprite: MySprite::SpaceshipWhite2,
-                                      magic_ability: None };
-const Mage: NPCProps = NPCProps { faction: Faction::SpaceWizards,
-                                  name: Some("mage"),
-                                  base_hp: 90,
-                                  thrust: 160.0,
-                                  sprite: MySprite::SpaceshipWhite2,
-                                  magic_ability: Some(MagicAbility {}) };
-
-const Nomad: NPCProps = NPCProps { faction: Faction::Wanderers,
-                                   name: Some("nomad"),
-                                   base_hp: 110,
-                                   thrust: 170.0,
-                                   sprite: MySprite::SpaceshipWhite2,
-                                   magic_ability: None };
-const AlienSoldier: NPCProps = NPCProps { faction: Faction::Invaders,
-                                          name: Some("alien soldier"),
-                                          base_hp: 150,
-                                          thrust: 220.0,
-                                          sprite: MySprite::SpaceshipWhite2,
-                                          magic_ability: None };
-#[derive(Eq, PartialEq, Clone, Copy, Assoc)]
-#[func(pub fn props(&self) -> NPCProps)]
-enum NPCType {
-  #[assoc(props = NPCProps {
-        faction: Faction::SpacePirates,
-        name: Some("space pirate"),
-        base_hp: 100,
-        thrust: 200.0,
-        sprite: MySprite::PurpleEnemyShip,
-        magic_ability: None,
-    })]
-  SpacePirate,
-
-  #[assoc(props = NPCProps {
-        faction: Faction::Traders,
-        name: Some("trader"),
-        base_hp: 80,
-        thrust: 150.0,
-        sprite: MySprite::SpaceshipWhite2,
-        magic_ability: None,
-    })]
-  Trader,
-
-  #[assoc(props = NPCProps {
-        faction: Faction::SpacePolice,
-        name: Some("space cop"),
-        base_hp: 120,
-        thrust: 180.0,
-        sprite: MySprite::SpaceshipWhite2,
-        magic_ability: None,
-    })]
-  SpaceCop,
-
-  #[assoc(props = NPCProps {
-        faction: Faction::SpaceWizards,
-        name: Some("mage"),
-        base_hp: 90,
-        thrust: 160.0,
-        sprite: MySprite::SpaceshipWhite2,
-        magic_ability: Some(MagicAbility {}),
-    })]
-  Mage,
-
-  #[assoc(props = NPCProps {
-        faction: Faction::Wanderers,
-        name: Some("nomad"),
-        base_hp: 110,
-        thrust: 170.0,
-        sprite: MySprite::SpaceshipWhite2,
-        magic_ability: None,
-    })]
-  Nomad,
-
-  #[assoc(props = NPCProps {
-        faction: Faction::Invaders,
-        name: Some("alien soldier"),
-        base_hp: 150,
-        thrust: 220.0,
-        sprite: MySprite::SpaceshipWhite2,
-        magic_ability: None,
-    })]
-  AlienSoldier
-}
-
-impl NPCType {
-  fn spawn(self, mut c: &mut Commands, pos: Vec3, scale: f32) {
-    fn insert_if_some<C: Component>(mut ec: &mut EntityCommands, oc: Option<C>) {
-      if let Some(comp) = oc {
-        ec.insert(comp);
-      }
-    }
-
-    let props = self.props();
-
-    let mut ec =
-      c.spawn((Navigation::new(props.thrust),
-               NPC { follow_target: None,
-                     faction: props.faction },
-               Combat { hp: props.base_hp },
-               SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(props.sprite))));
-
-    let mec = &mut ec;
-    insert_if_some(mec, props.name.map(Name::new));
-    insert_if_some(mec, props.magic_ability);
-  }
-}
-
-// struct MagicAbility;
-// struct NPCProps {}
-// #[derive(Eq, PartialEq, Clone, Copy, Assoc)]
-// #[func(pub fn props(&self) -> NPCProps)]
-// #[func(pub const fn faction(&self) -> Faction)]
-// #[func(pub const fn name(&self) -> Option<Name>)]
-// #[func(pub const fn base_hp(&self) -> u32)]
-// #[func(pub const fn thrust(&self) -> f32)]
-// #[func(pub const fn sprite(&self) -> MySprite)]
-// #[func(pub fn magic_ability(&self) -> Option<MagicAbility>)]
-// enum NPCType {
-//   #[assoc(props = NPCProps{
-//     faction:Faction::SpacePirates,
-//     name:"space pirate",
-//     base_hp:100
-//     trust:200.0,
-//     sprite:MySprite::PurpleEnemyShip,
-//   })]
-//   #[assoc(faction = Faction::SpacePirates)]
-//   #[assoc(name = name("space pirate"))]
-//   #[assoc(base_hp = 100)]
-//   #[assoc(thrust = 200.0)]
-//   #[assoc(sprite = MySprite::PurpleEnemyShip)]
-//   SpacePirate,
-
-//   #[assoc(faction = Faction::Traders)]
-//   #[assoc(name = name("trader"))]
-//   #[assoc(base_hp = 80)]
-//   #[assoc(thrust = 150.0)]
-//   #[assoc(sprite = MySprite::SpaceshipWhite2)]
-//   Trader,
-
-//   #[assoc(faction = Faction::SpacePolice)]
-//   #[assoc(name = name("space cop"))]
-//   #[assoc(base_hp = 120)]
-//   #[assoc(thrust = 180.0)]
-//   #[assoc(sprite = MySprite::SpaceshipWhite2)]
-//   SpaceCop,
-
-//   #[assoc(faction = Faction::SpaceWizards)]
-//   #[assoc(name = name("mage"))]
-//   #[assoc(base_hp = 90)]
-//   #[assoc(thrust = 160.0)]
-//   #[assoc(sprite = MySprite::SpaceshipWhite2)]
-//   #[assoc(magic_ability = MagicAbility)]
-//   Mage,
-
-//   #[assoc(faction = Faction::Wanderers)]
-//   #[assoc(name = name("nomad"))]
-//   #[assoc(base_hp = 110)]
-//   #[assoc(thrust = 170.0)]
-//   #[assoc(sprite = MySprite::SpaceshipWhite2)]
-//   Nomad,
-
-//   #[assoc(faction = Faction::Invaders)]
-//   #[assoc(name = name("alien soldier"))]
-//   #[assoc(base_hp = 150)]
-//   #[assoc(thrust = 220.0)]
-//   #[assoc(sprite = MySprite::SpaceshipWhite2)]
-//   AlienSoldier
-// }
-
-// impl NPCType {
-//   fn spawn(self, mut c: &mut Commands, pos: Vec3, scale: f32) {
-//     fn insert_if_some<C: Component>(mut ec: &mut EntityCommands, oc: Option<C>) {
-//       if let Some(comp) = oc {
-//         ec.insert(comp);
-//       }
-//     }
-//     // name(self.name()),
-
-//     let mut ec =
-//       c.spawn((Navigation::new(self.thrust()),
-//                NPC { follow_target: None,
-//                      faction: self.faction() },
-//                Combat { hp: 50 },
-//                SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(self.sprite()))));
-//     let mec = &mut ec;
-//     insert_if_some(mec, self.name().map(Name::new));
-//   }
-// }
-
 impl Faction {
   fn is_good(&self) -> bool {
     matches!(self.alignment(),
@@ -1128,59 +900,6 @@ impl Faction {
     (self.is_bad() || target.is_bad()) && (*self != target)
   }
 }
-pub fn space_pirate(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("Space Pirate"),
-   Navigation::new(140.0),
-   NPC { follow_target: None,
-         faction: Faction::SpacePirates },
-   Combat { hp: 50 },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
-}
-pub fn trader(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("Trader"),
-   Navigation::new(120.0),
-   NPC { follow_target: None,
-         faction: Faction::Traders },
-   Combat { hp: 30 },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
-}
-pub fn space_cop(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("Space Cop"),
-   Navigation::new(150.0),
-   NPC { follow_target: None,
-         faction: Faction::SpacePolice },
-   Combat { hp: 70 },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
-}
-pub fn space_wizard(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("Space Wizard"),
-   Navigation::new(130.0),
-   NPC { follow_target: None,
-         faction: Faction::SpaceWizards },
-   Combat { hp: 40 },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
-}
-pub fn nomad(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("Nomad"),
-   Navigation::new(110.0),
-   NPC { follow_target: None,
-         faction: Faction::Wanderers },
-   Combat { hp: 35 },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
-}
-pub fn alien_soldier(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("Alien Soldier"),
-   Navigation::new(160.0),
-   NPC { follow_target: None,
-         faction: Faction::Invaders },
-   Combat { hp: 80 },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
-}
-// fn take_inputs(mut exit: EventReader<AppExit>, keyboard_input: Res<ButtonInput<KeyCode>>) {
-//   if keyboard_input.just_pressed(KeyCode::Escape) {
-//     exit.send(AppExit::Success);
-//   }
-// }
 fn colorful_texture() -> Image {
   let texture_size = 8;
   Image::new_fill(bevy::render::render_resource::Extent3d { width: texture_size,
@@ -1198,155 +917,207 @@ fn colorful_texture() -> Image {
 pub struct Combat {
   pub hp: u32
 }
-comment! {
-  #[derive(Clone)]
-  enum SpawnableNPCKind {
-    NPC,
-    MushroomMan,
-    Enemy
-  }
-  #[derive(Debug, Assoc, Clone)]
-  #[func(pub fn scale(&self) -> f32)]
-  #[func(pub fn sprite(&self) -> MySprite)]
-  #[func(pub fn item(&self) -> Item)]
-  enum LootObjectKind {
-    #[assoc(scale = asteroid_scale())]
-    #[assoc(sprite = MySprite::CrystalAsteroid)]
-    #[assoc(item = Item::Crystal)]
-    CrystalAsteroid,
-    #[assoc(scale = asteroid_scale())]
-    #[assoc(sprite = MySprite::IceAsteroid)]
-    #[assoc(item = Item::DiHydrogenMonoxide)]
-    IceAsteroid,
-    #[assoc(scale = 1.3)]
-    #[assoc(sprite = MySprite::SpaceCat)]
-    #[assoc(item = Item::SpaceCat)]
-    SpaceCat,
-    #[assoc(scale = 1.2)]
-    #[assoc(sprite = MySprite::Coin)]
-    #[assoc(item = Item::Money)]
-    Money
-  }
-
-  // #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-  // #[func(pub fn scale(&self) -> f32)]
-  #[derive(Clone)]
-  enum InertSpaceThing {
-    // #[assoc(scale = "white_corners.png")]
-    Asteroid,
-    // #[assoc(path = "white_corners.png")]
-    SphericalCow
-  }
-  #[derive(Clone)]
-  enum SpawnableSpaceObjectKind {
-    SpaceObject {
-      scale: f32,
-      can_move: bool,
-      visuals: Visuals
-    },
-    // NPC {
-    //   kind: SpawnableNPCKind
-    // },
-    LootObject {
-      scale: f32,
-      sprite: MySprite,
-      item: Item,
-      name: String
-    },
-    SpaceCat,
-    NeutralNPC,
-    MushroomMan,
-    Enemy,
-    OldLootObject {
-      kind: LootObjectKind
-    },
-    // Item {
-    //   item: Item
-    // },
-    InertSpaceThing {
-      kind: InertSpaceThing
-    },
-    Planet {
-      planet: Planet
-    }
-  }
-  // #[derive(Clone)]
-  struct SpawnableSpaceObject<'t> {
-    c: &'t mut Commands<'t, 't>,
-    translation: Vec3,
-    kind: SpawnableSpaceObjectKind
-  }
-
-  impl SpawnableSpaceObject {
-    fn with_kind(self, kind: SpawnableSpaceObjectKind) -> Self { Self { kind, ..self } }
-    fn spawn<'t>(self, mut c: &'t mut Commands<'_, '_>) -> &'t mut EntityCommands<'t> {
-      type Kind = SpawnableSpaceObjectKind;
-      let Self { translation,
-                 kind,
-                 mut c } = self.clone();
-      match kind {
-        Kind::SpaceObject { scale,
-                            can_move,
-                            visuals } => {
-          &mut c.spawn(SpaceObjectBundle::new(translation, scale, can_move, visuals))
-        }
-        Kind::OldLootObject { kind } => {
-          let scale = kind.scale();
-          let sprite = kind.sprite();
-          let item = kind.item();
-          &mut c.spawn(item_in_space(sprite, translation, scale, debugfmt(kind), item))
-        }
-        Kind::InertSpaceThing { kind } => todo!(),
-        Kind::Planet { planet } => todo!(),
-        Kind::LootObject { scale,
-                           sprite,
-                           item,
-                           name } => {
-          self.with_kind(Kind::SpaceObject { scale,
-                                             can_move: true,
-                                             visuals: Visuals::sprite(sprite) })
-              .spawn(c)
-              .insert(Name::new(name))
-              .insert(Interact::Item(item))
-          // .reborrow()
-        }
-        Kind::SpaceCat => self.with_kind(Kind::LootObject { scale: 1.3,
-                                                            sprite: MySprite::SpaceCat,
-                                                            item: Item::SpaceCat,
-                                                            name: "space cat".into() })
-                              .spawn(c),
-        Kind::MushroomMan => todo!(),
-        // Kind::NPC => todo!(),
-        Kind::NeutralNPC => todo!(),
-        Kind::Enemy => todo!(),
-        Kind::InertSpaceThing { kind } => todo!()
-      }
-    }
-  }
-}
 #[derive(Component)]
 pub struct Enemy;
-pub fn enemy(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("enemy"),
-   Navigation::new(130.0),
-   Enemy,
+
+struct NPCTemplate {
+  scale: f32,
+  name: &'static str,
+  thrust: f32,
+  faction: Faction,
+  hp: u32,
+  sprite: MySprite
+}
+
+// pub const SPACE_PIRATE: NPCTemplate = NPCTemplate { scale: NORMAL_NPC_SCALE,
+//                                                     name: "Space Pirate",
+//                                                     thrust: 140.0,
+//                                                     faction: Faction::SpacePirates,
+//                                                     hp: 50,
+//                                                     sprite: MySprite::SpaceshipRed };
+// impl Default for NPCTemplate {
+//   fn default() -> Self {
+//     Self { scale: NORMAL_NPC_SCALE,
+//            name: "npc",
+//            thrust: 200.0,
+//            faction: default(),
+//            hp: 40,
+//            sprite: MySprite::SpaceshipGreen }
+//   }
+// }
+// impl NPCTemplate {
+//   fn bundle(self) -> impl Bundle {
+//     let Self { scale,
+//                name,
+//                thrust,
+//                faction,
+//                hp,
+//                sprite } = self;
+//     (Name::new(name),
+//      Navigation::new(thrust),
+//      NPC { follow_target: None,
+//            faction },
+//      Combat { hp },
+//      SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+//   }
+// }
+pub fn scaled_npc(pos: Vec3,
+                  scale: f32,
+                  name: &'static str,
+                  thrust: f32,
+                  faction: Faction,
+                  hp: u32,
+                  sprite: MySprite)
+                  -> impl Bundle {
+  (Name::new(name),
+   Navigation::new(thrust),
+   NPC { follow_target: None,
+         faction },
+   Combat { hp },
+   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+}
+const NORMAL_NPC_SCALE: f32 = 1.9;
+const NORMAL_NPC_THRUST: f32 = 400.0;
+pub fn normal_sized_npc(pos: Vec3,
+                        name: &'static str,
+                        thrust: f32,
+                        faction: Faction,
+                        hp: u32,
+                        sprite: MySprite)
+                        -> impl Bundle {
+  scaled_npc(pos, NORMAL_NPC_SCALE, name, thrust, faction, hp, sprite)
+}
+pub fn space_pirate(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "Space Pirate",
+                   NORMAL_NPC_THRUST,
+                   Faction::SpacePirates,
+                   50,
+                   MySprite::SpaceshipRed)
+}
+pub fn trader(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "Trader",
+                   NORMAL_NPC_THRUST,
+                   Faction::Traders,
+                   30,
+                   MySprite::SpaceshipWhite2)
+}
+pub fn space_cop(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "Space Cop",
+                   NORMAL_NPC_THRUST,
+                   Faction::SpacePolice,
+                   70,
+                   MySprite::SpaceshipBlue)
+}
+pub fn space_wizard(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "Space Wizard",
+                   NORMAL_NPC_THRUST,
+                   Faction::SpaceWizards,
+                   40,
+                   MySprite::WizardSpaceShip)
+}
+pub fn nomad(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "Nomad",
+                   NORMAL_NPC_THRUST,
+                   Faction::Wanderers,
+                   35,
+                   MySprite::SpaceshipGreen)
+}
+pub fn alien_soldier(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "Alien Soldier",
+                   NORMAL_NPC_THRUST,
+                   Faction::Invaders,
+                   80,
+                   MySprite::PurpleEnemyShip)
+}
+pub fn enemy(pos: Vec3) -> impl Bundle {
+  (Enemy,
    Combat::default(),
-   SpaceObjectBundle::new(pos, 2.4, true, Visuals::sprite(MySprite::PurpleEnemyShip)))
+   normal_sized_npc(pos,
+                    "Enemy",
+                    NORMAL_NPC_THRUST,
+                    Faction::default(),
+                    50,
+                    MySprite::PurpleEnemyShip))
 }
-pub fn npc(pos: Vec3, scale: f32) -> impl Bundle {
-  (name("npc"),
-   Navigation::new(130.0),
-   NPC::default(),
-   SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::SpaceshipWhite2)))
+pub fn npc(pos: Vec3) -> impl Bundle {
+  normal_sized_npc(pos,
+                   "NPC",
+                   NORMAL_NPC_THRUST,
+                   Faction::default(),
+                   50,
+                   MySprite::SpaceshipWhite2)
 }
-pub fn mushroom_man(pos: Vec3, scale: f32) -> impl Bundle {
+pub fn mushroom_man(pos: Vec3) -> impl Bundle {
   (PlayerFollower,
-   Navigation::new(130.0),
-   NPC::default(),
-   name("mushroom man"),
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(MySprite::MushroomMan)))
+   normal_sized_npc(pos,
+                    "Mushroom Man",
+                    NORMAL_NPC_THRUST,
+                    Faction::Traders,
+                    40,
+                    MySprite::MushroomMan))
 }
-pub fn hp_box(pos: Vec3, scale: f32) -> impl Bundle {
+
+pub fn asteroid(pos: Vec3) -> impl Bundle {
+  (Interact::Asteroid,
+   SpaceObjectBundle::new(pos,
+                          asteroid_scale(),
+                          false,
+                          Visuals::sprite(MySprite::Asteroid)))
+}
+
+fn loot_object(image: MySprite,
+               pos: Vec3,
+               scale: f32,
+               name: impl ToString,
+               item_type: Item)
+               -> impl Bundle {
+  (Name::new(name.to_string()),
+   Interact::Item(item_type),
+   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
+}
+fn space_cat(pos: Vec3) -> impl Bundle {
+  loot_object(MySprite::SpaceCat,
+              pos,
+              1.3,
+              "space cat".to_string(),
+              Item::SpaceCat)
+}
+fn space_coin(pos: Vec3) -> impl Bundle {
+  loot_object(MySprite::Coin,
+              pos,
+              1.7,
+              "space coin".to_string(),
+              Item::SpaceCoin)
+}
+pub fn ice_asteroid(pos: Vec3) -> impl Bundle {
+  loot_object(MySprite::IceAsteroid,
+              pos,
+              asteroid_scale(),
+              "ice",
+              Item::DiHydrogenMonoxide)
+}
+pub fn crystal_asteroid(pos: Vec3) -> impl Bundle {
+  loot_object(MySprite::CrystalAsteroid,
+              pos,
+              asteroid_scale(),
+              "crystal asteroid",
+              Item::Crystal)
+}
+fn container(translation: Vec3,
+             contents: impl IntoIterator<Item = (Item, u32)>)
+             -> impl Bundle {
+  (name("container"),
+   Inventory::from_contents(contents),
+   Interact::Container,
+   SpaceObjectBundle::new(translation, 1.1, true, Visuals::sprite(MySprite::Chest)))
+}
+pub fn hp_box(pos: Vec3) -> impl Bundle {
   (name("hp box"), SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
 }
 fn missile(translation: Vec3, target: Entity) -> impl Bundle {
@@ -1365,7 +1136,12 @@ pub struct Missile {
 #[derive(Component, Clone, Debug, Default)]
 pub struct Inventory(HashMap<Item, u32>);
 
-impl Inventory {}
+impl Inventory {
+  fn from_contents(contents: impl IntoIterator<Item = (Item, u32)>) -> Self {
+    Self(contents.into_iter().collect())
+  }
+}
+
 // struct Trade {
 //   pub inputs: (Item, u32),
 //   pub outputs: (Item, u32)
@@ -1374,7 +1150,7 @@ impl Inventory {}
 enum Item {
   SpaceCat,
   Coffee,
-  Money,
+  SpaceCoin,
   Crystal,
   DiHydrogenMonoxide,
   Rock
@@ -1399,7 +1175,8 @@ enum Interact {
     inputs: (Item, u32),
     outputs: (Item, u32)
   },
-  Gate
+  Gate,
+  Container
 }
 
 const INTERACTION_RANGE: f32 = 8.0;
@@ -1449,7 +1226,8 @@ fn interact(mut playerq: Query<(Entity,
                   input_number, input_item, output_number, output_item)
         }
         Interact::Item(item) => format!("get a {:#?}", item),
-        Interact::Gate => "warp".to_string()
+        Interact::Gate => "warp".to_string(),
+        Interact::Container => "take container".to_string()
       };
       ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
       if keys.just_pressed(KeyCode::Space) {
@@ -1497,6 +1275,11 @@ fn interact(mut playerq: Query<(Entity,
               player_transform.translation = globaltransform.translation();
             }
           }
+          Interact::Container => {
+            // c.entity(interact_entity).despawn_recursive();
+            // ui_data.message_add(format!("you got things"));
+            // *player_inventory.0.entry(item).or_default() += 1;
+          }
         }
       }
     } else {
@@ -1510,15 +1293,15 @@ fn interact(mut playerq: Query<(Entity,
 // pub struct OverView {
 //   pub entries: Vec<OverViewEntry>
 // }
-fn overview(mut c: Commands,
-            camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
-            playerq: Query<(Entity, &Player, &GlobalTransform, &Inventory)>,
-            objects_q: Query<(Entity, &SpaceObject, &GlobalTransform)>,
-            mut ui_data: ResMut<UIData>,
-            time: Res<TimeTicks>,
-            view_root_q: Query<Entity, With<ViewRoot>>) {
-  let old_overview = ui_data.overview_data.clone();
-}
+// fn overview(mut c: Commands,
+//             camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
+//             playerq: Query<(Entity, &Player, &GlobalTransform, &Inventory)>,
+//             objects_q: Query<(Entity, &SpaceObject, &GlobalTransform)>,
+//             mut ui_data: ResMut<UIData>,
+//             time: Res<TimeTicks>,
+//             view_root_q: Query<Entity, With<ViewRoot>>) {
+//   let old_overview = ui_data.overview_data.clone();
+// }
 
 fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
   scale.powi(2) / (player_pos.distance(pos)).powi(2)
@@ -1561,7 +1344,7 @@ fn ui(mut c: Commands,
              format!("{name} d.:{:.1}", distance)
            },
            take(overview_max_len,
-                sort_by_key(|(_, _, _2, _)| *_2 as u32,
+                sort_by_key(|(_0, _, _2, _)| *_0 as u32,
                             filter_map(|(e, _, _, _, _)| get_target_data(e), &target_q))));
     let target_data = if let Some(player_target) = player.target()
                          && let Some((distance, name, _, oplanet)) =
@@ -1618,8 +1401,9 @@ fn ui(mut c: Commands,
 }
 #[derive(Component, Clone, Default)]
 struct CanBeFollowedByNPC;
-#[derive(Component, Clone, Default)]
+#[derive(Component, Clone, Default, new)]
 struct NPC {
+  #[new(default)]
   pub follow_target: Option<Entity>,
   pub faction: Faction
 }
@@ -1671,16 +1455,37 @@ struct Planet {
   pub planet_type: PlanetType,
   pub population: u32
 }
+
+// #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
+// #[func(pub fn scale(&self) -> f32)]
+
+fn item_in_space(image: MySprite,
+                 pos: Vec3,
+                 scale: f32,
+                 name: impl ToString,
+                 item_type: Item)
+                 -> impl Bundle {
+  (Name::new(name.to_string()),
+   Interact::Item(item_type),
+   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
+}
+
 enum Spawnable {
   SpacePirate,
   NPC,
+  HPBox,
+  SpaceCoin,
   TradeStation,
   Asteroid,
-  FloatingIsland,
-  SpaceCat,
-  SphericalCow,
   IceAsteroid,
   CrystalAsteroid,
+  SpaceCat,
+  SphericalCow,
+  FloatingIsland,
+  SpaceCop,
+  SpaceWizard,
+  Nomad,
+  AlienSoldier,
   Gate
 }
 enum ZoneType {
@@ -1701,14 +1506,20 @@ pub struct Zone {
 }
 impl Zone {
   fn spawn_probs(&self) -> Vec<(Spawnable, f32)> {
-    vec![(Spawnable::Gate, 0.04),
-         (Spawnable::TradeStation, 0.09),
-         (Spawnable::SpacePirate, 0.09),
+    vec![(Spawnable::Asteroid, 0.4),
+         (Spawnable::TradeStation, 0.1),
+         (Spawnable::IceAsteroid, 0.08),
+         (Spawnable::CrystalAsteroid, 0.08),
+         (Spawnable::HPBox, 0.08),
+         (Spawnable::SpaceCoin, 0.08),
+         (Spawnable::Gate, 0.04),
+         (Spawnable::FloatingIsland, 0.04),
          (Spawnable::NPC, 0.1),
          (Spawnable::SpacePirate, 0.1),
-         (Spawnable::Asteroid, 0.7),
-         (Spawnable::IceAsteroid, 0.5),
-         (Spawnable::CrystalAsteroid, 0.5),
+         (Spawnable::AlienSoldier, 0.3),
+         (Spawnable::Nomad, 0.3),
+         (Spawnable::SpaceWizard, 0.3),
+         (Spawnable::SpaceCop, 0.3),
          (Spawnable::SphericalCow, 0.5),
          (Spawnable::SpaceCat, 1.0)]
   }
@@ -1720,13 +1531,6 @@ fn random_zone_name() -> String {
 }
 #[derive(Component)]
 struct Gate;
-// #[test]
-// fn test() {
-//   for i in 0..100u8 {
-//     println([i].into_iter().collect::<String>());
-//   }
-// }
-
 fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
@@ -1741,25 +1545,6 @@ impl Zone {
       for (spawnable, p) in spawn_probs {
         if prob(p) {
           match spawnable {
-            Spawnable::NPC => {
-              // println("got here2");
-              // c.spawn(npc(object_pos, 2.1));
-              let visuals = Visuals { targeted: true,
-                                      ..Visuals::sprite(MySprite::SpaceshipWhite2) };
-              c.spawn((name("npc"),
-                       Navigation::new(430.0),
-                       NPC::default(),
-                       SpaceObjectBundle::new(object_pos, 2.1, true, visuals)));
-            }
-            Spawnable::SpacePirate => {
-              // println("got here");
-              // c.spawn(enemy(object_pos, 2.1));
-              let visuals = Visuals::sprite(MySprite::PurpleEnemyShip);
-              c.spawn((name("space pirate"),
-                       Navigation::new(430.0),
-                       NPC::default(),
-                       SpaceObjectBundle::new(object_pos, 2.1, true, visuals)));
-            }
             Spawnable::SphericalCow => {
               c.spawn((name("spherical cow"),
                        SpaceObjectBundle::new(object_pos,
@@ -1767,6 +1552,7 @@ impl Zone {
                                               true,
                                               Visuals::sprite(MySprite::SphericalCow))));
             }
+
             Spawnable::TradeStation => {
               let trade_buy =
                 pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
@@ -1774,20 +1560,12 @@ impl Zone {
               c.spawn((name("space station"),
                        CanBeFollowedByNPC,
                        Interact::Trade { inputs: (trade_buy, 1),
-                                         outputs: (Item::Money, 5) },
+                                         outputs: (Item::SpaceCoin, 5) },
                        SpaceObjectBundle::new(object_pos,
                                               3.0,
                                               false,
                                               Visuals::sprite(MySprite::SpaceStation)
                                               .with_text(text))));
-            }
-            Spawnable::Asteroid => {
-              c.spawn((name("asteroid"),
-                       Interact::Asteroid,
-                       SpaceObjectBundle::new(object_pos,
-                                              asteroid_scale(),
-                                              false,
-                                              Visuals::sprite(MySprite::Asteroid))));
             }
             Spawnable::FloatingIsland => {
               c.spawn((name("floating island"),
@@ -1797,28 +1575,6 @@ impl Zone {
                                               false,
                                               Visuals::sprite(MySprite::FloatingIsland))));
             }
-            Spawnable::SpaceCat => {
-              c.spawn((name("space cat"),
-                       Interact::Item(Item::SpaceCat),
-                       SpaceObjectBundle::new(object_pos,
-                                              1.1,
-                                              true,
-                                              Visuals::sprite(MySprite::SpaceCat))));
-            }
-            Spawnable::IceAsteroid => {
-              c.spawn(item_in_space(MySprite::IceAsteroid,
-                                    object_pos,
-                                    asteroid_scale(),
-                                    "ice",
-                                    Item::DiHydrogenMonoxide));
-            }
-            Spawnable::CrystalAsteroid => {
-              c.spawn(item_in_space(MySprite::CrystalAsteroid,
-                                    object_pos,
-                                    asteroid_scale(),
-                                    "crystal asteroid",
-                                    Item::Crystal));
-            }
             Spawnable::Gate => {
               c.spawn((name("gate"),
                        Interact::Gate,
@@ -1827,6 +1583,42 @@ impl Zone {
                                               2.1,
                                               false,
                                               Visuals::sprite(MySprite::Gate).with_text(format!("warp gate to {}",random_zone_name()) ))));
+            }
+            Spawnable::NPC => {
+              c.spawn(npc(object_pos));
+            }
+            Spawnable::SpacePirate => {
+              c.spawn(space_pirate(object_pos));
+            }
+            Spawnable::Asteroid => {
+              c.spawn(asteroid(object_pos));
+            }
+            Spawnable::SpaceCat => {
+              c.spawn(space_cat(object_pos));
+            }
+            Spawnable::IceAsteroid => {
+              c.spawn(ice_asteroid(object_pos));
+            }
+            Spawnable::CrystalAsteroid => {
+              c.spawn(crystal_asteroid(object_pos));
+            }
+            Spawnable::SpaceCop => {
+              c.spawn(space_cop(object_pos));
+            }
+            Spawnable::SpaceWizard => {
+              c.spawn(space_wizard(object_pos));
+            }
+            Spawnable::Nomad => {
+              c.spawn(nomad(object_pos));
+            }
+            Spawnable::AlienSoldier => {
+              c.spawn(alien_soldier(object_pos));
+            }
+            Spawnable::HPBox => {
+              c.spawn(hp_box(object_pos));
+            }
+            Spawnable::SpaceCoin => {
+              c.spawn(space_coin(object_pos));
             }
           };
           break;
@@ -2113,38 +1905,235 @@ pub fn main() {
 
 comment! {
 
-// comment! {
-//   fn preload_assets(mut c: Commands, serv: Res<AssetServer>) {
-//     let mut preload_mesh = |genmesh: GenMesh| {
-//       let handle = serv.add(genmesh.gen());
-//       MESH_HANDLES.get(genmesh as usize)
+// #[derive(Clone)]
+// enum SpawnableNPCKind {
+//   NPC,
+//   MushroomMan,
+//   Enemy
+// }
+// #[derive(Debug, Assoc, Clone)]
+// #[func(pub fn scale(&self) -> f32)]
+// #[func(pub fn sprite(&self) -> MySprite)]
+// #[func(pub fn item(&self) -> Item)]
+// enum LootObjectKind {
+//   #[assoc(scale = asteroid_scale())]
+//   #[assoc(sprite = MySprite::CrystalAsteroid)]
+//   #[assoc(item = Item::Crystal)]
+//   CrystalAsteroid,
+//   #[assoc(scale = asteroid_scale())]
+//   #[assoc(sprite = MySprite::IceAsteroid)]
+//   #[assoc(item = Item::DiHydrogenMonoxide)]
+//   IceAsteroid,
+//   #[assoc(scale = 1.3)]
+//   #[assoc(sprite = MySprite::SpaceCat)]
+//   #[assoc(item = Item::SpaceCat)]
+//   SpaceCat,
+//   #[assoc(scale = 1.2)]
+//   #[assoc(sprite = MySprite::Coin)]
+//   #[assoc(item = Item::Money)]
+//   Money
+// }
+// A static trait object using Box with 'static lifetime
+// static INSTANCE: &'static dyn MyTrait = &MyStruct;
+
+// fn main() { INSTANCE.do_something(); }
+
+// struct EntityTemplate(Box<dyn Fn(&mut Commands, Vec3)>);
+// struct EntityTemplate(&'static dyn Fn(&mut Commands, Vec3));
+
+// impl EntityTemplate {
+//   const fn new<B: Bundle>(func: fn(Vec3) -> B) -> Self {
+//     let j = move |c: &mut Commands<'_, '_>, v: Vec3| {
+//       let b = func(v);
+//       c.spawn(b);
+//     };
+//     Self(&j)
+//   }
+// }
+// static SPACE_CAT: EntityTemplate = EntityTemplate::new(|pos| {
+//   loot_object(MySprite::SpaceCat,
+//               pos,
+//               1.3,
+//               "space cat".to_string(),
+//               Item::SpaceCat)
+// });
+// use std::{cell::{LazyCell, OnceCell},
+//           rc::Weak,
+//           sync::{Arc, LazyLock, OnceLock}};
+// const fn create_fn_pointer(func: fn(i32) -> i32) -> fn(i32) -> i32 {
+//   fn wrapper(input: i32) -> i32 {
+//     func(input) // Call the input function directly
+//   }
+//   wrapper // Return the wrapper function
+// }
+// trait EntityTemplateInner: Send + Sync {
+//   fn spawn(&self, c: &mut Commands, v: Vec3);
+// }
+// impl<F: Fn(&mut Commands, Vec3) + Send + Sync> EntityTemplateInner for F {
+//   fn spawn(&self, c: &mut Commands, v: Vec3) { self(c, v); }
+// }
+// struct EntityTemplate(&'static dyn EntityTemplateInner);
+
+// impl EntityTemplate {
+//   const fn new<B: Bundle>(func: impl Fn(Vec3) -> B + Send + Sync) -> Self {
+//     // &'static dyn EntityTemplateInner
+//     let f: dyn EntityTemplateInner = {
+//       move |c: &mut Commands, v| {
+//         c.spawn(func(v));
+//       }
+//     };
+
+//     Self(&f)
+//     // let f = move |c: &mut Commands, v: Vec3| {
+//     //   let b = func(v);
+//     //   c.spawn(b);
+//     // };
+//     // let bf = Box::new(f);
+//     // Self(OnceLock::new())
+//   }
+// }
+
+// static STATIC_BOX: Box<u32> = Box::new(5);
+// #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
+// #[func(pub fn spawn(&self,mut c:&mut Commands) -> EntityCommands)]
+// enum EntityTemplate {
+//   #[assoc(spawn = c.spawn(loot_object(MySprite::SpaceCat,default(),1.3,"space cat".into(),Item::SpaceCat)))]
+//   SpaceCat,
+//   NeutralNPC,
+//   MushroomMan,
+//   Enemy,
+//   Asteroid,
+//   SphericalCow,
+//   CrystalAsteroid,
+//   IceAsteroid,
+//   Money
+// }
+
+// fn k() { Weak }
+#[derive(Clone)]
+enum InertSpaceThing {
+  // #[assoc(scale = "white_corners.png")]
+  Asteroid,
+  // #[assoc(path = "white_corners.png")]
+  SphericalCow
+}
+#[derive(Clone)]
+enum SpawnableSpaceObjectKind {
+  SpaceObject {
+    scale: f32,
+    can_move: bool,
+    visuals: Visuals
+  },
+  // NPC {
+  //   kind: SpawnableNPCKind
+  // },
+  LootObject {
+    scale: f32,
+    sprite: MySprite,
+    item: Item,
+    name: String
+  },
+  SpaceCat,
+  NeutralNPC,
+  MushroomMan,
+  Enemy,
+  OldLootObject {
+    kind: LootObjectKind
+  },
+  // Item {
+  //   item: Item
+  // },
+  InertSpaceThing {
+    kind: InertSpaceThing
+  },
+  Planet {
+    planet: Planet
+  }
+}
+// #[derive(Clone)]
+struct SpawnableSpaceObject<'t> {
+  c: &'t mut Commands<'t, 't>,
+  translation: Vec3,
+  kind: SpawnableSpaceObjectKind
+}
+  // fn spawn_at(&self, mut c: &mut Commands, pos: Vec3) { self.spawn() }
+
+// impl SpawnableSpaceObject {
+//   fn with_kind(self, kind: SpawnableSpaceObjectKind) -> Self { Self { kind, ..self } }
+//   fn spawn<'t>(self, mut c: &'t mut Commands<'_, '_>) -> &'t mut EntityCommands<'t> {
+//     type Kind = SpawnableSpaceObjectKind;
+//     let Self { translation,
+//                kind,
+//                mut c } = self.clone();
+//     match kind {
+//       Kind::SpaceObject { scale,
+//                           can_move,
+//                           visuals } => {
+//         &mut c.spawn(SpaceObjectBundle::new(translation, scale, can_move, visuals))
+//       }
+//       Kind::OldLootObject { kind } => {
+//         let scale = kind.scale();
+//         let sprite = kind.sprite();
+//         let item = kind.item();
+//         &mut c.spawn(item_in_space(sprite, translation, scale, debugfmt(kind), item))
+//       }
+//       Kind::InertSpaceThing { kind } => todo!(),
+//       Kind::Planet { planet } => todo!(),
+//       Kind::LootObject { scale,
+//                          sprite,
+//                          item,
+//                          name } => {
+//         self.with_kind(Kind::SpaceObject { scale,
+//                                            can_move: true,
+//                                            visuals: Visuals::sprite(sprite) })
+//             .spawn(c)
+//             .insert(Name::new(name))
+//             .insert(Interact::Item(item))
+//         // .reborrow()
+//       }
+//       Kind::SpaceCat => self.with_kind(Kind::LootObject { scale: 1.3,
+//                                                           sprite: MySprite::SpaceCat,
+//                                                           item: Item::SpaceCat,
+//                                                           name: "space cat".into() })
+//                             .spawn(c),
+//       Kind::MushroomMan => todo!(),
+//       // Kind::NPC => todo!(),
+//       Kind::NeutralNPC => todo!(),
+//       Kind::Enemy => todo!(),
+//       Kind::InertSpaceThing { kind } => todo!()
+//     }
+//   }
+// }
+// fn preload_assets(mut c: Commands, serv: Res<AssetServer>) {
+//   let mut preload_mesh = |genmesh: GenMesh| {
+//     let handle = serv.add(genmesh.gen());
+//     MESH_HANDLES.get(genmesh as usize)
+//                 .unwrap()
+//                 .get_or_init(|| handle.clone());
+//     c.spawn(handle);
+//   };
+//   preload_mesh(GenMesh::SPHERE);
+//   preload_mesh(GenMesh::BILLBOARD_MESH_SQUARE);
+//   let mut preload_image = |image: MySprite| {
+//     let handle = serv.load(image.path());
+//     SPRITE_HANDLES.get(image as usize)
 //                   .unwrap()
 //                   .get_or_init(|| handle.clone());
-//       c.spawn(handle);
-//     };
-//     preload_mesh(GenMesh::SPHERE);
-//     preload_mesh(GenMesh::BILLBOARD_MESH_SQUARE);
-//     let mut preload_image = |image: MySprite| {
-//       let handle = serv.load(image.path());
-//       SPRITE_HANDLES.get(image as usize)
+//     c.spawn(handle);
+//   };
+//   preload_image(MySprite::NASA_STARMAP);
+//   let mut preload_material = |material: MyMaterial| {
+//     let handle = serv.add(material.val());
+//     MATERIAL_HANDLES.get(material as usize)
 //                     .unwrap()
 //                     .get_or_init(|| handle.clone());
-//       c.spawn(handle);
-//     };
-//     preload_image(MySprite::NASA_STARMAP);
-//     let mut preload_material = |material: MyMaterial| {
-//       let handle = serv.add(material.val());
-//       MATERIAL_HANDLES.get(material as usize)
-//                       .unwrap()
-//                       .get_or_init(|| handle.clone());
-//       c.spawn(handle);
-//     };
-//     preload_material(MyMaterial::HOVERED_MATERIAL);
-//     preload_material(MyMaterial::PRESSED_MATERIAL);
-//     preload_material(MyMaterial::SELECTED_MATERIAL);
-//     preload_material(MyMaterial::INVISIBLE_MATERIAL);
-//     println("got here");
-//   }
+//     c.spawn(handle);
+//   };
+//   preload_material(MyMaterial::HOVERED_MATERIAL);
+//   preload_material(MyMaterial::PRESSED_MATERIAL);
+//   preload_material(MyMaterial::SELECTED_MATERIAL);
+//   preload_material(MyMaterial::INVISIBLE_MATERIAL);
+//   println("got here");
 // }
 // fn add_global_highlight(mut global_highlight: ResMut<GlobalHighlight<StandardMaterial>>,
 //                         serv: Res<AssetServer>) {
@@ -2217,4 +2206,6 @@ comment! {
                             // max_ccd_substeps: todo!(),
                             ..default() }
   }
+
+
 }

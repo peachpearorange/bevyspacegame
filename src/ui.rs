@@ -151,7 +151,7 @@ impl ViewTemplate for OverlayExample {
   type View = impl View;
   fn create(&self, _cx: &mut Cx) -> Self::View {
     let ui_data = _cx.use_resource::<UIData>();
-    let trans = Transform::from_translation(Vec3::new(0., 0.03, 0.))
+    let trans = Transform::from_translation(Vec3::new(0., 1000.0, 0.))
       .with_rotation(Quat::from_rotation_y(-std::f32::consts::PI * 0.3 * (ui_data.count as f32)));
     Overlay::new().shape(|sb| {
                     sb.with_stroke_width(0.3)
