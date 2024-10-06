@@ -21,6 +21,8 @@
 pub mod bundletree;
 pub mod ui;
 
+use std::collections::VecDeque;
+
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
@@ -51,8 +53,8 @@ use {avian3d::prelude::*,
      enum_assoc::Assoc,
      fancy_constructor::new,
      rand::{random, thread_rng, Rng},
-     rust_utils::{comment, debug_println, debugfmt, filter, filter_map, least, map, mapv,
-                  println, sort_by_key, sum, take, vec, MutateTrait},
+     rust_utils::{comment, debug_println, debugfmt, filter, filter_map, find, find_map,
+                  least, map, mapv, println, rev, sort_by_key, sum, take, vec, MutateTrait},
      ui::{ui_root_thing_in_the_world, Message, UIData, UIMainView}};
 
 comment! {
@@ -66,6 +68,7 @@ comment! {
 pub const GLOWY_COLOR: Color = Color::srgb(13.99, 11.32, 50.0);
 pub const GLOWY_COLOR_2: Color = Color::srgb(30.0, 20.7, 10.5);
 pub const GLOWY_COLOR_3: Color = Color::srgb(0.0, 30.0, 0.0);
+pub const EXPLOSION_COLOR: Color = Color::srgb(8.0, 3.0, 3.0);
 
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
@@ -119,6 +122,8 @@ pub enum MySprite {
   HPBox,
   #[assoc(path = "floating_island.png")]
   FloatingIsland,
+  #[assoc(path = "spacepiratebase.png")]
+  SpacePirateBase,
   #[assoc(path = "spaceshipwhite.png")]
   SpaceshipWhite,
   #[assoc(path = "spaceshipblue.png")]
@@ -129,6 +134,8 @@ pub enum MySprite {
   SpaceshipDarkRed,
   #[assoc(path = "spaceshippurple.png")]
   SpaceshipPurple,
+  #[assoc(path = "spaceshipabandoned.png")]
+  SpaceshipAbandoned,
   #[assoc(path = "wizardspaceship.png")]
   WizardSpaceShip,
   #[assoc(path = "spaceshipgreen.png")]
@@ -235,6 +242,10 @@ pub enum MyMaterial {
                                    alpha_mode: AlphaMode::Mask(0.0),
                                    ..GLOWY_COLOR_3.into() })]
   GlowyMaterial3,
+  #[assoc(val = StandardMaterial { unlit: true,
+                                   alpha_mode: AlphaMode::Mask(0.0001),
+                                   ..EXPLOSION_COLOR.into() })]
+  ExplosionMaterial,
   #[assoc(val = StandardMaterial::from(Color::srgb(0.2, 0.7, 0.9)))]
   ParticleMaterial,
   #[assoc(val = StandardMaterial { unlit: true,
@@ -502,22 +513,67 @@ pub fn spawn_missile(playerq: Query<(&Transform, &Player)>,
   }
 }
 
+pub const EXPLOSION_TIME_TICKS: u32 = 50;
+#[derive(Component, Default)]
+pub struct Explosion {
+  pub init_time: u32
+}
+pub fn explosion(pos: Vec3, scale: f32, init_time: u32) -> impl Bundle {
+  (
+    Explosion{init_time},
+    Visuals::material_sphere(MyMaterial::ExplosionMaterial),
+    SpatialBundle::from_transform(Transform::from_scale(Vec3::splat(scale))
+                                  .with_translation(pos)),
+  )
+}
+pub fn explosion_system(mut explosionq: Query<(Entity, &mut Explosion, &mut Transform)>,
+                        time: Res<TimeTicks>,
+                        mut c: Commands) {
+  for (explosion_entity, explosion, mut transform) in &mut explosionq {
+    let explosion_age = time.0 - explosion.init_time;
+    let frac = (time.0 as f32 - explosion.init_time as f32) / EXPLOSION_TIME_TICKS as f32;
+    transform.scale *= 1.03;
+    if explosion_age > EXPLOSION_TIME_TICKS {
+      // println(explosion_age);
+      c.entity(explosion_entity).despawn_recursive();
+    }
+  }
+}
+#[derive(Component, Default)]
+pub struct Combat {
+  pub hp: u32
+}
+impl Combat {
+  fn damage(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
+  fn hp_depleted(&self) -> bool { self.hp == 0 }
+}
+#[derive(Component)]
+pub struct IsHostile(pub bool);
 pub fn combat(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
-              mut targetq: Query<&GlobalTransform>,
+              mut targetq: Query<(&GlobalTransform, Option<&mut Combat>)>,
               time: Res<TimeTicks>,
               keyboard_input: Res<ButtonInput<KeyCode>>,
               mut c: Commands) {
+  let missile_damage = 10;
   let missile_speed = 6.0;
   let missile_hit_range = missile_speed * 1.2;
   let missile_chase_condition = |target| true;
   for (missile_entity, mut missile_transform, &Missile { target }) in &mut missileq {
-    if let Ok(target_globaltransform) = targetq.get(target)
+    if let Ok((target_globaltransform, mut ocombat)) = targetq.get_mut(target)
        && missile_chase_condition(target)
     {
-      let rel = target_globaltransform.translation() - missile_transform.translation;
+      let target_pos = target_globaltransform.translation();
+      let rel = target_pos - missile_transform.translation;
       if rel.length() < missile_hit_range {
         println("missile hit");
         c.entity(missile_entity).despawn_recursive();
+        if let Some(mut combat) = ocombat.as_mut() {
+          combat.damage(missile_damage);
+          if combat.hp_depleted() {
+            c.entity(target).despawn_recursive();
+            c.spawn(explosion(target_pos, 2.0, time.0));
+          }
+        }
       } else {
         missile_transform.translation += rel.normalize_or_zero() * missile_speed;
       }
@@ -526,14 +582,55 @@ pub fn combat(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
     }
   }
 }
+fn filter_least_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
+                                          coll: impl IntoIterator<Item = T>)
+                                          -> Option<R> {
+  coll.into_iter()
+      .filter_map(f)
+      .min_by_key(|(_, o)| o.clone())
+      .map(|(r, _)| r)
+}
+
+fn filter_least<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
+                                   coll: impl IntoIterator<Item = T>)
+                                   -> Option<T> {
+  filter_least_map(|t| f(&t).map(|v| (t, v)), coll)
+}
+fn filter_most_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
+                                         coll: impl IntoIterator<Item = T>)
+                                         -> Option<R> {
+  coll.into_iter()
+      .filter_map(f)
+      .max_by_key(|(_, o)| o.clone())
+      .map(|(r, _)| r)
+}
+fn filter_most<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
+                                  coll: impl IntoIterator<Item = T>)
+                                  -> Option<T> {
+  filter_most_map(|t| f(&t).map(|v| (t, v)), coll)
+}
 fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
                              mut playerq: Query<(&mut Player, &Transform)>,
+                             mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
                              mut c: Commands,
                              time: Res<TimeTicks>,
                              targetq: Query<(&Transform,)>) {
   let shoot_time_between = 60;
   let can_see_target = |e| true;
   if let Ok((mut player, player_transform)) = playerq.get_single_mut() {
+    let player_pos = player_transform.translation;
+
+    if keys.just_pressed(KeyCode::KeyT) {
+      if let Some((e, _, _)) =
+        filter_least(|(e, hostile, transform)| {
+                       hostile.0
+                              .then_some(transform.translation.distance(player_pos) as u32)
+                     },
+                     &hostileq)
+      {
+        player.set_target(e);
+      }
+    }
     if let Some(state) = player.target_interaction_state.as_mut()
        && let Ok((target_transform)) = targetq.get(state.target)
        && can_see_target(state.target)
@@ -546,10 +643,10 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
         state.approaching.update(std::ops::Not::not);
       }
       if keys.just_pressed(KeyCode::KeyF) {
-        c.spawn(missile(player_transform.translation, state.target));
+        c.spawn(missile(player_pos, state.target));
       }
       if state.shooting && (time.0 % shoot_time_between == 0) {
-        c.spawn(missile(player_transform.translation, state.target));
+        c.spawn(missile(player_pos, state.target));
       }
       if keys.just_pressed(KeyCode::KeyX) {
         player.untarget();
@@ -670,7 +767,8 @@ enum NavigationKind {
   Dir3(Dir3),
   Vec3(Vec3),
   Pos(Vec3),
-  Chase(Entity)
+  Chase(Entity),
+  ChaseAtRange(Entity, f32)
 }
 #[derive(Component, Debug, Clone, Copy, new)]
 struct Navigation {
@@ -686,7 +784,7 @@ fn navigation(mut navigators_q: Query<(&Navigation,
               chase_targets_q: Query<&GlobalTransform>) {
   for (&Navigation { max_thrust,
                      navigation_kind },
-       transform,
+       &Transform { translation, .. },
        mut force,
        velocity) in &mut navigators_q
   {
@@ -699,14 +797,25 @@ fn navigation(mut navigators_q: Query<(&Navigation,
         force.apply_force(vec.normalize_or_zero() * max_thrust);
       }
       NavigationKind::Pos(pos) => {
-        force.apply_force((pos - transform.translation).normalize_or_zero() * max_thrust);
+        force.apply_force((pos - translation).normalize_or_zero() * max_thrust);
       }
       NavigationKind::Chase(entity) => {
         if let Ok(entity_globaltransform) = chase_targets_q.get(entity)
            && let entity_pos = entity_globaltransform.translation()
+           && let rel = (entity_pos - translation)
         {
-          force.apply_force((entity_pos - transform.translation).normalize_or_zero()
-                            * max_thrust);
+          force.apply_force(rel.normalize_or_zero() * max_thrust);
+        };
+      }
+      NavigationKind::ChaseAtRange(entity, range) => {
+        if let Ok(entity_globaltransform) = chase_targets_q.get(entity)
+           && let entity_pos = entity_globaltransform.translation()
+           && let rel = (entity_pos - translation)
+           && let within_range = rel.length() < range
+        {
+          force.apply_force(rel.normalize_or_zero()
+                            * max_thrust
+                            * if within_range { -1.0 } else { 1.0 });
         };
       }
     }
@@ -869,7 +978,7 @@ enum Faction {
   Wanderers,
   #[assoc(alignment = Alignment::LawfulGood)]
   SpacePolice,
-  #[assoc(alignment = Alignment::ChaoticNeutral)]
+  #[assoc(alignment = Alignment::ChaoticEvil)]
   SpacePirates,
   #[assoc(alignment = Alignment::ChaoticNeutral)]
   SpaceWizards,
@@ -913,10 +1022,6 @@ fn colorful_texture() -> Image {
                   bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD)
 }
 
-#[derive(Component, Default)]
-pub struct Combat {
-  pub hp: u32
-}
 #[derive(Component)]
 pub struct Enemy;
 
@@ -988,83 +1093,107 @@ pub fn normal_sized_npc(pos: Vec3,
   scaled_npc(pos, NORMAL_NPC_SCALE, name, thrust, faction, hp, sprite)
 }
 pub fn space_pirate(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "Space Pirate",
-                   NORMAL_NPC_THRUST,
-                   Faction::SpacePirates,
-                   50,
-                   MySprite::SpaceshipRed)
+  (IsHostile(true),
+   scaled_npc(pos,
+              NORMAL_NPC_SCALE,
+              "space pirate",
+              NORMAL_NPC_THRUST,
+              Faction::SpacePirates,
+              50,
+              MySprite::SpaceshipRed))
+}
+pub fn space_pirate_base(pos: Vec3) -> impl Bundle {
+  (Combat { hp: 120 },
+   Interact::Describe,
+   name("space pirate base"),
+   SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
+}
+pub fn space_station(pos: Vec3) -> impl Bundle {
+  (Combat { hp: 120 },
+   Interact::Describe,
+   name("space station"),
+   SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
 }
 pub fn trader(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "Trader",
-                   NORMAL_NPC_THRUST,
-                   Faction::Traders,
-                   30,
-                   MySprite::SpaceshipWhite2)
+  scaled_npc(pos,
+             NORMAL_NPC_SCALE,
+             "Trader",
+             NORMAL_NPC_THRUST,
+             Faction::Traders,
+             30,
+             MySprite::SpaceshipWhite2)
 }
 pub fn space_cop(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "Space Cop",
-                   NORMAL_NPC_THRUST,
-                   Faction::SpacePolice,
-                   70,
-                   MySprite::SpaceshipBlue)
+  scaled_npc(pos,
+             NORMAL_NPC_SCALE,
+             "space cop",
+             NORMAL_NPC_THRUST,
+             Faction::SpacePolice,
+             70,
+             MySprite::SpaceshipBlue)
 }
 pub fn space_wizard(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "Space Wizard",
-                   NORMAL_NPC_THRUST,
-                   Faction::SpaceWizards,
-                   40,
-                   MySprite::WizardSpaceShip)
+  scaled_npc(pos,
+             NORMAL_NPC_SCALE,
+             "space wizard",
+             NORMAL_NPC_THRUST,
+             Faction::SpaceWizards,
+             40,
+             MySprite::WizardSpaceShip)
 }
 pub fn nomad(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "Nomad",
-                   NORMAL_NPC_THRUST,
-                   Faction::Wanderers,
-                   35,
-                   MySprite::SpaceshipGreen)
+  scaled_npc(pos,
+             NORMAL_NPC_SCALE,
+             "nomad",
+             NORMAL_NPC_THRUST,
+             Faction::Wanderers,
+             35,
+             MySprite::SpaceshipGreen)
 }
 pub fn alien_soldier(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "Alien Soldier",
-                   NORMAL_NPC_THRUST,
-                   Faction::Invaders,
-                   80,
-                   MySprite::PurpleEnemyShip)
+  (IsHostile(true),
+   scaled_npc(pos,
+              NORMAL_NPC_SCALE,
+              "alien soldier",
+              NORMAL_NPC_THRUST,
+              Faction::Invaders,
+              80,
+              MySprite::PurpleEnemyShip))
 }
 pub fn enemy(pos: Vec3) -> impl Bundle {
   (Enemy,
    Combat::default(),
-   normal_sized_npc(pos,
-                    "Enemy",
-                    NORMAL_NPC_THRUST,
-                    Faction::default(),
-                    50,
-                    MySprite::PurpleEnemyShip))
+   scaled_npc(pos,
+              NORMAL_NPC_SCALE,
+              "enemy",
+              NORMAL_NPC_THRUST,
+              Faction::default(),
+              50,
+              MySprite::PurpleEnemyShip))
 }
 pub fn npc(pos: Vec3) -> impl Bundle {
-  normal_sized_npc(pos,
-                   "NPC",
-                   NORMAL_NPC_THRUST,
-                   Faction::default(),
-                   50,
-                   MySprite::SpaceshipWhite2)
+  scaled_npc(pos,
+             NORMAL_NPC_SCALE,
+             "npc",
+             NORMAL_NPC_THRUST,
+             Faction::default(),
+             50,
+             MySprite::SpaceshipWhite2)
 }
 pub fn mushroom_man(pos: Vec3) -> impl Bundle {
   (PlayerFollower,
-   normal_sized_npc(pos,
-                    "Mushroom Man",
-                    NORMAL_NPC_THRUST,
-                    Faction::Traders,
-                    40,
-                    MySprite::MushroomMan))
+   scaled_npc(pos,
+              NORMAL_NPC_SCALE,
+              "mushroom man",
+              NORMAL_NPC_THRUST,
+              Faction::Traders,
+              40,
+              MySprite::MushroomMan))
 }
 
 pub fn asteroid(pos: Vec3) -> impl Bundle {
   (Interact::Asteroid,
+   CanBeFollowedByNPC,
    SpaceObjectBundle::new(pos,
                           asteroid_scale(),
                           false,
@@ -1170,6 +1299,7 @@ enum Interact {
   // SpaceCat,
   // SpaceStation,
   Asteroid,
+  Describe,
   Item(Item),
   Trade {
     inputs: (Item, u32),
@@ -1179,112 +1309,110 @@ enum Interact {
   Container
 }
 
+fn namefmt(oname: Option<&Name>) -> String {
+  match oname {
+    Some(name) => name.to_string(),
+    None => "unnamed entity".to_string()
+  }
+}
 const INTERACTION_RANGE: f32 = 8.0;
 fn interact(mut playerq: Query<(Entity,
                    &mut Transform,
                    &GlobalTransform,
                    &mut Inventory),
                   With<Player>>,
-            interactable_q: Query<(Entity, &Interact, &GlobalTransform, Option<&Name>)>,
+            interactable_q: Query<(Entity, &Transform, &Interact, Option<&Name>),
+                  Without<Player>>,
             gate_q: Query<(&GlobalTransform, &Gate)>,
             mut c: Commands,
             keys: Res<ButtonInput<KeyCode>>,
             mut ui_data: ResMut<UIData>) {
   if let Ok((player, mut player_transform, player_globaltransform, mut player_inventory)) =
     playerq.get_single_mut()
+     && let player_pos = player_globaltransform.translation()
+     && let closest_interactable_thing =
+       filter_least(|tup| {
+                      let dist = tup.1.translation.distance(player_pos);
+                      (dist < INTERACTION_RANGE).then_some(dist as u32)
+                    },
+                    &interactable_q)
+     && let Some((interact_entity, transform, interact, oname)) = closest_interactable_thing
   {
-    let dist = |thing: &(Entity, &Interact, &GlobalTransform, Option<&Name>)| {
-      thing.2
-           .translation()
-           .distance(player_globaltransform.translation())
-    };
-    let rounded_dist = |thing: &(Entity, &Interact, &GlobalTransform, Option<&Name>)| {
-      thing.2
-           .translation()
-           .distance(player_globaltransform.translation()) as u32
-    };
-    let in_range = |thing: &(Entity, &Interact, &GlobalTransform, Option<&Name>)| {
-      dist(thing) < INTERACTION_RANGE
-    };
-    let things_in_range = filter(in_range, &interactable_q);
-    let closest_interactable_thing = least(rounded_dist,&interactable_q)
-          .filter(|thing: &(Entity, &Interact, &GlobalTransform, Option<&Name>)|
-                  dist(thing) < INTERACTION_RANGE
-          );
-    let closest_thing_in_range = least(rounded_dist, things_in_range);
-    if let Some((interact_entity, interact, interact_globaltransform, interact_name)) =
-      closest_thing_in_range
-    {
-      let interact_message = match interact {
-        Interact::Message(m) => m.to_owned(),
-        Interact::Asteroid => "asteroid".to_string(),
-        // Interact::SpaceCat => "get a space cat".to_string(),
-        // Interact::SpaceStation => "talk to space station".to_string(),
-        Interact::Trade { inputs: (input_item, input_number),
-                          outputs: (output_item, output_number) } => {
-          format!("trade {:?} {:?} for {:#?} {:#?}s",
-                  input_number, input_item, output_number, output_item)
-        }
-        Interact::Item(item) => format!("get a {:#?}", item),
-        Interact::Gate => "warp".to_string(),
-        Interact::Container => "take container".to_string()
-      };
-      ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
-      if keys.just_pressed(KeyCode::Space) {
-        match interact {
-          Interact::Message(m) => ui_data.message_add(m),
-          Interact::Asteroid => {
-            ui_data.message_add("it's an asteroid");
-            ui_data.count += 1;
-          }
-          // Interact::SpaceCat => {
-          //   c.entity(interact_entity).despawn_recursive();
-          //   ui_data.message_add("you found a space cat");
-          //   // ui_data.space_cat_count += 1;
-          // }
-          // Interact::SpaceStation => {
-          //   if ui_data.space_cat_count > 0 {
-          //     ui_data.space_cat_count = 0;
-          //     ui_data.message_add("thank you for returning these space cats");
-          //   } else {
-          //     ui_data.message_add("please find our space cats. they are lost");
-          //   }
-          // }
-          &Interact::Trade { inputs: (input_item, input_number),
-                             outputs: (output_item, output_number) } => {
-            match player_inventory.0.get_mut(&input_item) {
-              Some(mut n) if *n >= input_number => {
-                *n -= input_number;
-                *player_inventory.0.entry(output_item).or_default() += output_number;
-                ui_data.message_add(format!("you traded {:?} {:?} for {:?} {:?}s ",
-                                            input_number,
-                                            input_item,
-                                            output_number,
-                                            output_item));
-              }
-              _ => ui_data.message_add("you don't have the items")
-            }
-          }
-          &Interact::Item(item) => {
-            c.entity(interact_entity).despawn_recursive();
-            ui_data.message_add(format!("you got a {:#?}", item));
-            *player_inventory.0.entry(item).or_default() += 1;
-          }
-          Interact::Gate => {
-            if let Some((globaltransform, gate)) = pick(&gate_q) {
-              player_transform.translation = globaltransform.translation();
-            }
-          }
-          Interact::Container => {
-            // c.entity(interact_entity).despawn_recursive();
-            // ui_data.message_add(format!("you got things"));
-            // *player_inventory.0.entry(item).or_default() += 1;
-          }
-        }
+    let interact_message = match interact {
+      Interact::Message(m) => m.to_owned(),
+      Interact::Asteroid => "asteroid".to_string(),
+      Interact::Describe => namefmt(oname),
+      // Interact::SpaceCat => "get a space cat".to_string(),
+      // Interact::SpaceStation => "talk to space station".to_string(),
+      Interact::Trade { inputs: (input_item, input_number),
+                        outputs: (output_item, output_number) } => {
+        format!("trade {:?} {:?} for {:#?} {:#?}s",
+                input_number, input_item, output_number, output_item)
       }
-    } else {
-      ui_data.interact_message = None;
+      Interact::Item(item) => format!("get a {:#?}", item),
+      Interact::Gate => "warp".to_string(),
+      Interact::Container => "take container".to_string()
+    };
+    ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
+    if keys.just_pressed(KeyCode::Space) {
+      match interact {
+        Interact::Message(m) => ui_data.message_add(m),
+        Interact::Asteroid => {
+          ui_data.message_add("it's an asteroid");
+          ui_data.count += 1;
+        }
+        Interact::Describe => {
+          ui_data.message_add(format!("it's a {}", namefmt(oname)));
+        }
+        // Interact::SpaceCat => {
+        //   c.entity(interact_entity).despawn_recursive();
+        //   ui_data.message_add("you found a space cat");
+        //   // ui_data.space_cat_count += 1;
+        // }
+        // Interact::SpaceStation => {
+        //   if ui_data.space_cat_count > 0 {
+        //     ui_data.space_cat_count = 0;
+        //     ui_data.message_add("thank you for returning these space cats");
+        //   } else {
+        //     ui_data.message_add("please find our space cats. they are lost");
+        //   }
+        // }
+        &Interact::Trade { inputs: (input_item, input_number),
+                           outputs: (output_item, output_number) } => {
+          match player_inventory.0.get_mut(&input_item) {
+            Some(mut n) if *n >= input_number => {
+              *n -= input_number;
+              *player_inventory.0.entry(output_item).or_default() += output_number;
+              ui_data.message_add(format!("you traded {:?} {:?} for {:?} {:?}s ",
+                                          input_number,
+                                          input_item,
+                                          output_number,
+                                          output_item));
+            }
+            _ => ui_data.message_add("you don't have the items")
+          }
+        }
+        &Interact::Item(item) => {
+          c.entity(interact_entity).despawn_recursive();
+          ui_data.message_add(format!("you got a {:#?}", item));
+          *player_inventory.0.entry(item).or_default() += 1;
+        }
+        Interact::Gate => {
+          if let Some((globaltransform, gate)) = pick(&gate_q) {
+            player_transform.translation = globaltransform.translation();
+          }
+        }
+        Interact::Container => {
+          // c.entity(interact_entity).despawn_recursive();
+          // ui_data.message_add(format!("you got things"));
+          // *player_inventory.0.entry(item).or_default() += 1;
+        }
+        Interact::Item(item) => todo!(),
+        Interact::Trade { inputs, outputs } => todo!()
+      }
     }
+  } else {
+    ui_data.interact_message = None;
   }
 }
 // #[derive(Clone)]
@@ -1311,63 +1439,78 @@ fn ui(mut c: Commands,
       camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
       playerq: Query<(Entity, &Player, &GlobalTransform, &Inventory)>,
       target_q: Query<(Entity,
-             &GlobalTransform,
+             &Transform,
              &SpaceObject,
              Option<&Name>,
+             Option<&Combat>,
              Option<&Planet>)>,
       mut ui_data: ResMut<UIData>,
       time: Res<TimeTicks>,
       view_root_q: Query<Entity, With<ViewRoot>>) {
+  struct TargetData<'t> {
+    entity: Entity,
+    transform: &'t Transform,
+    distance: f32,
+    signal_strength: f32,
+    spaceobject: &'t SpaceObject,
+    oname: Option<&'t Name>,
+    name: String,
+    ocombat: Option<&'t Combat>,
+    oplanet: Option<&'t Planet>
+  }
   if let (Ok((_, player, player_globaltransform, player_inventory)), Ok((camera, _))) =
     (playerq.get_single(), camq.get_single())
   {
     let player_pos = player_globaltransform.translation();
     let get_target_data = |e: Entity| {
       target_q.get(e)
-              .map(|(e, globaltransform, SpaceObject { scale, .. }, oname, oplanet)| {
-                     let distance = player_pos.distance(globaltransform.translation());
-                     (distance,
-                      oname.map_or("unnamed entity".to_string(), ToString::to_string),
-                      1000.0 * scale.powi(2) / distance.powi(2),
-                      oplanet)
+              .map(|(entity, transform, spaceobject, oname, ocombat, oplanet)| {
+                     let distance = player_pos.distance(transform.translation);
+                     let name = namefmt(oname);
+                     TargetData { entity,
+                                  transform,
+                                  spaceobject,
+                                  oname,
+                                  name,
+                                  ocombat,
+                                  oplanet,
+                                  distance,
+                                  signal_strength: 1000.0 * transform.scale.x.powi(2)
+                                                   / distance.powi(2) }
                    })
               .ok()
     };
     let overview_max_len = 15;
-
-    // vec(filter_map(|(e, _, _, _, _)| get_target_data(e),
-    //                &target_q)).mutate(|mut v| {
-    //                             v.sort_by_key(|j| j.2 as u32)
-    //                           })
     let overview_data =
-      mapv(|(distance, name, signal_strength, oplanet)| {
-             format!("{name} d.:{:.1}", distance)
-           },
+      mapv(|TargetData { distance, name, .. }| format!("{name} d.:{:.1}", distance),
            take(overview_max_len,
-                sort_by_key(|(_0, _, _2, _)| *_0 as u32,
-                            filter_map(|(e, _, _, _, _)| get_target_data(e), &target_q))));
+                sort_by_key(|TargetData { distance, .. }| *distance as u32,
+                            filter_map(|tup| get_target_data(tup.0), &target_q))));
     let target_data = if let Some(player_target) = player.target()
-                         && let Some((distance, name, _, oplanet)) =
-                           get_target_data(player_target)
+                         && let Some(TargetData { distance,
+                                                  name,
+                                                  ocombat,
+                                                  oplanet,
+                                                  .. }) = get_target_data(player_target)
     {
       filter_map(std::convert::identity,
                  [Some(format!("Target: {name}")),
-                  oplanet.map(debugfmt),
+                  oplanet.map(rust_utils::prettyfmt),
+                  ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
                   Some(format!("Distance: {:.1}", distance)),
                   Some("approach: q".to_string()),
                   Some("shoot: f".to_string()),
                   Some("toggle shoot: r".to_string()),
                   Some("untarget: x".to_string())]).collect()
     } else {
-      vec![]
+      default()
     };
-
-    // |(globaltransform, SpaceObject{scale,..}, oname, _)| (globaltransform,)
     let player_inventory = player_inventory.clone();
     let infobox_data =
       map(ToString::to_string, [format!("{:.1}", player_pos).as_str(),
                                 "w,a,s,d,shift,ctrl: move",
                                 "z: spawn mushroom man",
+                                "t: target nearest hostile",
                                 "g: warp",
                                 "you have:"]).chain(map(|(item, n)| {
                                                           format!("{} {:?}s", n, item)
@@ -1433,7 +1576,7 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
     if let Some(target_entity) = npc.follow_target
        && in_range(target_entity)
     {
-      npc_navigation.navigation_kind = NavigationKind::Chase(target_entity);
+      npc_navigation.navigation_kind = NavigationKind::ChaseAtRange(target_entity, 4.0);
     } else {
       npc.follow_target =
         pick(filter_map(|(e, _)| in_range(e).then_some(e), &follow_target_q));
@@ -1456,9 +1599,6 @@ struct Planet {
   pub population: u32
 }
 
-// #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-// #[func(pub fn scale(&self) -> f32)]
-
 fn item_in_space(image: MySprite,
                  pos: Vec3,
                  scale: f32,
@@ -1470,59 +1610,229 @@ fn item_in_space(image: MySprite,
    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
 }
 
+fn spawnit<B: Bundle>(c: &mut Commands, b: B) { c.spawn(b); }
+#[derive(Clone, Copy, Assoc)]
+#[func(pub fn spawn(&self,c:&mut Commands,pos:Vec3) -> Option<()>)]
 enum Spawnable {
+  #[assoc(spawn = spawnit(c,space_pirate(pos)))]
   SpacePirate,
+  #[assoc(spawn = spawnit(c,npc(pos)))]
   NPC,
+  #[assoc(spawn = spawnit(c,hp_box(pos)))]
   HPBox,
+  #[assoc(spawn = spawnit(c,space_coin(pos)))]
   SpaceCoin,
   TradeStation,
+  #[assoc(spawn = spawnit(c,space_pirate_base(pos)))]
+  SpacePirateBase,
+  #[assoc(spawn = spawnit(c,asteroid(pos)))]
   Asteroid,
+  #[assoc(spawn = spawnit(c,ice_asteroid(pos)))]
   IceAsteroid,
   CrystalAsteroid,
+  #[assoc(spawn = spawnit(c,space_cat(pos)))]
   SpaceCat,
   SphericalCow,
   FloatingIsland,
+  #[assoc(spawn = spawnit(c,space_cop(pos)))]
   SpaceCop,
+  #[assoc(spawn = spawnit(c,space_wizard(pos)))]
   SpaceWizard,
+  #[assoc(spawn = spawnit(c,nomad(pos)))]
   Nomad,
+  #[assoc(spawn = spawnit(c,alien_soldier(pos)))]
   AlienSoldier,
-  Gate
+  Gate,
+  AbandonedShip,
+  // ...
+  BlackHole,
+  SpaceJellyfish,
+  WormholePortal,
+  SpaceWhale,
+  AlienArtifact,
+  SpaceStation,
+  QuantumAnomaly,
+  SpaceMine,
+  NebulaCloud,
+  SolarFlare,
+  SpaceDebris,
+  CometCluster,
+  DysonSphere,
+  AncientRuins,
+  AlienOutpost,
+  RepairDrone,
+  SalvageYard,
+  FuelDepot,
+  SpaceCasino,
+  ResearchLab,
+  CloakedShip,
+  SpaceBarnacle,
+  CosmicSpore,
+  TimeDistortion,
+  GravityWell,
+  IonStorm,
+  PlasmaVortex,
+  SpaceHermit,
+  BountyHunter,
+  SpacePiranhas,
+  LivingCrystal,
+  VoidEchoes,
+  DimensionalRift,
+  HolographicDecoy,
+  SpaceGeyser,
+  MagneticAnomaly,
+  CrystallineEntity,
+  QuantumComputer,
+  NanoswarmCloud,
+  TachyonField,
+  PsiOrbNetwork,
+  SpaceMirage,
+  CosmicStringFragment,
+  DarkMatterNode,
+  AsteroidHatcher,
+  SpaceLeviathan,
+  VoidKraken,
+  StarforgeRemnant,
+  TemporalLoop
 }
-enum ZoneType {
-  SpacePirateBase,
-  InvaderAttack,
-  TradingZone,
-  AsteroidField,
-  IceAsteroidField
-}
-
-#[derive(Component)]
-pub struct Zone {
-  pub faction_control: Option<Faction>,
-  pub zone_radius: f32,
-  pub zone_type: ZoneType,
-  //pub number_of_things: u32,
-  pub planet_type: Option<PlanetType>
-}
-impl Zone {
-  fn spawn_probs(&self) -> Vec<(Spawnable, f32)> {
-    vec![(Spawnable::Asteroid, 0.4),
-         (Spawnable::TradeStation, 0.1),
-         (Spawnable::IceAsteroid, 0.08),
-         (Spawnable::CrystalAsteroid, 0.08),
-         (Spawnable::HPBox, 0.08),
-         (Spawnable::SpaceCoin, 0.08),
-         (Spawnable::Gate, 0.04),
-         (Spawnable::FloatingIsland, 0.04),
-         (Spawnable::NPC, 0.1),
-         (Spawnable::SpacePirate, 0.1),
-         (Spawnable::AlienSoldier, 0.3),
-         (Spawnable::Nomad, 0.3),
-         (Spawnable::SpaceWizard, 0.3),
-         (Spawnable::SpaceCop, 0.3),
-         (Spawnable::SphericalCow, 0.5),
-         (Spawnable::SpaceCat, 1.0)]
+type SpawnProbs = &'static [(f32, Spawnable)];
+type MultiSpawnProbs = &'static [(f32, SpawnProbs)];
+fn pick_spawnable(multi_spawn_probs: MultiSpawnProbs) -> Option<Spawnable> {
+  for (p1, spawn_probs) in multi_spawn_probs {
+    if prob(*p1) {
+      for (p2, spawnable) in *spawn_probs {
+        if prob(*p2) {
+          return Some(*spawnable);
+        }
+      }
+      return None;
+    }
   }
+  return None;
+}
+const NORMAL_ASTEROID_FIELD: SpawnProbs = &[(0.5, Spawnable::Asteroid),
+                                            (0.1, Spawnable::CrystalAsteroid),
+                                            (0.1, Spawnable::IceAsteroid),
+                                            (0.04, Spawnable::FloatingIsland),
+                                            (0.5, Spawnable::SphericalCow),
+                                            (0.1, Spawnable::SpaceCoin),
+                                            (1.0, Spawnable::SpaceCat)];
+const ICY_ASTEROID_FIELD: SpawnProbs = &[(0.3, Spawnable::Asteroid),
+                                         (0.1, Spawnable::CrystalAsteroid),
+                                         (0.5, Spawnable::IceAsteroid),
+                                         (0.04, Spawnable::FloatingIsland),
+                                         (0.5, Spawnable::SphericalCow),
+                                         (0.1, Spawnable::SpaceCoin),
+                                         (1.0, Spawnable::SpaceCat)];
+const NON_HOSTILE_NPCS: SpawnProbs = &[(0.3, Spawnable::NPC),
+                                       (0.3, Spawnable::SpaceWizard),
+                                       (0.4, Spawnable::Nomad),
+                                       (1.0, Spawnable::SpaceCop)];
+const TRADING_ZONE: SpawnProbs = &[(0.4, Spawnable::TradeStation),
+                                   (1.0, Spawnable::AbandonedShip)];
+const COMBAT_ZONE_THINGS: SpawnProbs =
+  &[(0.5, Spawnable::HPBox), (1.0, Spawnable::SpaceCoin)];
+const SPACE_PIRATE_ZONE_THINGS: SpawnProbs = &[(0.6, Spawnable::SpacePirate),
+                                               (1.0, Spawnable::SpacePirateBase)];
+const INVADERS: SpawnProbs = &[(1.0, Spawnable::AlienSoldier)];
+
+const ANOMALY_ZONE: SpawnProbs = &[(0.5, Spawnable::BlackHole),
+                                   (0.3, Spawnable::WormholePortal),
+                                   (1.0, Spawnable::QuantumAnomaly)];
+
+const EXOTIC_LIFE_ZONE: SpawnProbs = &[(0.4, Spawnable::SpaceJellyfish),
+                                       (0.3, Spawnable::SpaceWhale),
+                                       (0.2, Spawnable::AlienArtifact),
+                                       (1.0, Spawnable::SpaceCat)];
+
+// New spawn probability sets
+const NEBULA_ZONE: SpawnProbs = &[(1.0, Spawnable::NebulaCloud),
+                                  (0.3, Spawnable::SolarFlare),
+                                  (0.2, Spawnable::SpaceJellyfish),
+                                  (1.0, Spawnable::IonStorm)];
+
+const SALVAGE_ZONE: SpawnProbs = &[(0.7, Spawnable::SpaceDebris),
+                                   (0.4, Spawnable::AbandonedShip),
+                                   (0.3, Spawnable::SalvageYard),
+                                   (1.0, Spawnable::RepairDrone)];
+
+const ANCIENT_ZONE: SpawnProbs = &[(0.6, Spawnable::AncientRuins),
+                                   (0.3, Spawnable::AlienArtifact),
+                                   (0.2, Spawnable::DysonSphere),
+                                   (1.0, Spawnable::StarforgeRemnant)];
+
+const FRONTIER_ZONE: SpawnProbs = &[(0.5, Spawnable::AlienOutpost),
+                                    (0.3, Spawnable::FuelDepot),
+                                    (0.2, Spawnable::SpaceHermit),
+                                    (1.0, Spawnable::BountyHunter)];
+
+const COSMIC_HAZARD_ZONE: SpawnProbs = &[(0.4, Spawnable::GravityWell),
+                                         (0.3, Spawnable::TimeDistortion),
+                                         (0.2, Spawnable::VoidEchoes),
+                                         (1.0, Spawnable::DimensionalRift)];
+
+const EXOTIC_ECOSYSTEM: SpawnProbs = &[(0.4, Spawnable::SpaceBarnacle),
+                                       (0.3, Spawnable::CosmicSpore),
+                                       (0.2, Spawnable::SpacePiranhas),
+                                       (1.0, Spawnable::LivingCrystal)];
+
+const HIGH_TECH_ZONE: SpawnProbs = &[(0.4, Spawnable::QuantumComputer),
+                                     (0.3, Spawnable::NanoswarmCloud),
+                                     (0.2, Spawnable::HolographicDecoy),
+                                     (1.0, Spawnable::PsiOrbNetwork)];
+
+const COSMIC_PHENOMENON: SpawnProbs = &[(0.3, Spawnable::SpaceMirage),
+                                        (0.3, Spawnable::CosmicStringFragment),
+                                        (0.2, Spawnable::DarkMatterNode),
+                                        (1.0, Spawnable::TachyonField)];
+
+const MEGAFAUNA_ZONE: SpawnProbs = &[(0.4, Spawnable::AsteroidHatcher),
+                                     (0.3, Spawnable::SpaceLeviathan),
+                                     (0.2, Spawnable::VoidKraken),
+                                     (1.0, Spawnable::CrystallineEntity)];
+
+#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
+#[func(pub fn probs(&self) -> MultiSpawnProbs)]
+pub enum ZoneType {
+  #[assoc(probs = &[(0.5, NORMAL_ASTEROID_FIELD),
+                    (0.2, COMBAT_ZONE_THINGS),
+                    (1.0, SPACE_PIRATE_ZONE_THINGS)])]
+  SpacePirateAsteroidField,
+  #[assoc(probs = &[(0.4, NORMAL_ASTEROID_FIELD),
+                    (0.2, COMBAT_ZONE_THINGS),
+                    (0.5, NON_HOSTILE_NPCS),
+                    (1.0, INVADERS)])]
+  InvaderAttack,
+  #[assoc(probs = &[(0.2, NORMAL_ASTEROID_FIELD),
+                    (0.4, TRADING_ZONE),
+                    (1.0, NON_HOSTILE_NPCS),])]
+  TradingZone,
+  #[assoc(probs = &[(0.4, NORMAL_ASTEROID_FIELD),
+                    (0.2, COMBAT_ZONE_THINGS),
+                    (1.0, NON_HOSTILE_NPCS),])]
+  AsteroidField,
+  #[assoc(probs = &[(0.4, ICY_ASTEROID_FIELD),
+                    (0.20, COMBAT_ZONE_THINGS),
+                    (1.0, NON_HOSTILE_NPCS),])]
+  IceAsteroidField,
+  #[assoc(probs = &[(0.1, &[(1.0, Spawnable::SpaceStation)]),
+                    (0.5, NON_HOSTILE_NPCS),
+                    (0.2, COMBAT_ZONE_THINGS),
+                    (1.0, TRADING_ZONE),])]
+  SpaceStationZone,
+  //...
+  #[assoc(probs = &[(1.0, ANOMALY_ZONE),
+                    (0.2, COMBAT_ZONE_THINGS),
+                    (1.0, EXOTIC_LIFE_ZONE),])]
+  AnomalyCluster,
+  #[assoc(probs = &[(0.8, EXOTIC_LIFE_ZONE),
+                    (0.3, NORMAL_ASTEROID_FIELD),
+                    (0.1, ANOMALY_ZONE)])]
+  ExoticLifeZone,
+  #[assoc(probs = &[(0.7, &[(1.0, Spawnable::SpaceMine)]),
+                    (0.5, COMBAT_ZONE_THINGS),
+                    (0.3, SPACE_PIRATE_ZONE_THINGS)])]
+  MinefieldZone
 }
 fn rangerand(lo: f32, hi: f32) -> f32 { lo.lerp(hi, rand::random::<f32>()) }
 fn random_zone_name() -> String {
@@ -1534,30 +1844,38 @@ struct Gate;
 fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
+
+#[derive(Component)]
+pub struct Zone {
+  pub faction_control: Option<Faction>,
+  pub zone_radius: f32,
+  pub zone_type: ZoneType,
+  //pub number_of_things: u32,
+  pub planet_type: Option<PlanetType>
+}
 impl Zone {
   fn spawn(&self, mut c: &mut Commands, zone_pos: Vec3) {
     let num_objects = 60;
     for _ in 0..num_objects {
       let object_pos =
         zone_pos + (random_normalized_vector() * self.zone_radius * rangerand(0.5, 1.0));
-      // let asteroid_scale = || rangerand(0.8, 2.3);
-      let spawn_probs = self.spawn_probs();
-      for (spawnable, p) in spawn_probs {
-        if prob(p) {
-          match spawnable {
-            Spawnable::SphericalCow => {
-              c.spawn((name("spherical cow"),
-                       SpaceObjectBundle::new(object_pos,
-                                              1.7,
-                                              true,
-                                              Visuals::sprite(MySprite::SphericalCow))));
-            }
+      // let spawn_probs = self.spawn_probs();
+      if let Some(spawnable) = pick_spawnable(self.zone_type.probs()) {
+        match spawnable {
+          Spawnable::SphericalCow => {
+            c.spawn((name("spherical cow"),
+                     Interact::Describe,
+                     SpaceObjectBundle::new(object_pos,
+                                            1.7,
+                                            true,
+                                            Visuals::sprite(MySprite::SphericalCow))));
+          }
 
-            Spawnable::TradeStation => {
-              let trade_buy =
-                pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
-              let text = format!("space station\nbuys {:?}", trade_buy);
-              c.spawn((name("space station"),
+          Spawnable::TradeStation => {
+            let trade_buy =
+              pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
+            let text = format!("space station\nbuys {:?}", trade_buy);
+            c.spawn((name("space station"),
                        CanBeFollowedByNPC,
                        Interact::Trade { inputs: (trade_buy, 1),
                                          outputs: (Item::SpaceCoin, 5) },
@@ -1566,62 +1884,76 @@ impl Zone {
                                               false,
                                               Visuals::sprite(MySprite::SpaceStation)
                                               .with_text(text))));
-            }
-            Spawnable::FloatingIsland => {
-              c.spawn((name("floating island"),
-                       // Interact::Asteroid,
-                       SpaceObjectBundle::new(object_pos,
-                                              3.4,
-                                              false,
-                                              Visuals::sprite(MySprite::FloatingIsland))));
-            }
-            Spawnable::Gate => {
-              c.spawn((name("gate"),
+          }
+          Spawnable::FloatingIsland => {
+            c.spawn((name("floating island"),
+                     Interact::Describe,
+                     SpaceObjectBundle::new(object_pos,
+                                            3.4,
+                                            false,
+                                            Visuals::sprite(MySprite::FloatingIsland))));
+          }
+          Spawnable::Gate => {
+            c.spawn((name("gate"),
                        Interact::Gate,
                        Gate,
                        SpaceObjectBundle::new(object_pos,
                                               2.1,
                                               false,
                                               Visuals::sprite(MySprite::Gate).with_text(format!("warp gate to {}",random_zone_name()) ))));
-            }
-            Spawnable::NPC => {
-              c.spawn(npc(object_pos));
-            }
-            Spawnable::SpacePirate => {
-              c.spawn(space_pirate(object_pos));
-            }
-            Spawnable::Asteroid => {
-              c.spawn(asteroid(object_pos));
-            }
-            Spawnable::SpaceCat => {
-              c.spawn(space_cat(object_pos));
-            }
-            Spawnable::IceAsteroid => {
-              c.spawn(ice_asteroid(object_pos));
-            }
-            Spawnable::CrystalAsteroid => {
-              c.spawn(crystal_asteroid(object_pos));
-            }
-            Spawnable::SpaceCop => {
-              c.spawn(space_cop(object_pos));
-            }
-            Spawnable::SpaceWizard => {
-              c.spawn(space_wizard(object_pos));
-            }
-            Spawnable::Nomad => {
-              c.spawn(nomad(object_pos));
-            }
-            Spawnable::AlienSoldier => {
-              c.spawn(alien_soldier(object_pos));
-            }
-            Spawnable::HPBox => {
-              c.spawn(hp_box(object_pos));
-            }
-            Spawnable::SpaceCoin => {
-              c.spawn(space_coin(object_pos));
-            }
-          };
-          break;
+          }
+          Spawnable::NPC => {
+            c.spawn(npc(object_pos));
+          }
+          Spawnable::SpacePirateBase => {
+            c.spawn(space_pirate_base(object_pos));
+          }
+          Spawnable::SpaceStation => {
+            c.spawn(space_station(object_pos));
+          }
+          Spawnable::SpacePirate => {
+            c.spawn(space_pirate(object_pos));
+          }
+          Spawnable::AbandonedShip => {
+            println(format!("spawned abandoned ship at {object_pos}"));
+            c.spawn((Interact::Describe,
+                     name("abandoned ship"),
+                     SpaceObjectBundle::new(object_pos,
+                                            2.0,
+                                            false,
+                                            Visuals::sprite(MySprite::SpaceshipAbandoned))));
+          }
+          Spawnable::Asteroid => {
+            c.spawn(asteroid(object_pos));
+          }
+          Spawnable::SpaceCat => {
+            c.spawn(space_cat(object_pos));
+          }
+          Spawnable::IceAsteroid => {
+            c.spawn(ice_asteroid(object_pos));
+          }
+          Spawnable::CrystalAsteroid => {
+            c.spawn(crystal_asteroid(object_pos));
+          }
+          Spawnable::SpaceCop => {
+            c.spawn(space_cop(object_pos));
+          }
+          Spawnable::SpaceWizard => {
+            c.spawn(space_wizard(object_pos));
+          }
+          Spawnable::Nomad => {
+            c.spawn(nomad(object_pos));
+          }
+          Spawnable::AlienSoldier => {
+            c.spawn(alien_soldier(object_pos));
+          }
+          Spawnable::HPBox => {
+            c.spawn(hp_box(object_pos));
+          }
+          Spawnable::SpaceCoin => {
+            c.spawn(space_coin(object_pos));
+          }
+          other => println("tried to spawn {other}")
         }
       }
     }
@@ -1676,9 +2008,16 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
                                  PlanetType::IcePlanet,
                                  PlanetType::HabitablePlanet]).unwrap());
     let zone_pos = sun_pos + (random_normalized_vector() * zone_dist_from_sun);
+
+    let zone_type = pick([ZoneType::SpacePirateAsteroidField,
+                          ZoneType::InvaderAttack,
+                          ZoneType::TradingZone,
+                          ZoneType::AsteroidField,
+                          ZoneType::IceAsteroidField,
+                          ZoneType::SpaceStationZone]).unwrap();
     Zone { zone_radius: 60.0,
            faction_control: None,
-           zone_type: ZoneType::TradingZone,
+           zone_type,
            planet_type }.spawn(&mut c, zone_pos);
   }
 
@@ -1879,6 +2218,7 @@ pub fn main() {
       increment_time,
       timed_animation_system,
       combat,
+      explosion_system,
       player_target_interaction,
       // spawn_missile,
       warp,
