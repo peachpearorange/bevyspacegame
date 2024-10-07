@@ -21,8 +21,6 @@
 pub mod bundletree;
 pub mod ui;
 
-use std::collections::VecDeque;
-
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
@@ -30,14 +28,13 @@ use {avian3d::prelude::*,
             core_pipeline::{bloom::{BloomCompositeMode, BloomPrefilterSettings,
                                     BloomSettings},
                             Skybox},
-            ecs::{entity::EntityHashMap, system::EntityCommands},
+            ecs::entity::EntityHashMap,
             math::{primitives, Vec3},
             pbr::{CubemapVisibleEntities, StandardMaterial},
             prelude::*,
             render::{primitives::CubemapFrusta,
                      render_resource::TextureViewDescriptor,
-                     texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor},
-                     RenderPlugin},
+                     texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor}},
             utils::{HashMap, HashSet},
             window::WindowMode},
      bevy_embedded_assets::*,
@@ -53,8 +50,8 @@ use {avian3d::prelude::*,
      enum_assoc::Assoc,
      fancy_constructor::new,
      rand::{random, thread_rng, Rng},
-     rust_utils::{comment, debug_println, debugfmt, filter, filter_map, find, find_map,
-                  least, map, mapv, println, rev, sort_by_key, sum, take, vec, MutateTrait},
+     rust_utils::{comment, debug_println, debugfmt, filter_map, map, mapv, prettyfmt, println, sort_by_key, sum, take, vec,
+                  MutateTrait},
      ui::{ui_root_thing_in_the_world, Message, UIData, UIMainView}};
 
 comment! {
@@ -88,8 +85,16 @@ pub const BLOOM_SETTINGS: BloomSettings =
 pub enum MySprite {
   #[assoc(path = "white_corners.png")]
   WhiteCorners,
+  #[assoc(path = "spaceman.png")]
+  SpaceMan,
+  #[assoc(path = "wormhole.png")]
+  WormHole,
   #[assoc(path = "gate.png")]
   Gate,
+  #[assoc(path = "crystal_monster.png")]
+  CrystalMonster,
+  #[assoc(path = "container.png")]
+  Container,
   #[assoc(path = "mushroom_man.png")]
   MushroomMan,
   #[assoc(path = "asteroid.png")]
@@ -120,6 +125,8 @@ pub enum MySprite {
   SandPlanet,
   #[assoc(path = "hpbox.png")]
   HPBox,
+  #[assoc(path = "sign.png")]
+  Sign,
   #[assoc(path = "floating_island.png")]
   FloatingIsland,
   #[assoc(path = "spacepiratebase.png")]
@@ -565,7 +572,7 @@ pub fn combat(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
       let target_pos = target_globaltransform.translation();
       let rel = target_pos - missile_transform.translation;
       if rel.length() < missile_hit_range {
-        println("missile hit");
+        // println("missile hit");
         c.entity(missile_entity).despawn_recursive();
         if let Some(mut combat) = ocombat.as_mut() {
           combat.damage(missile_damage);
@@ -608,6 +615,28 @@ fn filter_most<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
                                   coll: impl IntoIterator<Item = T>)
                                   -> Option<T> {
   filter_most_map(|t| f(&t).map(|v| (t, v)), coll)
+}
+const ENEMY_SEE_PLAYER_RANGE: f32 = 100.0;
+fn enemy_shoot_player(mut playerq: Query<(Entity, &Transform), With<Player>>,
+                      mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
+                      mut c: Commands,
+                      time: Res<TimeTicks>,
+                      targetq: Query<(&Transform,)>) {
+  if let Ok((player, player_transform)) = playerq.get_single() {
+    let player_pos = player_transform.translation;
+    let shoot_time_between = 60;
+    let can_see_player = |enemy_entity| {
+      hostileq.get(enemy_entity)
+              .map_or(false, |(_, _, Transform { translation, .. })| {
+                translation.distance(player_pos) < ENEMY_SEE_PLAYER_RANGE
+              })
+    };
+    for (enemy, ishostile, enemy_transform) in &hostileq {
+      if (time.0 % shoot_time_between == 0) && ishostile.0 && can_see_player(enemy) {
+        c.spawn(missile(enemy_transform.translation, player));
+      }
+    }
+  }
 }
 fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
                              mut playerq: Query<(&mut Player, &Transform)>,
@@ -970,7 +999,7 @@ enum Alignment {
   ChaoticNeutral,
   ChaoticEvil
 }
-#[derive(Eq, PartialEq, Clone, Copy, Assoc, Default)]
+#[derive(Eq, PartialEq, Clone, Copy, Assoc, Default, Debug)]
 #[func(pub const fn alignment(&self) -> Alignment)]
 enum Faction {
   #[default]
@@ -1191,6 +1220,18 @@ pub fn mushroom_man(pos: Vec3) -> impl Bundle {
               MySprite::MushroomMan))
 }
 
+pub fn sign(pos: Vec3, text: String) -> impl Bundle {
+  (Interact::Describe,
+   SpaceObjectBundle::new(pos,
+                          1.5,
+                          false,
+                          Visuals::sprite(MySprite::Sign).with_text(text)))
+}
+pub fn wormhole(pos: Vec3) -> impl Bundle {
+  (Interact::Describe,
+   name("wormhole"),
+   SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
+}
 pub fn asteroid(pos: Vec3) -> impl Bundle {
   (Interact::Asteroid,
    CanBeFollowedByNPC,
@@ -1217,6 +1258,13 @@ fn space_cat(pos: Vec3) -> impl Bundle {
               "space cat".to_string(),
               Item::SpaceCat)
 }
+fn space_man(pos: Vec3) -> impl Bundle {
+  loot_object(MySprite::SpaceMan,
+              pos,
+              1.3,
+              "spaceman".to_string(),
+              Item::Person)
+}
 fn space_coin(pos: Vec3) -> impl Bundle {
   loot_object(MySprite::Coin,
               pos,
@@ -1238,13 +1286,18 @@ pub fn crystal_asteroid(pos: Vec3) -> impl Bundle {
               "crystal asteroid",
               Item::Crystal)
 }
+pub fn crystal_monster(pos: Vec3) -> impl Bundle {
+  (name("crystal monster"),
+   // Interact::Item(item_type),
+   SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CrystalMonster)))
+}
 fn container(translation: Vec3,
              contents: impl IntoIterator<Item = (Item, u32)>)
              -> impl Bundle {
   (name("container"),
-   Inventory::from_contents(contents),
-   Interact::Container,
-   SpaceObjectBundle::new(translation, 1.1, true, Visuals::sprite(MySprite::Chest)))
+   // Inventory::from_contents(contents),
+   Interact::Container(vec(contents)),
+   SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
 }
 pub fn hp_box(pos: Vec3) -> impl Bundle {
   (name("hp box"), SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
@@ -1266,6 +1319,11 @@ pub struct Missile {
 pub struct Inventory(HashMap<Item, u32>);
 
 impl Inventory {
+  fn add_contents(&mut self, contents: impl IntoIterator<Item = (Item, u32)>) {
+    for (item, n) in contents {
+      *(self.0.entry(item).or_default()) += n;
+    }
+  }
   fn from_contents(contents: impl IntoIterator<Item = (Item, u32)>) -> Self {
     Self(contents.into_iter().collect())
   }
@@ -1278,6 +1336,8 @@ impl Inventory {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Item {
   SpaceCat,
+  Person,
+  Spice,
   Coffee,
   SpaceCoin,
   Crystal,
@@ -1306,7 +1366,7 @@ enum Interact {
     outputs: (Item, u32)
   },
   Gate,
-  Container
+  Container(Vec<(Item, u32)>)
 }
 
 fn namefmt(oname: Option<&Name>) -> String {
@@ -1351,7 +1411,7 @@ fn interact(mut playerq: Query<(Entity,
       }
       Interact::Item(item) => format!("get a {:#?}", item),
       Interact::Gate => "warp".to_string(),
-      Interact::Container => "take container".to_string()
+      Interact::Container(contents) => "take container".to_string()
     };
     ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
     if keys.just_pressed(KeyCode::Space) {
@@ -1402,10 +1462,10 @@ fn interact(mut playerq: Query<(Entity,
             player_transform.translation = globaltransform.translation();
           }
         }
-        Interact::Container => {
-          // c.entity(interact_entity).despawn_recursive();
-          // ui_data.message_add(format!("you got things"));
-          // *player_inventory.0.entry(item).or_default() += 1;
+        Interact::Container(contents) => {
+          c.entity(interact_entity).despawn_recursive();
+          ui_data.message_add(format!("you got things"));
+          player_inventory.add_contents(contents.clone());
         }
         Interact::Item(item) => todo!(),
         Interact::Trade { inputs, outputs } => todo!()
@@ -1599,12 +1659,19 @@ struct Planet {
   pub population: u32
 }
 
+// trait SpawnableBundle: Bundle {
+//   fn spawnthisthing(self, c: &mut Commands);
+// }
+// impl<B: Bundle> SpawnableBundle for B {
+//   fn spawnthisthing(self, c: &mut Commands) { c.spawn(self); }
+// }
 fn item_in_space(image: MySprite,
                  pos: Vec3,
                  scale: f32,
                  name: impl ToString,
                  item_type: Item)
                  -> impl Bundle {
+  // let j: Box<dyn SpawnableBundle> = Box::new(image.clone());
   (Name::new(name.to_string()),
    Interact::Item(item_type),
    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
@@ -1614,8 +1681,13 @@ fn spawnit<B: Bundle>(c: &mut Commands, b: B) { c.spawn(b); }
 #[derive(Clone, Copy, Assoc)]
 #[func(pub fn spawn(&self,c:&mut Commands,pos:Vec3) -> Option<()>)]
 enum Spawnable {
+  Probabilistic(&'static [(f32, Spawnable)]),
+  TreasureContainer,
   #[assoc(spawn = spawnit(c,space_pirate(pos)))]
   SpacePirate,
+  CrystalMonster,
+  SpaceMan,
+  WormHole,
   #[assoc(spawn = spawnit(c,npc(pos)))]
   NPC,
   #[assoc(spawn = spawnit(c,hp_box(pos)))]
@@ -1695,143 +1767,191 @@ enum Spawnable {
   StarforgeRemnant,
   TemporalLoop
 }
-type SpawnProbs = &'static [(f32, Spawnable)];
-type MultiSpawnProbs = &'static [(f32, SpawnProbs)];
-fn pick_spawnable(multi_spawn_probs: MultiSpawnProbs) -> Option<Spawnable> {
-  for (p1, spawn_probs) in multi_spawn_probs {
-    if prob(*p1) {
-      for (p2, spawnable) in *spawn_probs {
-        if prob(*p2) {
-          return Some(*spawnable);
+impl Spawnable {
+  const fn probs<const N: usize>(probs: &'static [(f32, Spawnable); N]) -> Self {
+    Self::Probabilistic(probs.as_slice())
+  }
+  fn pick(self) -> Option<Self> {
+    match self {
+      Self::Probabilistic(manyprobs) => {
+        for (p, v) in manyprobs.into_iter() {
+          if prob(*p) {
+            return v.pick();
+          }
         }
+        return None;
       }
-      return None;
+      _ => Some(self)
     }
   }
-  return None;
 }
-const NORMAL_ASTEROID_FIELD: SpawnProbs = &[(0.5, Spawnable::Asteroid),
-                                            (0.1, Spawnable::CrystalAsteroid),
-                                            (0.1, Spawnable::IceAsteroid),
-                                            (0.04, Spawnable::FloatingIsland),
-                                            (0.5, Spawnable::SphericalCow),
-                                            (0.1, Spawnable::SpaceCoin),
-                                            (1.0, Spawnable::SpaceCat)];
-const ICY_ASTEROID_FIELD: SpawnProbs = &[(0.3, Spawnable::Asteroid),
-                                         (0.1, Spawnable::CrystalAsteroid),
-                                         (0.5, Spawnable::IceAsteroid),
-                                         (0.04, Spawnable::FloatingIsland),
-                                         (0.5, Spawnable::SphericalCow),
-                                         (0.1, Spawnable::SpaceCoin),
-                                         (1.0, Spawnable::SpaceCat)];
-const NON_HOSTILE_NPCS: SpawnProbs = &[(0.3, Spawnable::NPC),
-                                       (0.3, Spawnable::SpaceWizard),
-                                       (0.4, Spawnable::Nomad),
-                                       (1.0, Spawnable::SpaceCop)];
-const TRADING_ZONE: SpawnProbs = &[(0.4, Spawnable::TradeStation),
-                                   (1.0, Spawnable::AbandonedShip)];
-const COMBAT_ZONE_THINGS: SpawnProbs =
-  &[(0.5, Spawnable::HPBox), (1.0, Spawnable::SpaceCoin)];
-const SPACE_PIRATE_ZONE_THINGS: SpawnProbs = &[(0.6, Spawnable::SpacePirate),
-                                               (1.0, Spawnable::SpacePirateBase)];
-const INVADERS: SpawnProbs = &[(1.0, Spawnable::AlienSoldier)];
+pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
+const NORMAL_ASTEROID_FIELD: Spawnable =
+  Spawnable::probs(&[(0.5, Spawnable::Asteroid),
+                     (0.1, Spawnable::CrystalAsteroid),
+                     (0.1, Spawnable::IceAsteroid),
+                     (0.1, Spawnable::SpaceCoin),
+                     (0.5, Spawnable::CrystalMonster),
+                     (1.0, Spawnable::SpaceCat)]);
+const VARIOUS_ASTEROIDS: Spawnable = Spawnable::probs(&[(0.5, Spawnable::Asteroid),
+                                                        (0.4, Spawnable::CrystalAsteroid),
+                                                        (1.0, Spawnable::IceAsteroid)]);
+const ICE_ASTEROID_FIELD: Spawnable = Spawnable::probs(&[(0.6, Spawnable::IceAsteroid),
+                                                         (0.1, Spawnable::Asteroid),
+                                                         (0.1, Spawnable::CrystalAsteroid),
+                                                         (1.0, Spawnable::AbandonedShip)]);
+const NON_COMBAT_ICE_ASTEROID_FIELD: Spawnable =
+  Spawnable::probs(&[(0.6, ICE_ASTEROID_FIELD),
+                     (0.5, NON_COMBAT_ZONE_THINGS),
+                     (1.0, NON_HOSTILE_NPCS)]);
+const PIRATE_ICE_ASTEROID_FIELD: Spawnable = Spawnable::probs(&[(0.6, ICE_ASTEROID_FIELD),
+                                                                (0.5, COMBAT_ZONE_THINGS),
+                                                                (1.0,
+                                                                 SPACE_PIRATE_ZONE_THINGS)]);
 
-const ANOMALY_ZONE: SpawnProbs = &[(0.5, Spawnable::BlackHole),
-                                   (0.3, Spawnable::WormholePortal),
-                                   (1.0, Spawnable::QuantumAnomaly)];
+const NON_HOSTILE_NPCS: Spawnable = Spawnable::probs(&[(0.3, Spawnable::NPC),
+                                                       (0.3, Spawnable::SpaceWizard),
+                                                       (0.4, Spawnable::Nomad),
+                                                       (1.0, Spawnable::SpaceCop)]);
+const TRADING_ZONE: Spawnable = Spawnable::probs(&[(0.7, Spawnable::TradeStation),
+                                                   (1.0, Spawnable::AbandonedShip)]);
+const COMBAT_ZONE_THINGS: Spawnable = Spawnable::probs(&[(0.5, Spawnable::HPBox),
+                                                         (0.2,
+                                                          Spawnable::TreasureContainer),
+                                                         (0.1, Spawnable::AbandonedShip),
+                                                         (0.3, Spawnable::SpaceMan),
+                                                         (1.0, Spawnable::SpaceCoin)]);
+const NON_COMBAT_ZONE_THINGS: Spawnable =
+  Spawnable::probs(&[(0.1, Spawnable::SpaceCoin),
+                     (0.1, Spawnable::FloatingIsland),
+                     (0.1, Spawnable::SphericalCow),
+                     (0.1, Spawnable::SpaceCat),
+                     (1.0, Spawnable::SpaceCoin)]);
 
-const EXOTIC_LIFE_ZONE: SpawnProbs = &[(0.4, Spawnable::SpaceJellyfish),
-                                       (0.3, Spawnable::SpaceWhale),
-                                       (0.2, Spawnable::AlienArtifact),
-                                       (1.0, Spawnable::SpaceCat)];
+const SPACE_PIRATE_ZONE_THINGS: Spawnable =
+  Spawnable::probs(&[(0.6, Spawnable::SpacePirate),
+                     (0.1, Spawnable::TreasureContainer),
+                     (1.0, Spawnable::SpacePirateBase)]);
+const INVADERS: Spawnable = Spawnable::probs(&[(1.0, Spawnable::AlienSoldier)]);
 
-// New spawn probability sets
-const NEBULA_ZONE: SpawnProbs = &[(1.0, Spawnable::NebulaCloud),
-                                  (0.3, Spawnable::SolarFlare),
-                                  (0.2, Spawnable::SpaceJellyfish),
-                                  (1.0, Spawnable::IonStorm)];
+const ANOMALY_ZONE: Spawnable = Spawnable::probs(&[(0.5, Spawnable::BlackHole),
+                                                   (0.3, Spawnable::WormholePortal),
+                                                   (1.0, Spawnable::QuantumAnomaly)]);
 
-const SALVAGE_ZONE: SpawnProbs = &[(0.7, Spawnable::SpaceDebris),
-                                   (0.4, Spawnable::AbandonedShip),
-                                   (0.3, Spawnable::SalvageYard),
-                                   (1.0, Spawnable::RepairDrone)];
+const EXOTIC_LIFE_ZONE: Spawnable = Spawnable::probs(&[(0.4, Spawnable::SpaceJellyfish),
+                                                       (0.3, Spawnable::SpaceWhale),
+                                                       (0.2, Spawnable::AlienArtifact),
+                                                       (1.0, Spawnable::SpaceCat)]);
 
-const ANCIENT_ZONE: SpawnProbs = &[(0.6, Spawnable::AncientRuins),
-                                   (0.3, Spawnable::AlienArtifact),
-                                   (0.2, Spawnable::DysonSphere),
-                                   (1.0, Spawnable::StarforgeRemnant)];
+// Probs spawn probability sets
+const NEBULA_ZONE: Spawnable = Spawnable::probs(&[(1.0, Spawnable::NebulaCloud),
+                                                  (0.3, Spawnable::SolarFlare),
+                                                  (0.2, Spawnable::SpaceJellyfish),
+                                                  (1.0, Spawnable::IonStorm)]);
 
-const FRONTIER_ZONE: SpawnProbs = &[(0.5, Spawnable::AlienOutpost),
-                                    (0.3, Spawnable::FuelDepot),
-                                    (0.2, Spawnable::SpaceHermit),
-                                    (1.0, Spawnable::BountyHunter)];
+const SALVAGE_ZONE: Spawnable = Spawnable::probs(&[(0.7, Spawnable::SpaceDebris),
+                                                   (0.4, Spawnable::AbandonedShip),
+                                                   (0.3, Spawnable::SalvageYard),
+                                                   (1.0, Spawnable::RepairDrone)]);
 
-const COSMIC_HAZARD_ZONE: SpawnProbs = &[(0.4, Spawnable::GravityWell),
-                                         (0.3, Spawnable::TimeDistortion),
-                                         (0.2, Spawnable::VoidEchoes),
-                                         (1.0, Spawnable::DimensionalRift)];
+const ANCIENT_ZONE: Spawnable = Spawnable::probs(&[(0.6, Spawnable::AncientRuins),
+                                                   (0.3, Spawnable::AlienArtifact),
+                                                   (0.2, Spawnable::DysonSphere),
+                                                   (1.0, Spawnable::StarforgeRemnant)]);
 
-const EXOTIC_ECOSYSTEM: SpawnProbs = &[(0.4, Spawnable::SpaceBarnacle),
-                                       (0.3, Spawnable::CosmicSpore),
-                                       (0.2, Spawnable::SpacePiranhas),
-                                       (1.0, Spawnable::LivingCrystal)];
+const FRONTIER_ZONE: Spawnable = Spawnable::probs(&[(0.5, Spawnable::AlienOutpost),
+                                                    (0.3, Spawnable::FuelDepot),
+                                                    (0.2, Spawnable::SpaceHermit),
+                                                    (1.0, Spawnable::BountyHunter)]);
 
-const HIGH_TECH_ZONE: SpawnProbs = &[(0.4, Spawnable::QuantumComputer),
-                                     (0.3, Spawnable::NanoswarmCloud),
-                                     (0.2, Spawnable::HolographicDecoy),
-                                     (1.0, Spawnable::PsiOrbNetwork)];
+const COSMIC_HAZARD_ZONE: Spawnable = Spawnable::probs(&[(0.4, Spawnable::GravityWell),
+                                                         (0.3, Spawnable::TimeDistortion),
+                                                         (0.2, Spawnable::VoidEchoes),
+                                                         (1.0, Spawnable::DimensionalRift)]);
 
-const COSMIC_PHENOMENON: SpawnProbs = &[(0.3, Spawnable::SpaceMirage),
-                                        (0.3, Spawnable::CosmicStringFragment),
-                                        (0.2, Spawnable::DarkMatterNode),
-                                        (1.0, Spawnable::TachyonField)];
+const EXOTIC_ECOSYSTEM: Spawnable = Spawnable::probs(&[(0.4, Spawnable::SpaceBarnacle),
+                                                       (0.3, Spawnable::CosmicSpore),
+                                                       (0.2, Spawnable::SpacePiranhas),
+                                                       (1.0, Spawnable::LivingCrystal)]);
 
-const MEGAFAUNA_ZONE: SpawnProbs = &[(0.4, Spawnable::AsteroidHatcher),
-                                     (0.3, Spawnable::SpaceLeviathan),
-                                     (0.2, Spawnable::VoidKraken),
-                                     (1.0, Spawnable::CrystallineEntity)];
+const HIGH_TECH_ZONE: Spawnable = Spawnable::probs(&[(0.4, Spawnable::QuantumComputer),
+                                                     (0.3, Spawnable::NanoswarmCloud),
+                                                     (0.2, Spawnable::HolographicDecoy),
+                                                     (1.0, Spawnable::PsiOrbNetwork)]);
 
-#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-#[func(pub fn probs(&self) -> MultiSpawnProbs)]
+const COSMIC_PHENOMENON: Spawnable = Spawnable::probs(&[(0.3, Spawnable::SpaceMirage),
+                                                        (0.3,
+                                                         Spawnable::CosmicStringFragment),
+                                                        (0.2, Spawnable::DarkMatterNode),
+                                                        (1.0, Spawnable::TachyonField)]);
+
+const MEGAFAUNA_ZONE: Spawnable = Spawnable::probs(&[(0.4, Spawnable::AsteroidHatcher),
+                                                     (0.3, Spawnable::SpaceLeviathan),
+                                                     (0.2, Spawnable::VoidKraken),
+                                                     (1.0, Spawnable::CrystallineEntity)]);
+const SPACE_PIRATE_ASTEROID_FIELD: Spawnable =
+  Spawnable::probs(&[(0.5, NORMAL_ASTEROID_FIELD),
+                     (0.2, COMBAT_ZONE_THINGS),
+                     (1.0, SPACE_PIRATE_ZONE_THINGS)]);
+
+// ... (previous code remains unchanged)
+
+const INVADER_ATTACK: Spawnable = Spawnable::probs(&[(0.4, NORMAL_ASTEROID_FIELD),
+                                                     (0.1, COMBAT_ZONE_THINGS),
+                                                     (0.3, NON_HOSTILE_NPCS),
+                                                     (0.2, Spawnable::WormHole),
+                                                     (0.1, Spawnable::SpaceStation),
+                                                     (1.0, INVADERS)]);
+
+const TRADING_ZONE_PROBS: Spawnable = Spawnable::probs(&[(0.2, NORMAL_ASTEROID_FIELD),
+                                                         (0.4, TRADING_ZONE),
+                                                         (1.0, NON_HOSTILE_NPCS)]);
+
+const ASTEROID_FIELD_PROBS: Spawnable = Spawnable::probs(&[(0.4, NORMAL_ASTEROID_FIELD),
+                                                           (0.2, COMBAT_ZONE_THINGS),
+                                                           (1.0, NON_HOSTILE_NPCS)]);
+
+const SPACE_STATION_ZONE_PROBS: Spawnable = Spawnable::probs(&[(0.2,
+                                                                Spawnable::SpaceStation),
+                                                               (0.5, VARIOUS_ASTEROIDS),
+                                                               (0.5, NON_HOSTILE_NPCS),
+                                                               (1.0, TRADING_ZONE)]);
+
+const ANOMALY_CLUSTER_PROBS: Spawnable = Spawnable::probs(&[(1.0, ANOMALY_ZONE),
+                                                            (0.2, COMBAT_ZONE_THINGS),
+                                                            (1.0, EXOTIC_LIFE_ZONE)]);
+
+const EXOTIC_LIFE_ZONE_PROBS: Spawnable = Spawnable::probs(&[(0.8, EXOTIC_LIFE_ZONE),
+                                                             (0.3, NORMAL_ASTEROID_FIELD),
+                                                             (0.1, ANOMALY_ZONE)]);
+
+const MINEFIELD_ZONE_PROBS: Spawnable =
+  Spawnable::probs(&[(0.7, Spawnable::probs(&[(1.0, Spawnable::SpaceMine)])),
+                     (0.5, COMBAT_ZONE_THINGS),
+                     (0.3, SPACE_PIRATE_ZONE_THINGS)]);
+
+#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq, Debug)]
+#[func(pub fn probs(&self) -> Spawnable)]
 pub enum ZoneType {
-  #[assoc(probs = &[(0.5, NORMAL_ASTEROID_FIELD),
-                    (0.2, COMBAT_ZONE_THINGS),
-                    (1.0, SPACE_PIRATE_ZONE_THINGS)])]
+  #[assoc(probs = SPACE_PIRATE_ASTEROID_FIELD)]
   SpacePirateAsteroidField,
-  #[assoc(probs = &[(0.4, NORMAL_ASTEROID_FIELD),
-                    (0.2, COMBAT_ZONE_THINGS),
-                    (0.5, NON_HOSTILE_NPCS),
-                    (1.0, INVADERS)])]
+  #[assoc(probs = INVADER_ATTACK)]
   InvaderAttack,
-  #[assoc(probs = &[(0.2, NORMAL_ASTEROID_FIELD),
-                    (0.4, TRADING_ZONE),
-                    (1.0, NON_HOSTILE_NPCS),])]
+  #[assoc(probs = TRADING_ZONE_PROBS)]
   TradingZone,
-  #[assoc(probs = &[(0.4, NORMAL_ASTEROID_FIELD),
-                    (0.2, COMBAT_ZONE_THINGS),
-                    (1.0, NON_HOSTILE_NPCS),])]
+  #[assoc(probs = ASTEROID_FIELD_PROBS)]
   AsteroidField,
-  #[assoc(probs = &[(0.4, ICY_ASTEROID_FIELD),
-                    (0.20, COMBAT_ZONE_THINGS),
-                    (1.0, NON_HOSTILE_NPCS),])]
+  #[assoc(probs = NON_COMBAT_ICE_ASTEROID_FIELD)]
   IceAsteroidField,
-  #[assoc(probs = &[(0.1, &[(1.0, Spawnable::SpaceStation)]),
-                    (0.5, NON_HOSTILE_NPCS),
-                    (0.2, COMBAT_ZONE_THINGS),
-                    (1.0, TRADING_ZONE),])]
+  #[assoc(probs = PIRATE_ICE_ASTEROID_FIELD)]
+  PirateIceAsteroidField,
+  #[assoc(probs = SPACE_STATION_ZONE_PROBS)]
   SpaceStationZone,
-  //...
-  #[assoc(probs = &[(1.0, ANOMALY_ZONE),
-                    (0.2, COMBAT_ZONE_THINGS),
-                    (1.0, EXOTIC_LIFE_ZONE),])]
+  #[assoc(probs = ANOMALY_CLUSTER_PROBS)]
   AnomalyCluster,
-  #[assoc(probs = &[(0.8, EXOTIC_LIFE_ZONE),
-                    (0.3, NORMAL_ASTEROID_FIELD),
-                    (0.1, ANOMALY_ZONE)])]
+  #[assoc(probs = EXOTIC_LIFE_ZONE_PROBS)]
   ExoticLifeZone,
-  #[assoc(probs = &[(0.7, &[(1.0, Spawnable::SpaceMine)]),
-                    (0.5, COMBAT_ZONE_THINGS),
-                    (0.3, SPACE_PIRATE_ZONE_THINGS)])]
+  #[assoc(probs = MINEFIELD_ZONE_PROBS)]
   MinefieldZone
 }
 fn rangerand(lo: f32, hi: f32) -> f32 { lo.lerp(hi, rand::random::<f32>()) }
@@ -1845,7 +1965,8 @@ fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
 
-#[derive(Component)]
+// SpaceMan,
+#[derive(Component, Debug)]
 pub struct Zone {
   pub faction_control: Option<Faction>,
   pub zone_radius: f32,
@@ -1856,12 +1977,27 @@ pub struct Zone {
 impl Zone {
   fn spawn(&self, mut c: &mut Commands, zone_pos: Vec3) {
     let num_objects = 60;
+    c.spawn(sign(zone_pos, prettyfmt(self)));
     for _ in 0..num_objects {
       let object_pos =
         zone_pos + (random_normalized_vector() * self.zone_radius * rangerand(0.5, 1.0));
       // let spawn_probs = self.spawn_probs();
-      if let Some(spawnable) = pick_spawnable(self.zone_type.probs()) {
+      if let Some(spawnable) = self.zone_type.probs().pick() {
         match spawnable {
+          Spawnable::TreasureContainer => {
+            c.spawn(container(object_pos, [(Item::SpaceCoin, 4), (Item::Coffee, 1)]));
+          }
+          Spawnable::CrystalMonster => {
+            c.spawn((name("crystal monster"),
+                     Interact::Describe,
+                     SpaceObjectBundle::new(object_pos,
+                                            1.7,
+                                            true,
+                                            Visuals::sprite(MySprite::CrystalMonster))));
+          }
+          Spawnable::SpaceMan => {
+            c.spawn(space_man(object_pos));
+          }
           Spawnable::SphericalCow => {
             c.spawn((name("spherical cow"),
                      Interact::Describe,
@@ -1872,13 +2008,21 @@ impl Zone {
           }
 
           Spawnable::TradeStation => {
-            let trade_buy =
-              pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
-            let text = format!("space station\nbuys {:?}", trade_buy);
+            let (trade, text) = if prob(0.5) {
+              let trade_buy =
+                pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
+              (Interact::Trade { inputs: (trade_buy, 1),
+                                 outputs: (Item::SpaceCoin, 5) },
+               format!("space station\nbuys {:?}", trade_buy))
+            } else {
+              let trade_sell = pick([Item::Spice, Item::Coffee, Item::Rock]).unwrap();
+              (Interact::Trade { inputs: (Item::SpaceCoin, 5),
+                                 outputs: (trade_sell, 1) },
+               format!("space station\nsells {:?}", trade_sell))
+            };
             c.spawn((name("space station"),
                        CanBeFollowedByNPC,
-                       Interact::Trade { inputs: (trade_buy, 1),
-                                         outputs: (Item::SpaceCoin, 5) },
+                       trade,
                        SpaceObjectBundle::new(object_pos,
                                               3.0,
                                               false,
@@ -1904,6 +2048,9 @@ impl Zone {
           }
           Spawnable::NPC => {
             c.spawn(npc(object_pos));
+          }
+          Spawnable::WormHole => {
+            c.spawn(wormhole(object_pos));
           }
           Spawnable::SpacePirateBase => {
             c.spawn(space_pirate_base(object_pos));
@@ -1986,7 +2133,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   let sun_pos = Vec3::ZERO;
   let sun_scale = 300.0;
   let zone_dist_from_sun = 2000.0;
-  let num_zones = 5;
+  let num_zones = 8;
   c.spawn(player(Vec3::Y * 1000.0));
   c.spawn((SpaceObjectBundle::new(sun_pos,
                                   sun_scale,
@@ -2001,16 +2148,21 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
                         color: Color::srgb(0.9, 0.8, 0.6),
                         ..default() }));
   for _ in 0..num_zones {
-    let planet_type = Some(pick([PlanetType::SandPlanet,
-                                 PlanetType::BrownGasGiant,
-                                 PlanetType::MarsLikePlanet,
-                                 PlanetType::LavaPlanet,
-                                 PlanetType::IcePlanet,
-                                 PlanetType::HabitablePlanet]).unwrap());
+    let planet_type = if prob(0.6) {
+      Some(pick([PlanetType::SandPlanet,
+                 PlanetType::BrownGasGiant,
+                 PlanetType::MarsLikePlanet,
+                 PlanetType::LavaPlanet,
+                 PlanetType::IcePlanet,
+                 PlanetType::HabitablePlanet]).unwrap())
+    } else {
+      None
+    };
     let zone_pos = sun_pos + (random_normalized_vector() * zone_dist_from_sun);
 
     let zone_type = pick([ZoneType::SpacePirateAsteroidField,
                           ZoneType::InvaderAttack,
+                          ZoneType::PirateIceAsteroidField,
                           ZoneType::TradingZone,
                           ZoneType::AsteroidField,
                           ZoneType::IceAsteroidField,
@@ -2220,6 +2372,7 @@ pub fn main() {
       combat,
       explosion_system,
       player_target_interaction,
+      enemy_shoot_player,
       // spawn_missile,
       warp,
       ui,
