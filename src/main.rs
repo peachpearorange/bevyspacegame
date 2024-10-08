@@ -21,6 +21,8 @@
 pub mod bundletree;
 pub mod ui;
 
+use std::f32::consts::PI;
+
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
@@ -29,7 +31,7 @@ use {avian3d::prelude::*,
                                     BloomSettings},
                             Skybox},
             ecs::entity::EntityHashMap,
-            math::{primitives, Vec3},
+            math::{primitives, vec3, Vec3},
             pbr::{CubemapVisibleEntities, StandardMaterial},
             prelude::*,
             render::{primitives::CubemapFrusta,
@@ -50,8 +52,8 @@ use {avian3d::prelude::*,
      enum_assoc::Assoc,
      fancy_constructor::new,
      rand::{random, thread_rng, Rng},
-     rust_utils::{comment, debug_println, debugfmt, filter_map, map, mapv, prettyfmt, println, sort_by_key, sum, take, vec,
-                  MutateTrait},
+     rust_utils::{comment, debug_println, debugfmt, filter, filter_map, map, mapv,
+                  prettyfmt, println, sort_by_key, sum, take, vec, MutateTrait},
      ui::{ui_root_thing_in_the_world, Message, UIData, UIMainView}};
 
 comment! {
@@ -305,6 +307,8 @@ pub enum MyScene {
 pub enum GenMesh {
   #[assoc(gen = Cuboid::new(1.0, 1.0, 1.0).into())]
   UnitCube,
+  #[assoc(gen = primitives::Cylinder::new(1.0, 1.0).into())]
+  UnitCylinder,
   #[assoc(gen = Cuboid::new(0.7, 0.7, 0.7).into())]
   Cube,
   #[assoc(gen = Cuboid::new(2.0, 1.0, 1.0).into())]
@@ -343,10 +347,17 @@ impl Visuals {
     Self { sprite: Some(sprite),
            ..default() }
   }
-  fn material_sphere(material: MyMaterial) -> Self {
-    Self { material_mesh: Some((material, GenMesh::Sphere)),
+  fn material_mesh(material: MyMaterial, mesh: GenMesh) -> Self {
+    Self { material_mesh: Some((material, mesh)),
            ..default() }
   }
+  fn material_sphere(material: MyMaterial) -> Self {
+    Self::material_mesh(material, GenMesh::Sphere)
+  }
+  // fn material_sphere(material: MyMaterial) -> Self {
+  //   Self { material_mesh: Some((material, GenMesh::Sphere)),
+  //          ..default() }
+  // }
   fn with_text(self, text: impl ToString) -> Self {
     Self { text: Some(text.to_string()),
            ..self }
@@ -487,7 +498,8 @@ pub struct PlayerTargetInteractionState {
 
 #[derive(Component, Clone, Debug, Default)]
 pub struct Player {
-  pub target_interaction_state: Option<PlayerTargetInteractionState>
+  pub target_interaction_state: Option<PlayerTargetInteractionState>,
+  pub object_interaction_minigame_state: Option<ObjectInteractionMiniGameState>
 }
 
 impl Player {
@@ -507,17 +519,105 @@ impl Player {
   }
 }
 
-pub fn spawn_missile(playerq: Query<(&Transform, &Player)>,
-                     // targetq: Query<(Entity, &GlobalTransform)>,
-                     // time: Res<TimeTicks>,
-                     keyboard_input: Res<ButtonInput<KeyCode>>,
-                     mut c: Commands) {
-  if let Ok((player_transform, player)) = playerq.get_single()
-     && keyboard_input.just_pressed(KeyCode::KeyF)
-     && let Some(target) = player.target()
+#[derive(Component)]
+pub struct IsHostile(pub bool);
+
+// pub fn spawn_laser_system(
+//     shooterq: Query<(Entity, &Transform), With<LaserShooter>>,
+//     targetq: Query<Entity, With<Combat>>,
+//     time: Res<TimeTicks>,
+//     mut c: Commands,
+// ) {
+//     if time.0 % LASER_COOLDOWN_TICKS == 0 {
+//         for (shooter_entity, _) in &shooterq {
+//             if let Some(target) = targetq.iter().next() { // For simplicity, targeting the first combat entity
+//                 c.spawn(laser_visual(shooter_entity, target, time.0));
+//             }
+//         }
+//     }
+// }
+
+#[derive(Component)]
+pub struct Laser {
+  target: Entity,
+  start_time: u32,
+  shooter: Entity
+}
+
+#[derive(Component)]
+pub struct LaserShooter;
+
+fn laser_visual(shooter: Entity, target: Entity, start_time: u32) -> impl Bundle {
+  (
+    Laser {
+      target,
+      start_time,
+      shooter,
+    },
+    Visuals::material_mesh(MyMaterial::ExplosionMaterial,GenMesh::Sphere),
+    SpatialBundle::default(), // We'll set the transform in the system
+  )
+}
+
+const LASER_DURATION_TICKS: u32 = 78;
+const LASER_DAMAGE: u32 = 10;
+pub fn laser_system(mut laserq: Query<(Entity, &Laser, &mut Transform)>,
+                    transformq: Query<&Transform, Without<Laser>>,
+                    combatw: Query<Option<&mut Combat>, Without<Laser>>,
+                    // mut targetq: Query<(&Transform, Option<&mut Combat>)>,
+                    time: Res<TimeTicks>,
+                    mut c: Commands) {
+  for (laser_entity,
+       &Laser { target,
+                start_time,
+                shooter },
+       mut laser_transform) in &mut laserq
   {
-    c.spawn(missile(player_transform.translation, target));
+    if let (Ok(shooter_transform), Ok((target_transform))) =
+      (transformq.get(shooter), transformq.get(target))
+    {
+      let start_pos = shooter_transform.translation;
+      let target_pos = target_transform.translation;
+      let distance = start_pos.distance(target_pos);
+      let center_pos = (start_pos + target_pos) * 0.5;
+      let max_laser_radius = 0.18;
+      let laser_age = time.0 - start_time;
+      let laser_radius =
+        max_laser_radius
+        * f32::sin(PI * laser_age as f32 / LASER_DURATION_TICKS as f32).powf(0.4);
+
+      // Calculate the direction vector from shooter to target
+      let direction = (target_pos - start_pos).normalize_or_zero();
+
+      // Calculate the rotation to align the cylinder with the direction
+      // let rotation = Quat::from_rotation_arc(Vec3::Y, direction);
+
+      *laser_transform =
+        Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
+                                               // .with_rotation(rotation)
+                                               .with_scale(vec3(laser_radius,
+                                                                laser_radius,
+                                                                distance * 0.5));
+    }
+
+    // Despawn laser after duration
+    if time.0 > start_time + LASER_DURATION_TICKS {
+      c.entity(laser_entity).despawn_recursive();
+    }
   }
+}
+#[derive(Component)]
+pub struct Missile {
+  target: Entity,
+  damage: u32
+}
+fn missile(translation: Vec3, target: Entity, damage: u32) -> impl Bundle {
+  (Missile { target,damage},
+   Navigation::new(130.0),
+   Visuals::material_sphere(MyMaterial::GlowyMaterial3),
+   SpatialBundle::from_transform(Transform::from_scale(Vec3::splat(0.2))
+                                 .with_translation(translation)),
+  )
 }
 
 pub const EXPLOSION_TIME_TICKS: u32 = 50;
@@ -525,7 +625,7 @@ pub const EXPLOSION_TIME_TICKS: u32 = 50;
 pub struct Explosion {
   pub init_time: u32
 }
-pub fn explosion(pos: Vec3, scale: f32, init_time: u32) -> impl Bundle {
+pub fn explosion_visual(pos: Vec3, scale: f32, init_time: u32) -> impl Bundle {
   (
     Explosion{init_time},
     Visuals::material_sphere(MyMaterial::ExplosionMaterial),
@@ -546,26 +646,21 @@ pub fn explosion_system(mut explosionq: Query<(Entity, &mut Explosion, &mut Tran
     }
   }
 }
-#[derive(Component, Default)]
-pub struct Combat {
-  pub hp: u32
-}
 impl Combat {
   fn damage(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
   fn hp_depleted(&self) -> bool { self.hp == 0 }
+  fn decrease_hp(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
+  fn increase_hp(&mut self, n: u32) { self.hp += n; }
 }
-#[derive(Component)]
-pub struct IsHostile(pub bool);
-pub fn combat(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
-              mut targetq: Query<(&GlobalTransform, Option<&mut Combat>)>,
-              time: Res<TimeTicks>,
-              keyboard_input: Res<ButtonInput<KeyCode>>,
-              mut c: Commands) {
-  let missile_damage = 10;
-  let missile_speed = 6.0;
-  let missile_hit_range = missile_speed * 1.2;
+const MISSILE_SPEED: f32 = 1.8;
+pub fn missile_movement(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
+                        mut targetq: Query<(&GlobalTransform, Option<&mut Combat>)>,
+                        time: Res<TimeTicks>,
+                        keyboard_input: Res<ButtonInput<KeyCode>>,
+                        mut c: Commands) {
+  let missile_hit_range = MISSILE_SPEED * 1.2;
   let missile_chase_condition = |target| true;
-  for (missile_entity, mut missile_transform, &Missile { target }) in &mut missileq {
+  for (missile_entity, mut missile_transform, &Missile { target, damage }) in &mut missileq {
     if let Ok((target_globaltransform, mut ocombat)) = targetq.get_mut(target)
        && missile_chase_condition(target)
     {
@@ -575,17 +670,139 @@ pub fn combat(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
         // println("missile hit");
         c.entity(missile_entity).despawn_recursive();
         if let Some(mut combat) = ocombat.as_mut() {
-          combat.damage(missile_damage);
-          if combat.hp_depleted() {
-            c.entity(target).despawn_recursive();
-            c.spawn(explosion(target_pos, 2.0, time.0));
-          }
+          combat.damage(damage);
+          // if combat.hp_depleted() {
+          //   c.entity(target).despawn_recursive();
+          //   c.spawn(explosion_visual(target_pos, 2.0, time.0));
+          // }
         }
       } else {
-        missile_transform.translation += rel.normalize_or_zero() * missile_speed;
+        missile_transform.translation += rel.normalize_or_zero() * MISSILE_SPEED;
       }
     } else {
       c.entity(missile_entity).despawn_recursive();
+    }
+  }
+}
+
+enum PlayerCombatAction {
+  None,
+  ShootNearest,
+  ShootTargeted
+}
+#[derive(Clone, Copy)]
+enum TargetedAbility {
+  FireLaser(u32),
+  FireMissile(u32),
+  HealOther(u32)
+}
+#[derive(Clone, Copy)]
+enum NonTargetedAbility {
+  HealSelf(u32)
+}
+enum CombatEffect {
+  Damage(u32),
+  Heal(u32)
+}
+#[derive(Component, Default, Clone, Copy)]
+pub struct Combat {
+  pub hp: u32,
+  pub is_hostile: bool
+}
+#[derive(Clone, Copy, Default)]
+enum CombatAction {
+  #[default]
+  None,
+  Targeted(TargetedAbility, Entity),
+  NonTargeted(NonTargetedAbility)
+}
+const COMBAT_INTERVAL_TICKS: u32 = 380;
+const COMBAT_RANGE: f32 = 150.0;
+
+pub fn combat_system(mut c: Commands,
+                     time: Res<TimeTicks>,
+                     mut combat_query: Query<(Entity,
+                            &Transform,
+                            &mut Combat,
+                            Option<&IsHostile>)>,
+                     player_query: Query<(Entity, &Transform, &Player)> // spatial_query: Query<(Entity, &Transform, &Combat)>
+) {
+  // let divides = |a,b| time.0 % COMBAT_INTERVAL_TICKS != 0
+  if time.0 % COMBAT_INTERVAL_TICKS != 0 {
+    if time.0 % (COMBAT_INTERVAL_TICKS / 2) == 0 {
+      for (entity, transform, mut combat, _) in &mut combat_query {
+        if combat.hp_depleted() {
+          c.spawn(explosion_visual(transform.translation, 2.0, time.0));
+          c.entity(entity).despawn_recursive();
+        }
+      }
+    }
+    return;
+  }
+
+  if let Ok((player_entity, player_transform, player)) = player_query.get_single() {
+    let player_pos = player_transform.translation;
+    let player_action =
+      player.target().map_or(CombatAction::None, |target| {
+                       CombatAction::Targeted(TargetedAbility::FireLaser(10), target)
+                     });
+    let active_combatants: Vec<_> = combat_query.iter()
+                                                .filter_map(|(e, transform, _, _)| {
+                                                  (transform.translation.distance(player_pos)
+                                           < COMBAT_RANGE)
+                                                          .then_some((e,
+                                                                      transform.translation))
+                                                })
+                                                .collect();
+    let choose_action = |e: Entity, combat: Combat| {
+      if e == player_entity {
+        player_action
+      } else if combat.is_hostile {
+        if prob(0.5) {
+          CombatAction::Targeted(TargetedAbility::FireLaser(5), player_entity)
+        } else {
+          CombatAction::Targeted(TargetedAbility::FireMissile(5), player_entity)
+        }
+      } else {
+        CombatAction::None
+      }
+    };
+    for (self_entity, self_pos) in active_combatants {
+      // println("aaaa");
+      if let Ok((_, _, &self_combat, _)) = combat_query.get(self_entity) {
+        let self_action = choose_action(self_entity, self_combat);
+        match self_action {
+          CombatAction::None => {}
+          CombatAction::Targeted(targeted_ability, target) => {
+            // println("cccc");
+            if let Ok((_, _, mut target_combat, _)) = combat_query.get_mut(target) {
+              match targeted_ability {
+                TargetedAbility::FireLaser(n) => {
+                  // println("cccc");
+                  target_combat.decrease_hp(n);
+                  c.spawn(laser_visual(self_entity, target, time.0));
+                }
+                TargetedAbility::FireMissile(n) => {
+                  c.spawn(missile(self_pos, target, n));
+                }
+                TargetedAbility::HealOther(n) => {
+                  target_combat.increase_hp(n);
+                }
+              }
+            }
+          }
+          CombatAction::NonTargeted(non_targeted_ability) => {
+            // println("kkkkk");
+            if let Ok((_, _, mut self_combat, _)) = combat_query.get_mut(self_entity) {
+              match non_targeted_ability {
+                NonTargetedAbility::HealSelf(n) => {
+                  self_combat.increase_hp(n);
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -633,20 +850,20 @@ fn enemy_shoot_player(mut playerq: Query<(Entity, &Transform), With<Player>>,
     };
     for (enemy, ishostile, enemy_transform) in &hostileq {
       if (time.0 % shoot_time_between == 0) && ishostile.0 && can_see_player(enemy) {
-        c.spawn(missile(enemy_transform.translation, player));
+        c.spawn(missile(enemy_transform.translation, player, 10));
       }
     }
   }
 }
 fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
-                             mut playerq: Query<(&mut Player, &Transform)>,
+                             mut playerq: Query<(Entity, &mut Player, &Transform)>,
                              mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
                              mut c: Commands,
                              time: Res<TimeTicks>,
                              targetq: Query<(&Transform,)>) {
   let shoot_time_between = 60;
   let can_see_target = |e| true;
-  if let Ok((mut player, player_transform)) = playerq.get_single_mut() {
+  if let Ok((player_entity, mut player, player_transform)) = playerq.get_single_mut() {
     let player_pos = player_transform.translation;
 
     if keys.just_pressed(KeyCode::KeyT) {
@@ -672,10 +889,13 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
         state.approaching.update(std::ops::Not::not);
       }
       if keys.just_pressed(KeyCode::KeyF) {
-        c.spawn(missile(player_pos, state.target));
+        c.spawn(missile(player_pos, state.target, 10));
+      }
+      if keys.just_pressed(KeyCode::KeyL) {
+        c.spawn(laser_visual(player_entity, state.target, time.0));
       }
       if state.shooting && (time.0 % shoot_time_between == 0) {
-        c.spawn(missile(player_pos, state.target));
+        c.spawn(missile(player_pos, state.target, 10));
       }
       if keys.just_pressed(KeyCode::KeyX) {
         player.untarget();
@@ -685,6 +905,7 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
     }
   }
 }
+
 #[derive(Component, Default)]
 pub struct Container(pub HashSet<Entity>);
 impl Container {
@@ -850,10 +1071,13 @@ fn navigation(mut navigators_q: Query<(&Navigation,
     }
   }
 }
-const PLAYER_FORCE: f32 = 130.0;
+const PLAYER_FORCE: f32 = 170.0;
 const PLAYER_SCALE: f32 = 1.2;
 fn player(translation: Vec3) -> impl Bundle {
   (Player::default(),
+   name("You"),
+   Combat { hp: 400,
+            is_hostile: false },
    Inventory::default(),
    Navigation::new(PLAYER_FORCE),
    CanBeFollowedByNPC,
@@ -1107,7 +1331,24 @@ pub fn scaled_npc(pos: Vec3,
    Navigation::new(thrust),
    NPC { follow_target: None,
          faction },
-   Combat { hp },
+   Combat { hp,
+            is_hostile: false },
+   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+}
+pub fn scaled_enemy(pos: Vec3,
+                    scale: f32,
+                    name: &'static str,
+                    thrust: f32,
+                    faction: Faction,
+                    hp: u32,
+                    sprite: MySprite)
+                    -> impl Bundle {
+  (Name::new(name),
+   Navigation::new(thrust),
+   NPC { follow_target: None,
+         faction },
+   Combat { hp,
+            is_hostile: true },
    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
 }
 const NORMAL_NPC_SCALE: f32 = 1.9;
@@ -1123,22 +1364,24 @@ pub fn normal_sized_npc(pos: Vec3,
 }
 pub fn space_pirate(pos: Vec3) -> impl Bundle {
   (IsHostile(true),
-   scaled_npc(pos,
-              NORMAL_NPC_SCALE,
-              "space pirate",
-              NORMAL_NPC_THRUST,
-              Faction::SpacePirates,
-              50,
-              MySprite::SpaceshipRed))
+   scaled_enemy(pos,
+                NORMAL_NPC_SCALE,
+                "space pirate",
+                NORMAL_NPC_THRUST,
+                Faction::SpacePirates,
+                50,
+                MySprite::SpaceshipRed))
 }
 pub fn space_pirate_base(pos: Vec3) -> impl Bundle {
-  (Combat { hp: 120 },
+  (Combat { hp: 120,
+            is_hostile: false },
    Interact::Describe,
    name("space pirate base"),
    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
 }
 pub fn space_station(pos: Vec3) -> impl Bundle {
-  (Combat { hp: 120 },
+  (Combat { hp: 120,
+            is_hostile: false },
    Interact::Describe,
    name("space station"),
    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
@@ -1181,24 +1424,24 @@ pub fn nomad(pos: Vec3) -> impl Bundle {
 }
 pub fn alien_soldier(pos: Vec3) -> impl Bundle {
   (IsHostile(true),
-   scaled_npc(pos,
-              NORMAL_NPC_SCALE,
-              "alien soldier",
-              NORMAL_NPC_THRUST,
-              Faction::Invaders,
-              80,
-              MySprite::PurpleEnemyShip))
+   scaled_enemy(pos,
+                NORMAL_NPC_SCALE,
+                "alien soldier",
+                NORMAL_NPC_THRUST,
+                Faction::Invaders,
+                80,
+                MySprite::PurpleEnemyShip))
 }
 pub fn enemy(pos: Vec3) -> impl Bundle {
   (Enemy,
    Combat::default(),
-   scaled_npc(pos,
-              NORMAL_NPC_SCALE,
-              "enemy",
-              NORMAL_NPC_THRUST,
-              Faction::default(),
-              50,
-              MySprite::PurpleEnemyShip))
+   scaled_enemy(pos,
+                NORMAL_NPC_SCALE,
+                "enemy",
+                NORMAL_NPC_THRUST,
+                Faction::default(),
+                50,
+                MySprite::PurpleEnemyShip))
 }
 pub fn npc(pos: Vec3) -> impl Bundle {
   scaled_npc(pos,
@@ -1300,19 +1543,9 @@ fn container(translation: Vec3,
    SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
 }
 pub fn hp_box(pos: Vec3) -> impl Bundle {
-  (name("hp box"), SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
-}
-fn missile(translation: Vec3, target: Entity) -> impl Bundle {
-  (Missile { target},
-   Navigation::new(130.0),
-   Visuals::material_sphere(MyMaterial::GlowyMaterial3),
-   SpatialBundle::from_transform(Transform::from_scale(Vec3::splat(0.2))
-                                 .with_translation(translation)),
-  )
-}
-#[derive(Component)]
-pub struct Missile {
-  target: Entity
+  (name("hp box"),
+   Interact::HPBox,
+   SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
 }
 
 #[derive(Component, Clone, Debug, Default)]
@@ -1355,10 +1588,14 @@ pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
 #[derive(Component, Debug)]
 enum Interact {
+  // SpaceStation,
+  // WarpGate,
+  // Salvage,
   Message(String),
   // SpaceCat,
   // SpaceStation,
   Asteroid,
+  HPBox,
   Describe,
   Item(Item),
   Trade {
@@ -1375,11 +1612,28 @@ fn namefmt(oname: Option<&Name>) -> String {
     None => "unnamed entity".to_string()
   }
 }
+#[derive(Component, Clone, Debug)]
+enum ObjectInteractionMiniGameState {
+  SpaceStation,
+  WarpGate,
+  Salvage
+}
+fn object_interaction_minigame(mut playerq: Query<(Entity,
+                                      &mut Transform,
+                                      &GlobalTransform,
+                                      &mut Inventory),
+                                     With<Player>>,
+                               interactable_q: Query<(Entity,
+                                      &Transform,
+                                      &Interact,
+                                      Option<&Name>),
+                                     Without<Player>>,
+                               mut c: Commands,
+                               keys: Res<ButtonInput<KeyCode>>,
+                               mut ui_data: ResMut<UIData>) {
+}
 const INTERACTION_RANGE: f32 = 8.0;
-fn interact(mut playerq: Query<(Entity,
-                   &mut Transform,
-                   &GlobalTransform,
-                   &mut Inventory),
+fn interact(mut playerq: Query<(Entity, &mut Transform, &mut Combat, &mut Inventory),
                   With<Player>>,
             interactable_q: Query<(Entity, &Transform, &Interact, Option<&Name>),
                   Without<Player>>,
@@ -1387,9 +1641,9 @@ fn interact(mut playerq: Query<(Entity,
             mut c: Commands,
             keys: Res<ButtonInput<KeyCode>>,
             mut ui_data: ResMut<UIData>) {
-  if let Ok((player, mut player_transform, player_globaltransform, mut player_inventory)) =
+  if let Ok((player, mut player_transform, mut player_combat, mut player_inventory)) =
     playerq.get_single_mut()
-     && let player_pos = player_globaltransform.translation()
+     && let player_pos = player_transform.translation
      && let closest_interactable_thing =
        filter_least(|tup| {
                       let dist = tup.1.translation.distance(player_pos);
@@ -1411,7 +1665,8 @@ fn interact(mut playerq: Query<(Entity,
       }
       Interact::Item(item) => format!("get a {:#?}", item),
       Interact::Gate => "warp".to_string(),
-      Interact::Container(contents) => "take container".to_string()
+      Interact::Container(contents) => "take container".to_string(),
+      Interact::HPBox => "get hp".to_string()
     };
     ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
     if keys.just_pressed(KeyCode::Space) {
@@ -1439,28 +1694,30 @@ fn interact(mut playerq: Query<(Entity,
         // }
         &Interact::Trade { inputs: (input_item, input_number),
                            outputs: (output_item, output_number) } => {
-          match player_inventory.0.get_mut(&input_item) {
-            Some(mut n) if *n >= input_number => {
-              *n -= input_number;
-              *player_inventory.0.entry(output_item).or_default() += output_number;
-              ui_data.message_add(format!("you traded {:?} {:?} for {:?} {:?}s ",
-                                          input_number,
-                                          input_item,
-                                          output_number,
-                                          output_item));
-            }
-            _ => ui_data.message_add("you don't have the items")
+          if let Some(mut n) = player_inventory.0.get_mut(&input_item)
+             && *n >= input_number
+          {
+            *n -= input_number;
+            *player_inventory.0.entry(output_item).or_default() += output_number;
+            ui_data.message_add(format!("you traded {:?} {:?} for {:?} {:?}s ",
+                                        input_number,
+                                        input_item,
+                                        output_number,
+                                        output_item));
+          } else {
+            ui_data.message_add("you don't have the items")
           }
-        }
-        &Interact::Item(item) => {
-          c.entity(interact_entity).despawn_recursive();
-          ui_data.message_add(format!("you got a {:#?}", item));
-          *player_inventory.0.entry(item).or_default() += 1;
         }
         Interact::Gate => {
           if let Some((globaltransform, gate)) = pick(&gate_q) {
             player_transform.translation = globaltransform.translation();
           }
+        }
+        &Interact::Item(item) => {
+          player_inventory.add_contents([(item, 1)]);
+          c.entity(interact_entity).despawn_recursive();
+          ui_data.message_add(format!("you got a {:#?}", item));
+          // *player_inventory.0.entry(item).or_default() += 1;
         }
         Interact::Container(contents) => {
           c.entity(interact_entity).despawn_recursive();
@@ -1468,7 +1725,11 @@ fn interact(mut playerq: Query<(Entity,
           player_inventory.add_contents(contents.clone());
         }
         Interact::Item(item) => todo!(),
-        Interact::Trade { inputs, outputs } => todo!()
+        Interact::Trade { inputs, outputs } => todo!(),
+        Interact::HPBox => {
+          c.entity(interact_entity).despawn_recursive();
+          player_combat.increase_hp(50);
+        }
       }
     }
   } else {
@@ -1497,7 +1758,7 @@ fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
 const MESSAGE_SHOW_TIME_TICKS: u32 = 600;
 fn ui(mut c: Commands,
       camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
-      playerq: Query<(Entity, &Player, &GlobalTransform, &Inventory)>,
+      playerq: Query<(Entity, &Player, &GlobalTransform, &Combat, &Inventory)>,
       target_q: Query<(Entity,
              &Transform,
              &SpaceObject,
@@ -1518,8 +1779,8 @@ fn ui(mut c: Commands,
     ocombat: Option<&'t Combat>,
     oplanet: Option<&'t Planet>
   }
-  if let (Ok((_, player, player_globaltransform, player_inventory)), Ok((camera, _))) =
-    (playerq.get_single(), camq.get_single())
+  if let (Ok((_, player, player_globaltransform, player_combat, player_inventory)),
+          Ok((camera, _))) = (playerq.get_single(), camq.get_single())
   {
     let player_pos = player_globaltransform.translation();
     let get_target_data = |e: Entity| {
@@ -1540,12 +1801,28 @@ fn ui(mut c: Commands,
                    })
               .ok()
     };
-    let overview_max_len = 15;
+    // let overview_max_len = 15;
+    // let overview_data =
+    //   mapv(|TargetData { distance, name, .. }| format!("{name} d.:{:.1}", distance),
+    //        take(overview_max_len,
+    //             sort_by_key(|TargetData { distance, .. }| *distance as u32,
+    //                         filter_map(|tup| get_target_data(tup.0), &target_q))));
     let overview_data =
-      mapv(|TargetData { distance, name, .. }| format!("{name} d.:{:.1}", distance),
-           take(overview_max_len,
-                sort_by_key(|TargetData { distance, .. }| *distance as u32,
-                            filter_map(|tup| get_target_data(tup.0), &target_q))));
+      mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
+           sort_by_key(|(_, _, distance)| *distance as u32,
+                       filter_map(|tup| match get_target_data(tup.0) {
+                                    Some(TargetData { distance,
+                                                      name,
+                                                      ocombat:
+                                                        Some(Combat { hp, is_hostile:true }),
+                                                      .. })
+                                      if distance < COMBAT_RANGE =>
+                                    {
+                                      Some((name, hp, distance))
+                                    }
+                                    _ => None
+                                  },
+                                  &target_q)));
     let target_data = if let Some(player_target) = player.target()
                          && let Some(TargetData { distance,
                                                   name,
@@ -1558,25 +1835,26 @@ fn ui(mut c: Commands,
                   oplanet.map(rust_utils::prettyfmt),
                   ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
                   Some(format!("Distance: {:.1}", distance)),
-                  Some("approach: q".to_string()),
-                  Some("shoot: f".to_string()),
-                  Some("toggle shoot: r".to_string()),
-                  Some("untarget: x".to_string())]).collect()
+                  Some("q: approach".to_string()),
+                  Some("f: shoot missile".to_string()),
+                  Some("l: shoot laser".to_string()),
+                  Some("r: toggle shoot".to_string()),
+                  Some("x: untarget".to_string())]).collect()
     } else {
       default()
     };
     let player_inventory = player_inventory.clone();
     let infobox_data =
-      map(ToString::to_string, [format!("{:.1}", player_pos).as_str(),
-                                "w,a,s,d,shift,ctrl: move",
-                                "z: spawn mushroom man",
-                                "t: target nearest hostile",
-                                "g: warp",
-                                "you have:"]).chain(map(|(item, n)| {
-                                                          format!("{} {:?}s", n, item)
-                                                        },
-                                                        player_inventory.0.clone()))
-                                             .collect();
+      map(ToString::to_string,
+          [format!("{:.1}", player_pos).as_str(),
+           format!("hp: {}", player_combat.hp).as_str(),
+           "w,a,s,d,shift,ctrl: move",
+           "z: spawn mushroom man",
+           "t: target nearest hostile",
+           "g: warp",
+           "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
+                                   player_inventory.0.clone()))
+                        .collect();
 
     let current_time = time.0;
     let current_time_ticks = current_time;
@@ -2369,10 +2647,12 @@ pub fn main() {
       camera_follow_player,
       increment_time,
       timed_animation_system,
-      combat,
+      missile_movement,
+      laser_system,
       explosion_system,
       player_target_interaction,
-      enemy_shoot_player,
+      // enemy_shoot_player,
+      combat_system,
       // spawn_missile,
       warp,
       ui,
