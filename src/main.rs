@@ -68,6 +68,7 @@ pub const GLOWY_COLOR: Color = Color::srgb(13.99, 11.32, 50.0);
 pub const GLOWY_COLOR_2: Color = Color::srgb(30.0, 20.7, 10.5);
 pub const GLOWY_COLOR_3: Color = Color::srgb(0.0, 30.0, 0.0);
 pub const EXPLOSION_COLOR: Color = Color::srgb(8.0, 3.0, 3.0);
+pub const LASER_COLOR: Color = Color::srgb(5.0, 5.0, 0.0);
 
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
@@ -255,6 +256,10 @@ pub enum MyMaterial {
                                    alpha_mode: AlphaMode::Mask(0.0001),
                                    ..EXPLOSION_COLOR.into() })]
   ExplosionMaterial,
+  #[assoc(val = StandardMaterial { unlit: true,
+                                   alpha_mode: AlphaMode::Mask(0.0001),
+                                   ..LASER_COLOR.into() })]
+  LaserMaterial,
   #[assoc(val = StandardMaterial::from(Color::srgb(0.2, 0.7, 0.9)))]
   ParticleMaterial,
   #[assoc(val = StandardMaterial { unlit: true,
@@ -573,6 +578,7 @@ pub fn laser_system(mut laserq: Query<(Entity, &Laser, &mut Transform)>,
                 shooter },
        mut laser_transform) in &mut laserq
   {
+    let laser_age = time.0 - start_time;
     if let (Ok(shooter_transform), Ok((target_transform))) =
       (transformq.get(shooter), transformq.get(target))
     {
@@ -581,27 +587,17 @@ pub fn laser_system(mut laserq: Query<(Entity, &Laser, &mut Transform)>,
       let distance = start_pos.distance(target_pos);
       let center_pos = (start_pos + target_pos) * 0.5;
       let max_laser_radius = 0.18;
-      let laser_age = time.0 - start_time;
       let laser_radius =
         max_laser_radius
         * f32::sin(PI * laser_age as f32 / LASER_DURATION_TICKS as f32).powf(0.4);
 
-      // Calculate the direction vector from shooter to target
-      let direction = (target_pos - start_pos).normalize_or_zero();
-
-      // Calculate the rotation to align the cylinder with the direction
-      // let rotation = Quat::from_rotation_arc(Vec3::Y, direction);
-
       *laser_transform =
         Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
-                                               // .with_rotation(rotation)
                                                .with_scale(vec3(laser_radius,
                                                                 laser_radius,
                                                                 distance * 0.5));
     }
-
-    // Despawn laser after duration
-    if time.0 > start_time + LASER_DURATION_TICKS {
+    if laser_age > LASER_DURATION_TICKS {
       c.entity(laser_entity).despawn_recursive();
     }
   }
@@ -1814,7 +1810,9 @@ fn ui(mut c: Commands,
                                     Some(TargetData { distance,
                                                       name,
                                                       ocombat:
-                                                        Some(Combat { hp, is_hostile:true }),
+                                                        Some(Combat { hp,
+                                                                      is_hostile:
+                                                                        true }),
                                                       .. })
                                       if distance < COMBAT_RANGE =>
                                     {
