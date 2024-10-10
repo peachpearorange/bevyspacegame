@@ -21,16 +21,18 @@
 pub mod bundletree;
 pub mod ui;
 
-use std::f32::consts::PI;
+use std::{any::Any, f32::consts::PI};
 
 pub use bevy::prelude::Name;
-use {avian3d::prelude::*,
+
+use {anymap::AnyMap,
+     avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
             core_pipeline::{bloom::{BloomCompositeMode, BloomPrefilterSettings,
                                     BloomSettings},
                             Skybox},
-            ecs::entity::EntityHashMap,
+            ecs::{bundle::DynamicBundle, entity::EntityHashMap, system::EntityCommands},
             math::{primitives, vec3, Vec3},
             pbr::{CubemapVisibleEntities, StandardMaterial},
             prelude::*,
@@ -51,10 +53,13 @@ use {avian3d::prelude::*,
      dynamics::solver::SolverConfig,
      enum_assoc::Assoc,
      fancy_constructor::new,
+     // hlist2::ops::{Fold, Map},
      rand::{random, thread_rng, Rng},
      rust_utils::{comment, debug_println, debugfmt, filter, filter_map, map, mapv,
-                  prettyfmt, println, sort_by_key, sum, take, vec, MutateTrait},
+                  prettyfmt, println, sort_by_key, sum, take, vec},
      ui::{ui_root_thing_in_the_world, Message, UIData, UIMainView}};
+use {enum_dispatch::enum_dispatch, hlist2::convert::IntoHList};
+// frunk::{hlist::LiftFrom, Poly}
 
 comment! {
   // Voxel Scenes
@@ -68,8 +73,8 @@ pub const GLOWY_COLOR: Color = Color::srgb(13.99, 11.32, 50.0);
 pub const GLOWY_COLOR_2: Color = Color::srgb(30.0, 20.7, 10.5);
 pub const GLOWY_COLOR_3: Color = Color::srgb(0.0, 30.0, 0.0);
 pub const EXPLOSION_COLOR: Color = Color::srgb(8.0, 3.0, 3.0);
-pub const LASER_COLOR: Color = Color::srgb(5.0, 5.0, 0.0);
-
+pub const LASER_COLOR: Color = Color::hsv(60.0, 1.0, 4.0);
+// hsv(61, 100%, 100%)
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
 pub const ENABLE_SHADOWS_OTHER_THAN_SUN: bool = false;
@@ -331,13 +336,33 @@ pub enum GenMesh {
   #[assoc(gen = primitives::Rectangle::new(BILLBOARD_REL_SCALE, BILLBOARD_REL_SCALE).into())]
   BillboardMeshSquare
 }
-// #[derive(Resource, Default)]
-// pub struct Handles {
-//   pub sprites: HashMap<MySprite, Handle<Image>>,
-//   pub meshes: HashMap<GenMesh, Handle<Mesh>>,
-//   pub materials: HashMap<MyMaterial, Handle<StandardMaterial>>,
-//   pub scenes: HashMap<MyScene, Handle<Scene>>
-// }
+
+struct MyOptionalBundle {
+  visuals: Option<Visuals>,
+  visualsprite: Option<VisualSprite>,
+  player: Option<Player>,
+  ishostile: Option<IsHostile>,
+  laser: Option<Laser>,
+  missile: Option<Missile>,
+  explosion: Option<Explosion>,
+  combat: Option<Combat>,
+  container: Option<Container>,
+  timedanimation: Option<TimedAnimation>,
+  playerfollower: Option<PlayerFollower>,
+  spaceobject: Option<SpaceObject>,
+  clicktarget: Option<ClickTarget>,
+  navigation: Option<Navigation>,
+  magicability: Option<MagicAbility>,
+  enemy: Option<Enemy>,
+  inventory: Option<Inventory>,
+  objectinteractionminigamestate: Option<ObjectInteractionMiniGameState>,
+  canbefollowedbynpc: Option<CanBeFollowedByNPC>,
+  planet: Option<Planet>,
+  gate: Option<Gate>,
+  zone: Option<Zone>,
+  zoneentity: Option<ZoneEntity>,
+  spatial_bundle: Option<SpatialBundle>
+}
 #[derive(Component, Clone, PartialEq, Eq, Default)]
 pub struct Visuals {
   text: Option<String>,
@@ -380,7 +405,7 @@ pub fn set_visuals(mut visuals_q: Query<(Entity, &mut Visuals)>,
     }
   }
 }
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct VisualSprite;
 pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
                serv: Res<AssetServer>,
@@ -493,7 +518,7 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
     }
   }
 }
-#[derive(Component, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct PlayerTargetInteractionState {
   target: Entity,
   approaching: bool,
@@ -524,7 +549,7 @@ impl Player {
   }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct IsHostile(pub bool);
 
 // pub fn spawn_laser_system(
@@ -542,24 +567,24 @@ pub struct IsHostile(pub bool);
 //     }
 // }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Laser {
   target: Entity,
-  start_time: u32,
+  time_left_ticks: u32,
   shooter: Entity
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct LaserShooter;
 
-fn laser_visual(shooter: Entity, target: Entity, start_time: u32) -> impl Bundle {
+fn laser_visual(shooter: Entity, target: Entity) -> impl Bundle {
   (
     Laser {
       target,
-      start_time,
+      time_left_ticks:LASER_DURATION_TICKS,
       shooter,
     },
-    Visuals::material_mesh(MyMaterial::ExplosionMaterial,GenMesh::Sphere),
+    Visuals::material_mesh(MyMaterial::LaserMaterial,GenMesh::Sphere),
     SpatialBundle::default(), // We'll set the transform in the system
   )
 }
@@ -574,11 +599,11 @@ pub fn laser_system(mut laserq: Query<(Entity, &Laser, &mut Transform)>,
                     mut c: Commands) {
   for (laser_entity,
        &Laser { target,
-                start_time,
+                time_left_ticks,
                 shooter },
        mut laser_transform) in &mut laserq
   {
-    let laser_age = time.0 - start_time;
+    let laser_age = LASER_DURATION_TICKS - time_left_ticks;
     if let (Ok(shooter_transform), Ok((target_transform))) =
       (transformq.get(shooter), transformq.get(target))
     {
@@ -597,12 +622,12 @@ pub fn laser_system(mut laserq: Query<(Entity, &Laser, &mut Transform)>,
                                                                 laser_radius,
                                                                 distance * 0.5));
     }
-    if laser_age > LASER_DURATION_TICKS {
+    if time_left_ticks == 0 {
       c.entity(laser_entity).despawn_recursive();
     }
   }
 }
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Missile {
   target: Entity,
   damage: u32
@@ -617,7 +642,7 @@ fn missile(translation: Vec3, target: Entity, damage: u32) -> impl Bundle {
 }
 
 pub const EXPLOSION_TIME_TICKS: u32 = 50;
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone)]
 pub struct Explosion {
   pub init_time: u32
 }
@@ -723,9 +748,9 @@ pub fn combat_system(mut c: Commands,
                             Option<&IsHostile>)>,
                      player_query: Query<(Entity, &Transform, &Player)> // spatial_query: Query<(Entity, &Transform, &Combat)>
 ) {
-  // let divides = |a,b| time.0 % COMBAT_INTERVAL_TICKS != 0
-  if time.0 % COMBAT_INTERVAL_TICKS != 0 {
-    if time.0 % (COMBAT_INTERVAL_TICKS / 2) == 0 {
+  let modval = time.0 % COMBAT_INTERVAL_TICKS;
+  if modval != 0 {
+    if modval >= (COMBAT_INTERVAL_TICKS / 3) {
       for (entity, transform, mut combat, _) in &mut combat_query {
         if combat.hp_depleted() {
           c.spawn(explosion_visual(transform.translation, 2.0, time.0));
@@ -776,7 +801,7 @@ pub fn combat_system(mut c: Commands,
                 TargetedAbility::FireLaser(n) => {
                   // println("cccc");
                   target_combat.decrease_hp(n);
-                  c.spawn(laser_visual(self_entity, target, time.0));
+                  c.spawn(laser_visual(self_entity, target));
                 }
                 TargetedAbility::FireMissile(n) => {
                   c.spawn(missile(self_pos, target, n));
@@ -879,16 +904,16 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
     {
       if keys.just_pressed(KeyCode::KeyR) {
         // shooting = !shooting;
-        state.shooting.update(std::ops::Not::not);
+        state.shooting = !state.shooting;
       }
       if keys.just_pressed(KeyCode::KeyQ) {
-        state.approaching.update(std::ops::Not::not);
+        state.approaching = !state.approaching;
       }
       if keys.just_pressed(KeyCode::KeyF) {
         c.spawn(missile(player_pos, state.target, 10));
       }
       if keys.just_pressed(KeyCode::KeyL) {
-        c.spawn(laser_visual(player_entity, state.target, time.0));
+        c.spawn(laser_visual(player_entity, state.target));
       }
       if state.shooting && (time.0 % shoot_time_between == 0) {
         c.spawn(missile(player_pos, state.target, 10));
@@ -902,18 +927,18 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
   }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone)]
 pub struct Container(pub HashSet<Entity>);
 impl Container {
   pub fn empty() -> Container { Container::default() }
 }
 pub fn name(s: &'static str) -> Name { Name::new(s) }
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct TimedAnimation {
   pub num_frames: usize,
   pub time_per_frame_in_ticks: usize
 }
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct PlayerFollower;
 pub fn pick<T>(coll: impl IntoIterator<Item = T>) -> Option<T> {
   rand::seq::IteratorRandom::choose(coll.into_iter(), &mut thread_rng())
@@ -955,7 +980,7 @@ pub fn click_target(mut parent_q: Query<&Parent>,
 //                          NotShadowReceiver,
 //                          Highlight<StandardMaterial>,
 //                          PickableBundle);
-#[derive(Bundle)]
+#[derive(Bundle, Clone)]
 pub struct SpaceObjectBundle((SpaceObject,
                                Visuals,
                                LockedAxes,
@@ -1237,7 +1262,7 @@ enum Faction {
   Invaders
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct MagicAbility;
 
 struct NPCProps {
@@ -1271,7 +1296,7 @@ fn colorful_texture() -> Image {
                   bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD)
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Enemy;
 
 struct NPCTemplate {
@@ -1315,234 +1340,234 @@ struct NPCTemplate {
 //      SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
 //   }
 // }
-pub fn scaled_npc(pos: Vec3,
-                  scale: f32,
-                  name: &'static str,
-                  thrust: f32,
-                  faction: Faction,
-                  hp: u32,
-                  sprite: MySprite)
-                  -> impl Bundle {
-  (Name::new(name),
-   Navigation::new(thrust),
-   NPC { follow_target: None,
-         faction },
-   Combat { hp,
-            is_hostile: false },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
-}
-pub fn scaled_enemy(pos: Vec3,
-                    scale: f32,
-                    name: &'static str,
-                    thrust: f32,
-                    faction: Faction,
-                    hp: u32,
-                    sprite: MySprite)
-                    -> impl Bundle {
-  (Name::new(name),
-   Navigation::new(thrust),
-   NPC { follow_target: None,
-         faction },
-   Combat { hp,
-            is_hostile: true },
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
-}
+// pub fn scaled_npc(pos: Vec3,
+//                   scale: f32,
+//                   name: &'static str,
+//                   thrust: f32,
+//                   faction: Faction,
+//                   hp: u32,
+//                   sprite: MySprite)
+//                   -> impl Bundle {
+//   (Name::new(name),
+//    Navigation::new(thrust),
+//    NPC { follow_target: None,
+//          faction },
+//    Combat { hp,
+//             is_hostile: false },
+//    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+// }
+// pub fn scaled_enemy(pos: Vec3,
+//                     scale: f32,
+//                     name: &'static str,
+//                     thrust: f32,
+//                     faction: Faction,
+//                     hp: u32,
+//                     sprite: MySprite)
+//                     -> impl Bundle {
+//   (Name::new(name),
+//    Navigation::new(thrust),
+//    NPC { follow_target: None,
+//          faction },
+//    Combat { hp,
+//             is_hostile: true },
+//    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+// }
 const NORMAL_NPC_SCALE: f32 = 1.9;
 const NORMAL_NPC_THRUST: f32 = 400.0;
-pub fn normal_sized_npc(pos: Vec3,
-                        name: &'static str,
-                        thrust: f32,
-                        faction: Faction,
-                        hp: u32,
-                        sprite: MySprite)
-                        -> impl Bundle {
-  scaled_npc(pos, NORMAL_NPC_SCALE, name, thrust, faction, hp, sprite)
-}
-pub fn space_pirate(pos: Vec3) -> impl Bundle {
-  (IsHostile(true),
-   scaled_enemy(pos,
-                NORMAL_NPC_SCALE,
-                "space pirate",
-                NORMAL_NPC_THRUST,
-                Faction::SpacePirates,
-                50,
-                MySprite::SpaceshipRed))
-}
-pub fn space_pirate_base(pos: Vec3) -> impl Bundle {
-  (Combat { hp: 120,
-            is_hostile: false },
-   Interact::Describe,
-   name("space pirate base"),
-   SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
-}
-pub fn space_station(pos: Vec3) -> impl Bundle {
-  (Combat { hp: 120,
-            is_hostile: false },
-   Interact::Describe,
-   name("space station"),
-   SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
-}
-pub fn trader(pos: Vec3) -> impl Bundle {
-  scaled_npc(pos,
-             NORMAL_NPC_SCALE,
-             "Trader",
-             NORMAL_NPC_THRUST,
-             Faction::Traders,
-             30,
-             MySprite::SpaceshipWhite2)
-}
-pub fn space_cop(pos: Vec3) -> impl Bundle {
-  scaled_npc(pos,
-             NORMAL_NPC_SCALE,
-             "space cop",
-             NORMAL_NPC_THRUST,
-             Faction::SpacePolice,
-             70,
-             MySprite::SpaceshipBlue)
-}
-pub fn space_wizard(pos: Vec3) -> impl Bundle {
-  scaled_npc(pos,
-             NORMAL_NPC_SCALE,
-             "space wizard",
-             NORMAL_NPC_THRUST,
-             Faction::SpaceWizards,
-             40,
-             MySprite::WizardSpaceShip)
-}
-pub fn nomad(pos: Vec3) -> impl Bundle {
-  scaled_npc(pos,
-             NORMAL_NPC_SCALE,
-             "nomad",
-             NORMAL_NPC_THRUST,
-             Faction::Wanderers,
-             35,
-             MySprite::SpaceshipGreen)
-}
-pub fn alien_soldier(pos: Vec3) -> impl Bundle {
-  (IsHostile(true),
-   scaled_enemy(pos,
-                NORMAL_NPC_SCALE,
-                "alien soldier",
-                NORMAL_NPC_THRUST,
-                Faction::Invaders,
-                80,
-                MySprite::PurpleEnemyShip))
-}
-pub fn enemy(pos: Vec3) -> impl Bundle {
-  (Enemy,
-   Combat::default(),
-   scaled_enemy(pos,
-                NORMAL_NPC_SCALE,
-                "enemy",
-                NORMAL_NPC_THRUST,
-                Faction::default(),
-                50,
-                MySprite::PurpleEnemyShip))
-}
-pub fn npc(pos: Vec3) -> impl Bundle {
-  scaled_npc(pos,
-             NORMAL_NPC_SCALE,
-             "npc",
-             NORMAL_NPC_THRUST,
-             Faction::default(),
-             50,
-             MySprite::SpaceshipWhite2)
-}
-pub fn mushroom_man(pos: Vec3) -> impl Bundle {
-  (PlayerFollower,
-   scaled_npc(pos,
-              NORMAL_NPC_SCALE,
-              "mushroom man",
-              NORMAL_NPC_THRUST,
-              Faction::Traders,
-              40,
-              MySprite::MushroomMan))
-}
+// pub fn normal_sized_npc(pos: Vec3,
+//                         name: &'static str,
+//                         thrust: f32,
+//                         faction: Faction,
+//                         hp: u32,
+//                         sprite: MySprite)
+//                         -> impl Bundle {
+//   scaled_npc(pos, NORMAL_NPC_SCALE, name, thrust, faction, hp, sprite)
+// }
+// pub fn space_pirate(pos: Vec3) -> impl Bundle {
+//   (IsHostile(true),
+//    scaled_enemy(pos,
+//                 NORMAL_NPC_SCALE,
+//                 "space pirate",
+//                 NORMAL_NPC_THRUST,
+//                 Faction::SpacePirates,
+//                 50,
+//                 MySprite::SpaceshipRed))
+// }
+// pub fn space_pirate_base(pos: Vec3) -> impl Bundle {
+//   (Combat { hp: 120,
+//             is_hostile: false },
+//    Interact::Describe,
+//    name("space pirate base"),
+//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
+// }
+// pub fn space_station(pos: Vec3) -> impl Bundle {
+//   (Combat { hp: 120,
+//             is_hostile: false },
+//    Interact::Describe,
+//    name("space station"),
+//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
+// }
+// pub fn trader(pos: Vec3) -> impl Bundle {
+//   scaled_npc(pos,
+//              NORMAL_NPC_SCALE,
+//              "Trader",
+//              NORMAL_NPC_THRUST,
+//              Faction::Traders,
+//              30,
+//              MySprite::SpaceshipWhite2)
+// }
+// pub fn space_cop(pos: Vec3) -> impl Bundle {
+//   scaled_npc(pos,
+//              NORMAL_NPC_SCALE,
+//              "space cop",
+//              NORMAL_NPC_THRUST,
+//              Faction::SpacePolice,
+//              70,
+//              MySprite::SpaceshipBlue)
+// }
+// pub fn space_wizard(pos: Vec3) -> impl Bundle {
+//   scaled_npc(pos,
+//              NORMAL_NPC_SCALE,
+//              "space wizard",
+//              NORMAL_NPC_THRUST,
+//              Faction::SpaceWizards,
+//              40,
+//              MySprite::WizardSpaceShip)
+// }
+// pub fn nomad(pos: Vec3) -> impl Bundle {
+//   scaled_npc(pos,
+//              NORMAL_NPC_SCALE,
+//              "nomad",
+//              NORMAL_NPC_THRUST,
+//              Faction::Wanderers,
+//              35,
+//              MySprite::SpaceshipGreen)
+// }
+// pub fn alien_soldier(pos: Vec3) -> impl Bundle {
+//   (IsHostile(true),
+//    scaled_enemy(pos,
+//                 NORMAL_NPC_SCALE,
+//                 "alien soldier",
+//                 NORMAL_NPC_THRUST,
+//                 Faction::Invaders,
+//                 80,
+//                 MySprite::PurpleEnemyShip))
+// }
+// pub fn enemy(pos: Vec3) -> impl Bundle {
+//   (Enemy,
+//    Combat::default(),
+//    scaled_enemy(pos,
+//                 NORMAL_NPC_SCALE,
+//                 "enemy",
+//                 NORMAL_NPC_THRUST,
+//                 Faction::default(),
+//                 50,
+//                 MySprite::PurpleEnemyShip))
+// }
+// pub fn npc(pos: Vec3) -> impl Bundle {
+//   scaled_npc(pos,
+//              NORMAL_NPC_SCALE,
+//              "npc",
+//              NORMAL_NPC_THRUST,
+//              Faction::default(),
+//              50,
+//              MySprite::SpaceshipWhite2)
+// }
+// pub fn mushroom_man(pos: Vec3) -> impl Bundle {
+//   (PlayerFollower,
+//    scaled_npc(pos,
+//               NORMAL_NPC_SCALE,
+//               "mushroom man",
+//               NORMAL_NPC_THRUST,
+//               Faction::Traders,
+//               40,
+//               MySprite::MushroomMan))
+// }
 
-pub fn sign(pos: Vec3, text: String) -> impl Bundle {
-  (Interact::Describe,
-   SpaceObjectBundle::new(pos,
-                          1.5,
-                          false,
-                          Visuals::sprite(MySprite::Sign).with_text(text)))
-}
-pub fn wormhole(pos: Vec3) -> impl Bundle {
-  (Interact::Describe,
-   name("wormhole"),
-   SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
-}
-pub fn asteroid(pos: Vec3) -> impl Bundle {
-  (Interact::Asteroid,
-   CanBeFollowedByNPC,
-   SpaceObjectBundle::new(pos,
-                          asteroid_scale(),
-                          false,
-                          Visuals::sprite(MySprite::Asteroid)))
-}
+// pub fn sign(pos: Vec3, text: String) -> impl Bundle {
+//   (Interact::Describe,
+//    SpaceObjectBundle::new(pos,
+//                           1.5,
+//                           false,
+//                           Visuals::sprite(MySprite::Sign).with_text(text)))
+// }
+// pub fn wormhole(pos: Vec3) -> impl Bundle {
+//   (Interact::Describe,
+//    name("wormhole"),
+//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
+// }
+// pub fn asteroid(pos: Vec3) -> impl Bundle {
+//   (Interact::Asteroid,
+//    CanBeFollowedByNPC,
+//    SpaceObjectBundle::new(pos,
+//                           asteroid_scale(),
+//                           false,
+//                           Visuals::sprite(MySprite::Asteroid)))
+// }
 
-fn loot_object(image: MySprite,
-               pos: Vec3,
-               scale: f32,
-               name: impl ToString,
-               item_type: Item)
-               -> impl Bundle {
-  (Name::new(name.to_string()),
-   Interact::Item(item_type),
-   SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
-}
-fn space_cat(pos: Vec3) -> impl Bundle {
-  loot_object(MySprite::SpaceCat,
-              pos,
-              1.3,
-              "space cat".to_string(),
-              Item::SpaceCat)
-}
-fn space_man(pos: Vec3) -> impl Bundle {
-  loot_object(MySprite::SpaceMan,
-              pos,
-              1.3,
-              "spaceman".to_string(),
-              Item::Person)
-}
-fn space_coin(pos: Vec3) -> impl Bundle {
-  loot_object(MySprite::Coin,
-              pos,
-              1.7,
-              "space coin".to_string(),
-              Item::SpaceCoin)
-}
-pub fn ice_asteroid(pos: Vec3) -> impl Bundle {
-  loot_object(MySprite::IceAsteroid,
-              pos,
-              asteroid_scale(),
-              "ice",
-              Item::DiHydrogenMonoxide)
-}
-pub fn crystal_asteroid(pos: Vec3) -> impl Bundle {
-  loot_object(MySprite::CrystalAsteroid,
-              pos,
-              asteroid_scale(),
-              "crystal asteroid",
-              Item::Crystal)
-}
-pub fn crystal_monster(pos: Vec3) -> impl Bundle {
-  (name("crystal monster"),
-   // Interact::Item(item_type),
-   SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CrystalMonster)))
-}
-fn container(translation: Vec3,
-             contents: impl IntoIterator<Item = (Item, u32)>)
-             -> impl Bundle {
-  (name("container"),
-   // Inventory::from_contents(contents),
-   Interact::Container(vec(contents)),
-   SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
-}
-pub fn hp_box(pos: Vec3) -> impl Bundle {
-  (name("hp box"),
-   Interact::HPBox,
-   SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
-}
+// fn loot_object(image: MySprite,
+//                pos: Vec3,
+//                scale: f32,
+//                name: impl ToString,
+//                item_type: Item)
+//                -> impl Bundle {
+//   (Name::new(name.to_string()),
+//    Interact::Item(item_type),
+//    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
+// }
+// fn space_cat(pos: Vec3) -> impl Bundle {
+//   loot_object(MySprite::SpaceCat,
+//               pos,
+//               1.3,
+//               "space cat".to_string(),
+//               Item::SpaceCat)
+// }
+// fn space_man(pos: Vec3) -> impl Bundle {
+//   loot_object(MySprite::SpaceMan,
+//               pos,
+//               1.3,
+//               "spaceman".to_string(),
+//               Item::Person)
+// }
+// fn space_coin(pos: Vec3) -> impl Bundle {
+//   loot_object(MySprite::Coin,
+//               pos,
+//               1.7,
+//               "space coin".to_string(),
+//               Item::SpaceCoin)
+// }
+// pub fn ice_asteroid(pos: Vec3) -> impl Bundle {
+//   loot_object(MySprite::IceAsteroid,
+//               pos,
+//               asteroid_scale(),
+//               "ice",
+//               Item::DiHydrogenMonoxide)
+// }
+// pub fn crystal_asteroid(pos: Vec3) -> impl Bundle {
+//   loot_object(MySprite::CrystalAsteroid,
+//               pos,
+//               asteroid_scale(),
+//               "crystal asteroid",
+//               Item::Crystal)
+// }
+// pub fn crystal_monster(pos: Vec3) -> impl Bundle {
+//   (name("crystal monster"),
+//    // Interact::Item(item_type),
+//    SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CrystalMonster)))
+// }
+// fn container(translation: Vec3,
+//              contents: impl IntoIterator<Item = (Item, u32)>)
+//              -> impl Bundle {
+//   (name("container"),
+//    // Inventory::from_contents(contents),
+//    Interact::Container(vec(contents)),
+//    SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
+// }
+// pub fn hp_box(pos: Vec3) -> impl Bundle {
+//   (name("hp box"),
+//    Interact::HPBox,
+//    SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
+// }
 
 #[derive(Component, Clone, Debug, Default)]
 pub struct Inventory(HashMap<Item, u32>);
@@ -1582,7 +1607,7 @@ pub fn nd20(n: u32) -> u32 { ndm(n, 20) }
 pub fn one_d6() -> u32 { nd6(1) }
 pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 enum Interact {
   // SpaceStation,
   // WarpGate,
@@ -1861,12 +1886,19 @@ fn ui(mut c: Commands,
                                           },
                                           ui_data.message_log.clone());
 
-    ui_data.as_mut().update(|old_ui_data| UIData { target_data,
-                                                   overview_data,
-                                                   current_time_ticks,
-                                                   message_log,
-                                                   infobox_data,
-                                                   ..old_ui_data });
+    let old_ui_data = ui_data.clone();
+    *ui_data = UIData { target_data,
+                        overview_data,
+                        current_time_ticks,
+                        message_log,
+                        infobox_data,
+                        ..old_ui_data };
+    // .as_mut().update(|old_ui_data| UIData { target_data,
+    //                                              overview_data,
+    //                                              current_time_ticks,
+    //                                              message_log,
+    //                                              infobox_data,
+    //                                              ..old_ui_data });
 
     if view_root_q.is_empty() {
       ui_data.message_add("message1");
@@ -2235,24 +2267,332 @@ fn random_zone_name() -> String {
   String::from_utf8((0..4).map(|_| rangerand(0.0, 30.0) as u8).collect()).unwrap()
   // (0..4).map(|_| random::<char>()).collect()
 }
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct Gate;
 fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
 
 // SpaceMan,
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 pub struct Zone {
   pub faction_control: Option<Faction>,
   pub zone_radius: f32,
   pub zone_type: ZoneType,
+  pub is_combat_zone: bool,
   //pub number_of_things: u32,
   pub planet_type: Option<PlanetType>
 }
+
+#[derive(Component, Clone)]
+struct ZoneEntity {
+  zone: Entity
+}
+enum MyFullyKnownSpawnable {
+  VisualEntity()
+}
+
+#[enum_dispatch]
+enum AllBundlesInMyGame {
+  Name,
+  Visuals,
+  Player,
+  IsHostile,
+  Laser,
+  Missile,
+  Explosion,
+  Combat,
+  Container,
+  TimedAnimation,
+  PlayerFollower,
+  SpaceObject,
+  Navigation,
+  MagicAbility,
+  Enemy,
+  Inventory,
+  ObjectInteractionMiniGameState,
+  CanBeFollowedByNPC,
+  NPC,
+  Planet,
+  Gate,
+  Zone,
+  ZoneEntity,
+  SpaceObjectBundle,
+  SpatialBundle
+}
+#[enum_dispatch(AllBundlesInMyGame)]
+trait Insertable {
+  fn insert(self, c: &mut Commands, e: Entity);
+}
+impl<B: Bundle> Insertable for B {
+  fn insert(self, c: &mut Commands, e: Entity) { c.entity(e).insert(self); }
+}
+trait ToMyBundlesVec {
+  fn to_vec(self) -> Vec<AllBundlesInMyGame>;
+}
+impl ToMyBundlesVec for hlist2::Nil {
+  fn to_vec(self) -> Vec<AllBundlesInMyGame> { Vec::new() }
+}
+impl<H: Into<AllBundlesInMyGame>, T: hlist2::HList + ToMyBundlesVec> ToMyBundlesVec
+  for hlist2::Cons<H, T>
+{
+  fn to_vec(self) -> Vec<AllBundlesInMyGame> {
+    let hlist2::Cons(head, tail) = self;
+
+    let mut vec = tail.to_vec();
+    vec.push(head.into());
+    vec
+  }
+}
+#[derive(Default)]
+struct MyBundle(Vec<AllBundlesInMyGame>);
+
+impl<H: hlist2::HList + ToMyBundlesVec, T: IntoHList<HList = H>> From<T> for MyBundle {
+  fn from(tup: T) -> Self {
+    let hlist: H = tup.into_hlist();
+    let v = hlist.to_vec();
+    Self(v)
+  }
+}
+type MyBundleUnSpecifiedTransform = fn(Transform) -> MyBundle;
+type MyBundleUnSpecifiedTranslation = fn(Vec3) -> MyBundle;
+
+impl MyBundle {
+  pub fn scaled_enemy(pos: Vec3,
+                      scale: f32,
+                      name: &'static str,
+                      thrust: f32,
+                      faction: Faction,
+                      hp: u32,
+                      sprite: MySprite)
+                      -> Self {
+    (Name::new(name),
+     Navigation::new(thrust),
+     NPC { follow_target: None,
+           faction },
+     Combat { hp,
+              is_hostile: true },
+     SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+                                                                       .into()
+  }
+  pub fn scaled_npc(pos: Vec3,
+                    scale: f32,
+                    name: &'static str,
+                    thrust: f32,
+                    faction: Faction,
+                    hp: u32,
+                    sprite: MySprite)
+                    -> impl Bundle {
+    (Name::new(name),
+     Navigation::new(thrust),
+     NPC { follow_target: None,
+           faction },
+     Combat { hp,
+              is_hostile: false },
+     SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(sprite)))
+  }
+  const SPACE_PIRATE: MyBundleUnSpecifiedTranslation = |pos: Vec3| {
+    Self::scaled_enemy(pos,
+                       NORMAL_NPC_SCALE,
+                       "space pirate",
+                       NORMAL_NPC_THRUST,
+                       Faction::SpacePirates,
+                       50,
+                       MySprite::SpaceshipRed)
+  };
+
+  fn missile(translation: Vec3, target: Entity, damage: u32) -> Self {
+    (Missile { target,damage},
+     Visuals::material_sphere(MyMaterial::GlowyMaterial3),
+     SpatialBundle::from_transform(Transform::from_scale(Vec3::splat(0.2))
+                                   .with_translation(translation))).into()
+  }
+
+  pub fn space_pirate_base(pos: Vec3) -> Self {
+    (Combat { hp: 120,
+              is_hostile: false },
+     Interact::Describe,
+     name("space pirate base"),
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
+  }
+  pub fn space_station(pos: Vec3) -> Self {
+    (Combat { hp: 120,
+              is_hostile: false },
+     Interact::Describe,
+     name("space station"),
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
+  }
+  pub fn trader(pos: Vec3) -> Self {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "Trader",
+               NORMAL_NPC_THRUST,
+               Faction::Traders,
+               30,
+               MySprite::SpaceshipWhite2)
+  }
+  pub fn space_cop(pos: Vec3) -> Self {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "space cop",
+               NORMAL_NPC_THRUST,
+               Faction::SpacePolice,
+               70,
+               MySprite::SpaceshipBlue)
+  }
+  pub fn space_wizard(pos: Vec3) -> Self {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "space wizard",
+               NORMAL_NPC_THRUST,
+               Faction::SpaceWizards,
+               40,
+               MySprite::WizardSpaceShip)
+  }
+  pub fn nomad(pos: Vec3) -> Self {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "nomad",
+               NORMAL_NPC_THRUST,
+               Faction::Wanderers,
+               35,
+               MySprite::SpaceshipGreen)
+  }
+  pub fn alien_soldier(pos: Vec3) -> Self {
+    (IsHostile(true),
+     scaled_enemy(pos,
+                  NORMAL_NPC_SCALE,
+                  "alien soldier",
+                  NORMAL_NPC_THRUST,
+                  Faction::Invaders,
+                  80,
+                  MySprite::PurpleEnemyShip))
+  }
+  pub fn enemy(pos: Vec3) -> Self {
+    (Enemy,
+     Combat::default(),
+     scaled_enemy(pos,
+                  NORMAL_NPC_SCALE,
+                  "enemy",
+                  NORMAL_NPC_THRUST,
+                  Faction::default(),
+                  50,
+                  MySprite::PurpleEnemyShip))
+  }
+  pub fn npc(pos: Vec3) -> Self {
+    scaled_npc(pos,
+               NORMAL_NPC_SCALE,
+               "npc",
+               NORMAL_NPC_THRUST,
+               Faction::default(),
+               50,
+               MySprite::SpaceshipWhite2)
+  }
+  pub fn mushroom_man(pos: Vec3) -> Self {
+    (PlayerFollower,
+     scaled_npc(pos,
+                NORMAL_NPC_SCALE,
+                "mushroom man",
+                NORMAL_NPC_THRUST,
+                Faction::Traders,
+                40,
+                MySprite::MushroomMan))
+  }
+
+  pub fn sign(pos: Vec3, text: String) -> Self {
+    (Interact::Describe,
+     SpaceObjectBundle::new(pos,
+                            1.5,
+                            false,
+                            Visuals::sprite(MySprite::Sign).with_text(text)))
+  }
+  pub fn wormhole(pos: Vec3) -> Self {
+    (Interact::Describe,
+     name("wormhole"),
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
+  }
+  pub fn asteroid(pos: Vec3) -> Self {
+    (Interact::Asteroid,
+     CanBeFollowedByNPC,
+     SpaceObjectBundle::new(pos,
+                            asteroid_scale(),
+                            false,
+                            Visuals::sprite(MySprite::Asteroid)))
+  }
+
+  fn loot_object(image: MySprite,
+                 pos: Vec3,
+                 scale: f32,
+                 name: impl ToString,
+                 item_type: Item)
+                 -> Self {
+    (Name::new(name.to_string()),
+     Interact::Item(item_type),
+     SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
+  }
+  fn space_cat(pos: Vec3) -> Self {
+    loot_object(MySprite::SpaceCat,
+                pos,
+                1.3,
+                "space cat".to_string(),
+                Item::SpaceCat)
+  }
+  fn space_man(pos: Vec3) -> Self {
+    loot_object(MySprite::SpaceMan,
+                pos,
+                1.3,
+                "spaceman".to_string(),
+                Item::Person)
+  }
+  fn space_coin(pos: Vec3) -> Self {
+    loot_object(MySprite::Coin,
+                pos,
+                1.7,
+                "space coin".to_string(),
+                Item::SpaceCoin)
+  }
+  pub fn ice_asteroid(pos: Vec3) -> Self {
+    loot_object(MySprite::IceAsteroid,
+                pos,
+                asteroid_scale(),
+                "ice",
+                Item::DiHydrogenMonoxide)
+  }
+  pub fn crystal_asteroid(pos: Vec3) -> Self {
+    loot_object(MySprite::CrystalAsteroid,
+                pos,
+                asteroid_scale(),
+                "crystal asteroid",
+                Item::Crystal)
+  }
+  pub fn crystal_monster(pos: Vec3) -> Self {
+    (name("crystal monster"),
+     // Interact::Item(item_type),
+     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CrystalMonster)))
+  }
+  fn container(translation: Vec3, contents: impl IntoIterator<Item = (Item, u32)>) -> Self {
+    (name("container"),
+     // Inventory::from_contents(contents),
+     Interact::Container(vec(contents)),
+     SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
+  }
+  pub fn hp_box(pos: Vec3) -> Self {
+    (name("hp box"),
+     Interact::HPBox,
+     SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
+  }
+}
+
 impl Zone {
-  fn spawn(&self, mut c: &mut Commands, zone_pos: Vec3) {
+  fn spawn(&self,
+           mut c: &mut Commands,
+           zone_pos: Vec3 // , zone_entity: Entity
+  ) {
     let num_objects = 60;
+    fn spawn_zone_entity<B: Bundle>(mut c: &mut Commands, zone: Entity, bundle: B) {
+      c.spawn(bundle).insert(ZoneEntity { zone });
+    }
+    // anymap::Map::reserve
     c.spawn(sign(zone_pos, prettyfmt(self)));
     for _ in 0..num_objects {
       let object_pos =
@@ -2261,6 +2601,10 @@ impl Zone {
       if let Some(spawnable) = self.zone_type.probs().pick() {
         match spawnable {
           Spawnable::TreasureContainer => {
+            // spawn_zone_entity(&mut c,
+            //                   zone_entity,
+            //                   container(object_pos, [(Item::SpaceCoin, 4),
+            //                                          (Item::Coffee, 1)]));
             c.spawn(container(object_pos, [(Item::SpaceCoin, 4), (Item::Coffee, 1)]));
           }
           Spawnable::CrystalMonster => {
@@ -2443,7 +2787,9 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
                           ZoneType::AsteroidField,
                           ZoneType::IceAsteroidField,
                           ZoneType::SpaceStationZone]).unwrap();
+    let zone_entity = c.spawn_empty().id();
     Zone { zone_radius: 60.0,
+           is_combat_zone: false,
            faction_control: None,
            zone_type,
            planet_type }.spawn(&mut c, zone_pos);
