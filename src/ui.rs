@@ -1,6 +1,5 @@
 use {crate::PlayerTargetInteractionState,
-     bevy::{math::Vec3,
-            prelude::*},
+     bevy::{math::Vec3, prelude::*},
      bevy_quill::{prelude::*, Portal, ViewChild},
      bevy_quill_overlays::{Overlay, PolygonOptions, StrokeMarker},
      rust_utils::{concat_strings, MutateTrait}};
@@ -76,7 +75,7 @@ impl ViewTemplate for MessageLogView {
                                             .children(children))
   }
 }
-fn intersperse_newline<T: ToString>(coll: impl IntoIterator<Item = T>) -> String {
+pub fn intersperse_newline<T: ToString>(coll: impl IntoIterator<Item = T>) -> String {
   concat_strings(coll.into_iter()
                      .map(|v| v.to_string())
                      .intersperse("\n".to_string()))
@@ -94,7 +93,7 @@ impl ViewTemplate for InteractPopUp {
     // uuid::Uuid::from_subset()
     let ui_data = cx.use_resource::<UIData>();
     let style = |sb: &mut StyleBuilder| {
-      sb.justify_self(JustifySelf::Center).top(Val::Percent(80.0));
+      sb.justify_self(JustifySelf::Center).top(Val::Percent(70.0));
     };
     let msg = ui_data.interact_message.clone();
     cond_view(msg.is_some(),

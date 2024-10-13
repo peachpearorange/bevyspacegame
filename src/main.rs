@@ -21,28 +21,19 @@
 pub mod bundletree;
 pub mod ui;
 
-use std::{any::Any,
-          cell::{LazyCell, OnceCell},
-          f32::consts::PI,
-          sync::LazyLock};
-
 pub use bevy::prelude::Name;
-use {bevy::{ecs::world::Command, render::render_resource::AsBindGroupShaderType},
-     rust_utils::find};
-
-use {anymap::AnyMap,
-     avian3d::prelude::*,
+use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
             core_pipeline::{bloom::{BloomCompositeMode, BloomPrefilterSettings,
                                     BloomSettings},
                             Skybox},
-            ecs::{bundle::DynamicBundle, entity::EntityHashMap, system::EntityCommands},
+            ecs::{entity::EntityHashMap, world::Command},
             math::{primitives, vec3, Vec3},
             pbr::{CubemapVisibleEntities, StandardMaterial},
             prelude::*,
             render::{primitives::CubemapFrusta,
-                     render_resource::TextureViewDescriptor,
+                     render_resource::{AsBindGroupShaderType, TextureViewDescriptor},
                      texture::{ImageAddressMode, ImageFilterMode, ImageSamplerDescriptor}},
             utils::{HashMap, HashSet},
             window::WindowMode},
@@ -58,13 +49,11 @@ use {anymap::AnyMap,
      dynamics::solver::SolverConfig,
      enum_assoc::Assoc,
      fancy_constructor::new,
-     // hlist2::ops::{Fold, Map},
      rand::{random, thread_rng, Rng},
-     rust_utils::{comment, debug_println, debugfmt, filter, filter_map, map, mapv,
-                  prettyfmt, println, sort_by_key, sum, take, vec},
-     ui::{ui_root_thing_in_the_world, Message, UIData, UIMainView}};
-use {enum_dispatch::enum_dispatch, hlist2::convert::IntoHList};
-// frunk::{hlist::LiftFrom, Poly}
+     rust_utils::{comment, debug_println, debugfmt, filter_map, find, find_map, first,
+                  map, mapv, prettyfmt, println, sort_by_key, sum, vec},
+     std::{any::Any, cell::LazyCell, f32::consts::PI},
+     ui::{intersperse_newline, ui_root_thing_in_the_world, Message, UIData, UIMainView}};
 
 comment! {
   // Voxel Scenes
@@ -348,6 +337,7 @@ pub enum GenMesh {
 pub struct Visuals {
   text: Option<String>,
   material_mesh: Option<(MyMaterial, GenMesh)>,
+  shield_active:bool,
   sprite: Option<MySprite>,
   targeted: bool
 }
@@ -365,20 +355,17 @@ impl Visuals {
   fn material_sphere(material: MyMaterial) -> Self {
     Self::material_mesh(material, GenMesh::Sphere)
   }
-  // fn material_sphere(material: MyMaterial) -> Self {
-  //   Self { material_mesh: Some((material, GenMesh::Sphere)),
-  //          ..default() }
-  // }
   fn with_text(self, text: impl ToString) -> Self {
     Self { text: Some(text.to_string()),
            ..self }
   }
 }
-pub fn set_visuals(mut visuals_q: Query<(Entity, &mut Visuals)>,
+pub fn set_visuals(mut visuals_q: Query<(Entity, &mut Visuals, Option<&Combat>)>,
                    mut player_q: Query<&Player>) {
   if let Ok(player) = player_q.get_single() {
-    for (e, mut visuals) in &mut visuals_q {
+    for (e, mut visuals, ocombat) in &mut visuals_q {
       let should_have_target = player.target() == Some(e);
+      // let new_visuals = Visuals{targeted:should_have_target,}
       let has_target = visuals.as_ref().targeted;
       if has_target != should_have_target {
         visuals.targeted = should_have_target;
@@ -529,177 +516,266 @@ impl Player {
   }
 }
 
+pub enum MyCommand {
+  None,
+  Multi(Vec<MyCommand>),
+  Spawn(Spawnable),
+  GiveItemToPlayer(Item),
+  EndObjectInteractionMiniGame,
+  DamageEntity(Entity, u32),
+  MessageAdd(String),
+  DespawnEntity(Entity),
+  Arbitrary(Box<dyn FnOnce(&mut World) + 'static + Send + Sync>)
+}
+
+pub fn insert_component<C: Component>(world: &mut World, entity: Entity, component: C) {
+  if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+    entity_mut.insert(component);
+  }
+}
+pub fn update_component<C: Component + Clone>(world: &mut World,
+                                              entity: Entity,
+                                              f: impl FnOnce(C) -> C) {
+  if let Some(mut entity_mut) = world.get_entity_mut(entity)
+     && let Some(mut component) = entity_mut.get_mut::<C>()
+  {
+    let updated = f((*component).clone());
+    *component = updated;
+  }
+}
+pub fn mutate_component<C: Component>(world: &mut World,
+                                      entity: Entity,
+                                      f: impl FnOnce(&mut C)) {
+  if let Some(mut entity_mut) = world.get_entity_mut(entity)
+     && let Some(mut component) = entity_mut.get_mut::<C>()
+  {
+    f(&mut component);
+  }
+}
+pub fn get_player(world: &mut World) -> Option<Entity> {
+  world.query_filtered::<Entity, With<Player>>()
+       .iter(world)
+       .next()
+}
+impl MyCommand {
+  pub fn arbitrary(f: impl FnOnce(&mut World) + 'static + Send + Sync) -> Self {
+    Self::Arbitrary(Box::new(f))
+  }
+  pub fn multi(coll: impl IntoIterator<Item = MyCommand>) -> Self {
+    Self::Multi(coll.into_iter().collect())
+  }
+  pub fn spawn(b: impl Bundle + 'static) -> Self { Self::Spawn(Spawnable::from(b)) }
+  pub fn despawn(entity: Entity) -> Self {
+    Self::arbitrary(move |world| {
+      world.commands().entity(entity).despawn_recursive();
+      // world.despawn(entity);
+    })
+  }
+  pub fn insert_component<C: Component + 'static>(entity: Entity, component: C) -> Self {
+    Self::arbitrary(move |world| insert_component(world, entity, component))
+  }
+  // pub fn insert_component<C: Component + 'static>(entity: Entity, component: C) -> Self {
+  //   Self::arbitrary(move |world| insert_component(world, entity, component))
+  // }
+  pub fn update_component<C: Component + Clone + 'static>(entity: Entity,
+                                                          f: impl FnOnce(C) -> C
+                                                            + 'static
+                                                            + Send
+                                                            + Sync)
+                                                          -> Self {
+    Self::arbitrary(move |world| update_component(world, entity, f))
+  }
+  pub fn mutate_component<C: Component + 'static>(entity: Entity,
+                                                  f: impl FnOnce(&mut C)
+                                                    + 'static
+                                                    + Send
+                                                    + Sync)
+                                                  -> Self {
+    Self::arbitrary(move |world| mutate_component(world, entity, f))
+  }
+  pub fn insert_player_component<C: Component + 'static>(component: C) -> Self {
+    Self::arbitrary(move |world| {
+      if let Some(player_entity) = get_player(world) {
+        insert_component(world, player_entity, component);
+      }
+    })
+  }
+  pub fn update_player_component<C: Component + Clone + 'static>(f: impl FnOnce(C) -> C
+                                                                   + 'static
+                                                                   + Send
+                                                                   + Sync)
+                                                                 -> Self {
+    Self::arbitrary(move |world| {
+      if let Some(player_entity) = get_player(world) {
+        update_component(world, player_entity, f);
+      }
+    })
+  }
+  pub fn mutate_player_component<C: Component + Clone + 'static>(f: impl FnOnce(&mut C)
+                                                                   + 'static
+                                                                   + Send
+                                                                   + Sync)
+                                                                 -> Self {
+    Self::arbitrary(move |world: &mut World| {
+      if let Some(player_entity) = get_player(world) {
+        mutate_component(world, player_entity, f)
+      }
+    })
+  }
+  // Player-specific helper methods
+}
+
+impl Command for MyCommand {
+  fn apply(self, world: &mut World) {
+    match self {
+      MyCommand::None => {}
+      MyCommand::Multi(commands) => {
+        for command in commands {
+          command.apply(world);
+        }
+      }
+      MyCommand::Spawn(spawnable) => {
+        let c = &mut world.commands();
+        spawnable.0(c);
+      }
+      MyCommand::GiveItemToPlayer(item) => {
+        if let Some(player_entity) = get_player(world) {
+          mutate_component(world, player_entity, |inventory: &mut Inventory| {
+            inventory.add_contents([(item, 1)]);
+          })
+        }
+      }
+      MyCommand::EndObjectInteractionMiniGame => {
+        // Implement mini-game ending logic here
+      }
+      MyCommand::DamageEntity(e, n) => {
+        if let Some(mut combat) = world.get_mut::<Combat>(e) {
+          combat.hp = combat.hp.saturating_sub(n);
+        }
+      }
+      MyCommand::MessageAdd(message) => {
+        if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
+          ui_data.message_add(message);
+        }
+      }
+      MyCommand::DespawnEntity(entity) => {
+        world.commands().entity(entity).despawn_recursive();
+        // world.despawn(entity);
+      }
+      MyCommand::Arbitrary(f) => {
+        f(world);
+      }
+    }
+  }
+}
+
+// fn combat_actions()
+
+#[derive(Component, Clone)]
+pub enum VisualEffect {
+  Laser { target: Entity, shooter: Entity },
+  Missile { target: Entity, init_pos: Vec3 },
+  Explosion { pos: Vec3 }
+}
+const LASER_DURATION_TICKS: u32 = 78;
+const LASER_DAMAGE: u32 = 10;
+
+impl VisualEffect {
+  fn specify_transform(&self,
+                       query: &Query<&Transform, Without<VisualEffect>>,
+                       age: u32)
+                       -> Option<Transform> {
+    match *self {
+      VisualEffect::Laser { target, shooter } => {
+        let laser_age = age;
+        let time_left = LASER_DURATION_TICKS - laser_age;
+        if let Ok(shooter_transform) = query.get(shooter)
+           && let Ok(target_transform) = query.get(target)
+           && time_left > 0
+        {
+          let start_pos = shooter_transform.translation;
+          let target_pos = target_transform.translation;
+          let distance = start_pos.distance(target_pos);
+          let center_pos = (start_pos + target_pos) * 0.5;
+          let max_laser_radius = 0.18;
+          let laser_radius =
+            max_laser_radius
+            * f32::sin(PI * time_left as f32 / LASER_DURATION_TICKS as f32).powf(0.4);
+
+          Some(Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
+                                                      .with_scale(vec3(laser_radius,
+                                                                       laser_radius,
+                                                                       distance * 0.5)))
+        } else {
+          None
+        }
+      }
+      VisualEffect::Missile { target, init_pos } => {
+        let missile_travel_time_ticks = 100;
+        let missile_age = age;
+        let frac = missile_age as f32 / missile_travel_time_ticks as f32;
+        if let Ok(&target_transform) = query.get(target)
+           && frac < 1.0
+        {
+          let target_pos = target_transform.translation;
+          Some(Transform::from_translation(init_pos.lerp(target_pos, frac)))
+        } else {
+          None
+        }
+      }
+      VisualEffect::Explosion { pos } => {
+        let explosion_max_time_ticks = 160;
+        let explosion_age = age;
+        let frac = explosion_age as f32 / explosion_max_time_ticks as f32;
+        let scale = Vec3::splat(0.8 + (frac * 3.0));
+        (frac < 1.0).then_some(Transform::from_translation(pos).with_scale(scale))
+      }
+    }
+  }
+}
+fn laser_visual(shooter: Entity, target: Entity) -> impl Bundle {
+  (VisualEffect::Laser { target, shooter },
+   Visuals::material_mesh(MyMaterial::LaserMaterial, GenMesh::Sphere),
+   SpatialBundle::default())
+}
+pub fn explosion_visual(pos: Vec3, scale: f32) -> impl Bundle {
+  (VisualEffect::Explosion { pos },
+   Visuals::material_sphere(MyMaterial::ExplosionMaterial),
+   SpatialBundle::default())
+}
+fn missile_visual(init_pos: Vec3, target: Entity) -> impl Bundle {
+  (VisualEffect::Missile { init_pos, target },
+   Visuals::material_sphere(MyMaterial::GlowyMaterial3),
+   SpatialBundle::default())
+}
+
+#[derive(Component)]
+struct OriginTime(u32);
+fn origin_time(q: Query<Entity, Without<OriginTime>>,
+               time_ticks: Res<TimeTicks>,
+               mut c: Commands) {
+  for e in &q {
+    c.entity(e).insert(OriginTime(time_ticks.0));
+  }
+}
+fn combat_visual_effects(transformq: Query<&Transform, Without<VisualEffect>>,
+                         mut visualq: Query<(Entity,
+                                &mut Transform,
+                                &VisualEffect,
+                                &OriginTime)>,
+                         time_ticks: Res<TimeTicks>,
+                         mut c: Commands) {
+  for (entity, mut transform, visual_effect, origin_time) in &mut visualq {
+    let visual_effect_age = time_ticks.0 - origin_time.0;
+    match visual_effect.specify_transform(&transformq, visual_effect_age) {
+      Some(new_transform) => *transform = new_transform,
+      None => c.entity(entity).despawn_recursive()
+    }
+  }
+}
 #[derive(Component, Clone)]
 pub struct IsHostile(pub bool);
 
-// pub fn spawn_laser_system(
-//     shooterq: Query<(Entity, &Transform), With<LaserShooter>>,
-//     targetq: Query<Entity, With<Combat>>,
-//     time: Res<TimeTicks>,
-//     mut c: Commands,
-// ) {
-//     if time.0 % LASER_COOLDOWN_TICKS == 0 {
-//         for (shooter_entity, _) in &shooterq {
-//             if let Some(target) = targetq.iter().next() { // For simplicity, targeting the first combat entity
-//                 c.spawn(laser_visual(shooter_entity, target, time.0));
-//             }
-//         }
-//     }
-// }
-
-#[derive(Component, Clone)]
-pub struct Laser {
-  target: Entity,
-  time_left_ticks: u32,
-  shooter: Entity
-}
-
-#[derive(Component, Clone)]
-pub struct LaserShooter;
-
-fn laser_visual(shooter: Entity, target: Entity) -> impl Bundle {
-  (
-    Laser {
-      target,
-      time_left_ticks:LASER_DURATION_TICKS,
-      shooter,
-    },
-    Visuals::material_mesh(MyMaterial::LaserMaterial,GenMesh::Sphere),
-    SpatialBundle::default(), // We'll set the transform in the system
-  )
-}
-
-const LASER_DURATION_TICKS: u32 = 78;
-const LASER_DAMAGE: u32 = 10;
-pub fn laser_system(mut laserq: Query<(Entity, &mut Laser, &mut Transform)>,
-                    transformq: Query<&Transform, Without<Laser>>,
-                    combatw: Query<Option<&mut Combat>, Without<Laser>>,
-                    // mut targetq: Query<(&Transform, Option<&mut Combat>)>,
-                    time: Res<TimeTicks>,
-                    mut c: Commands) {
-  for (laser_entity,
-       mut laser,
-       // Laser { target,
-       //         time_left_ticks,
-       //         shooter },
-       mut laser_transform) in &mut laserq
-  {
-    if let Ok(shooter_transform) = transformq.get(laser.shooter)
-       && let Ok((target_transform)) = transformq.get(laser.target)
-       && laser.time_left_ticks > 0
-    {
-      let start_pos = shooter_transform.translation;
-      let target_pos = target_transform.translation;
-      let distance = start_pos.distance(target_pos);
-      let center_pos = (start_pos + target_pos) * 0.5;
-      let max_laser_radius = 0.18;
-      let laser_radius = max_laser_radius
-                         * f32::sin(PI * laser.time_left_ticks as f32
-                                    / LASER_DURATION_TICKS as f32).powf(0.4);
-
-      *laser_transform =
-        Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
-                                               .with_scale(vec3(laser_radius,
-                                                                laser_radius,
-                                                                distance * 0.5));
-      laser.time_left_ticks = laser.time_left_ticks.saturating_sub(1);
-    } else {
-      c.entity(laser_entity).despawn_recursive();
-    }
-  }
-}
-#[derive(Component, Clone)]
-pub struct Missile {
-  target: Entity,
-  damage: u32
-}
-fn missile(translation: Vec3, target: Entity, damage: u32) -> impl Bundle {
-  (Missile { target,damage},
-   Navigation::new(130.0),
-   Visuals::material_sphere(MyMaterial::GlowyMaterial3),
-   SpatialBundle::from_transform(Transform::from_scale(Vec3::splat(0.2))
-                                 .with_translation(translation)),
-  )
-}
-
-pub const EXPLOSION_TIME_TICKS: u32 = 50;
-#[derive(Component, Default, Clone)]
-pub struct Explosion {
-  pub init_time: u32
-}
-pub fn explosion_visual(pos: Vec3, scale: f32, init_time: u32) -> impl Bundle {
-  (Explosion{init_time},
-   Visuals::material_sphere(MyMaterial::ExplosionMaterial),
-   SpatialBundle::from_transform(Transform::from_scale(Vec3::splat(scale))
-                                 .with_translation(pos)))
-}
-pub fn explosion_system(mut explosionq: Query<(Entity, &mut Explosion, &mut Transform)>,
-                        time: Res<TimeTicks>,
-                        mut c: Commands) {
-  for (explosion_entity, explosion, mut transform) in &mut explosionq {
-    let explosion_age = time.0 - explosion.init_time;
-    let frac = (time.0 as f32 - explosion.init_time as f32) / EXPLOSION_TIME_TICKS as f32;
-    transform.scale *= 1.03;
-    if explosion_age > EXPLOSION_TIME_TICKS {
-      // println(explosion_age);
-      c.entity(explosion_entity).despawn_recursive();
-    }
-  }
-}
-impl Combat {
-  fn damage(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
-  fn hp_depleted(&self) -> bool { self.hp == 0 }
-  fn decrease_hp(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
-  fn increase_hp(&mut self, n: u32) { self.hp += n; }
-}
-const MISSILE_SPEED: f32 = 1.8;
-pub fn missile_movement(mut missileq: Query<(Entity, &mut Transform, &Missile)>,
-                        mut targetq: Query<(&GlobalTransform, Option<&mut Combat>)>,
-                        time: Res<TimeTicks>,
-                        keyboard_input: Res<ButtonInput<KeyCode>>,
-                        mut c: Commands) {
-  let missile_hit_range = MISSILE_SPEED * 1.2;
-  let missile_chase_condition = |target| true;
-  for (missile_entity, mut missile_transform, &Missile { target, damage }) in &mut missileq {
-    if let Ok((target_globaltransform, mut ocombat)) = targetq.get_mut(target)
-       && missile_chase_condition(target)
-    {
-      let target_pos = target_globaltransform.translation();
-      let rel = target_pos - missile_transform.translation;
-      if rel.length() < missile_hit_range {
-        // println("missile hit");
-        c.entity(missile_entity).despawn_recursive();
-        if let Some(mut combat) = ocombat.as_mut() {
-          combat.damage(damage);
-          // if combat.hp_depleted() {
-          //   c.entity(target).despawn_recursive();
-          //   c.spawn(explosion_visual(target_pos, 2.0, time.0));
-          // }
-        }
-      } else {
-        missile_transform.translation += rel.normalize_or_zero() * MISSILE_SPEED;
-      }
-    } else {
-      c.entity(missile_entity).despawn_recursive();
-    }
-  }
-}
-
-enum PlayerCombatAction {
-  None,
-  ShootNearest,
-  ShootTargeted
-}
-#[derive(Clone, Copy)]
-enum TargetedAbility {
-  FireLaser(u32),
-  FireMissile(u32),
-  HealOther(u32)
-}
-#[derive(Clone, Copy)]
-enum NonTargetedAbility {
-  HealSelf(u32)
-}
 enum CombatEffect {
   Damage(u32),
   Heal(u32)
@@ -716,8 +792,24 @@ enum Weapon {
 #[derive(Component, Default, Clone, Copy)]
 pub struct Combat {
   pub hp: u32,
+  pub shield: bool,
   pub is_hostile: bool,
   pub energy: u32
+}
+enum PlayerCombatAction {
+  None,
+  ShootNearest,
+  ShootTargeted
+}
+#[derive(Clone, Copy)]
+enum NonTargetedAbility {
+  HealSelf(u32) // Drone
+}
+#[derive(Clone, Copy)]
+enum TargetedAbility {
+  FireLaser(u32),
+  FireMissile(u32),
+  HealOther(u32)
 }
 #[derive(Clone, Copy, Default)]
 enum CombatAction {
@@ -728,39 +820,11 @@ enum CombatAction {
 }
 const COMBAT_INTERVAL_TICKS: u32 = 380;
 const COMBAT_RANGE: f32 = 150.0;
-
-enum MyCommand {
-  None,
-  Multi(Vec<MyCommand>),
-  Spawn(Spawnable),
-  GiveItemToPlayer(Item),
-  EndObjectInteractionMiniGame,
-  Warp,
-  DamageEntity(Entity, u32),
-  MessageAdd(String),
-  SpawnExplosion(Vec3, f32),
-  SpawnLaser(Entity, Entity),
-  SpawnMissile(Vec3, Entity, u32),
-  DespawnEntity(Entity)
-}
-
-impl Command for MyCommand {
-  fn apply(self, world: &mut World) {
-    match self {
-      MyCommand::None => {}
-      MyCommand::GiveItemToPlayer(item) => todo!(),
-      MyCommand::EndObjectInteractionMiniGame => todo!(),
-      MyCommand::Warp => todo!(),
-      MyCommand::DamageEntity(e, n) => {
-        if let Some(mut combat) = world.get_mut::<Combat>(e) {
-          combat.hp -= n;
-        }
-      }
-      MyCommand::MessageAdd(message) => {
-        world.resource_mut::<UIData>().message_add(message);
-      }
-    }
-  }
+impl Combat {
+  fn damage(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
+  fn hp_depleted(&self) -> bool { self.hp == 0 }
+  fn decrease_hp(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
+  fn increase_hp(&mut self, n: u32) { self.hp += n; }
 }
 pub fn combat_system(mut c: Commands,
                      time: Res<TimeTicks>,
@@ -769,14 +833,13 @@ pub fn combat_system(mut c: Commands,
                             &mut Combat,
                             Option<&IsHostile>,
                             &InZone)>,
-                     player_query: Query<(Entity, &Transform, &Player)> // spatial_query: Query<(Entity, &Transform, &Combat)>
-) {
+                     player_query: Query<(Entity, &Transform, &Player)>) {
   let modval = time.0 % COMBAT_INTERVAL_TICKS;
   if modval != 0 {
     if modval >= (COMBAT_INTERVAL_TICKS / 3) {
       for (entity, transform, mut combat, _, _) in &mut combat_query {
         if combat.hp_depleted() {
-          c.spawn(explosion_visual(transform.translation, 2.0, time.0));
+          c.spawn(explosion_visual(transform.translation, 2.0));
           c.entity(entity).despawn_recursive();
         }
       }
@@ -836,7 +899,9 @@ pub fn combat_system(mut c: Commands,
                   c.spawn(laser_visual(self_entity, target));
                 }
                 TargetedAbility::FireMissile(n) => {
-                  c.spawn(missile(self_pos, target, n));
+                  target_combat.decrease_hp(n);
+                  c.spawn(missile_visual(self_pos, target));
+                  // c.spawn(missile(self_pos, target, n));
                 }
                 TargetedAbility::HealOther(n) => {
                   target_combat.increase_hp(n);
@@ -845,7 +910,6 @@ pub fn combat_system(mut c: Commands,
             }
           }
           CombatAction::NonTargeted(non_targeted_ability) => {
-            // println("kkkkk");
             if let Ok((_, _, mut self_combat, _, _)) = combat_query.get_mut(self_entity) {
               match non_targeted_ability {
                 NonTargetedAbility::HealSelf(n) => {
@@ -856,118 +920,6 @@ pub fn combat_system(mut c: Commands,
           }
         }
       }
-    }
-  }
-}
-
-
-enum Spawnable {
-  Explosion(Vec3, f32),
-  Laser(Entity, Entity),
-  Missile(Vec3, Entity, u32)
-}
-
-fn combat_system(mut commands: Commands,
-                 time: Res<TimeTicks>,
-                 combat_query: Query<(Entity,
-                        &Transform,
-                        &Combat,
-                        Option<&IsHostile>,
-                        &InZone)>,
-                 player_query: Query<(Entity, &Transform, &Player)>) {
-  if time.0 % COMBAT_INTERVAL_TICKS != 0 {
-    return;
-  }
-
-  if let Ok((player_entity, player_transform, player)) = player_query.get_single() {
-    let combat_commands = generate_combat_commands(player_entity,
-                                                   player_transform,
-                                                   player,
-                                                   &combat_query,
-                                                   time.0);
-
-    for cmd in combat_commands {
-      apply_my_command(cmd, &mut commands);
-    }
-  }
-}
-
-fn generate_combat_commands(player_entity: Entity,
-                            player_transform: &Transform,
-                            player: &Player,
-                            combat_query: &Query<(Entity,
-                                    &Transform,
-                                    &Combat,
-                                    Option<&IsHostile>,
-                                    &InZone)>,
-                            current_time: u64)
-                            -> Vec<MyCommand> {
-  combat_query.iter()
-              .filter_map(|(entity, transform, combat, is_hostile, in_zone)| {
-                if !in_zone.in_player_zone {
-                  return None;
-                }
-
-                if combat.hp_depleted() {
-                  return Some(vec![
-                    MyCommand::Spawn(Spawnable::Explosion(transform.translation, 2.0)),
-                    MyCommand::DespawnEntity(entity),
-                ]);
-                }
-
-                if entity == player_entity {
-                  player.target().map(|target| {
-                                   vec![MyCommand::Spawn(Spawnable::Laser(entity, target)),
-                                        MyCommand::DamageEntity(target, 10),]
-                                 })
-                } else if is_hostile.is_some() {
-                  Some(if rand::random::<f32>() < 0.5 {
-                         vec![MyCommand::Spawn(Spawnable::Laser(entity, player_entity)),
-                              MyCommand::DamageEntity(player_entity, 5),]
-                       } else {
-                         vec![MyCommand::Spawn(Spawnable::Missile(transform.translation,
-                                                                  player_entity,
-                                                                  5))]
-                       })
-                } else {
-                  Some(vec![MyCommand::None])
-                }
-              })
-              .flatten()
-              .collect()
-}
-
-fn apply_my_command(cmd: MyCommand, commands: &mut Commands) {
-  match cmd {
-    MyCommand::None => {}
-    MyCommand::Spawn(spawnable) => match spawnable {
-      Spawnable::Explosion(pos, size) => {
-        commands.spawn(explosion_visual(pos, size));
-      }
-      Spawnable::Laser(from, to) => {
-        commands.spawn(laser_visual(from, to));
-      }
-      Spawnable::Missile(from, to, damage) => {
-        commands.spawn(missile(from, to, damage));
-      }
-    },
-    MyCommand::GiveItemToPlayer(item) => {
-      // Implement item giving logic
-    }
-    MyCommand::EndObjectInteractionMiniGame => {
-      // Implement mini-game ending logic
-    }
-    MyCommand::Warp => {
-      // Implement warping logic
-    }
-    MyCommand::DamageEntity(entity, amount) => {
-      commands.entity(entity).insert(DamageEvent(amount));
-    }
-    MyCommand::MessageAdd(message) => {
-      // Implement message adding logic
-    }
-    MyCommand::DespawnEntity(entity) => {
-      commands.entity(entity).despawn_recursive();
     }
   }
 }
@@ -1000,38 +952,25 @@ fn filter_most<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
   filter_most_map(|t| f(&t).map(|v| (t, v)), coll)
 }
 const ENEMY_SEE_PLAYER_RANGE: f32 = 100.0;
-fn enemy_shoot_player(mut playerq: Query<(Entity, &Transform), With<Player>>,
-                      mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
-                      mut c: Commands,
-                      time: Res<TimeTicks>,
-                      targetq: Query<(&Transform,)>) {
-  if let Ok((player, player_transform)) = playerq.get_single() {
-    let player_pos = player_transform.translation;
-    let shoot_time_between = 60;
-    let can_see_player = |enemy_entity| {
-      hostileq.get(enemy_entity)
-              .map_or(false, |(_, _, Transform { translation, .. })| {
-                translation.distance(player_pos) < ENEMY_SEE_PLAYER_RANGE
-              })
-    };
-    for (enemy, ishostile, enemy_transform) in &hostileq {
-      if (time.0 % shoot_time_between == 0) && ishostile.0 && can_see_player(enemy) {
-        c.spawn(missile(enemy_transform.translation, player, 10));
-      }
-    }
-  }
-}
 fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
-                             mut playerq: Query<(Entity, &mut Player, &Transform)>,
+                             mut playerq: Query<(Entity,
+                                    &mut Player,
+                                    &Transform,
+                                    &mut Combat)>,
                              mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
                              mut c: Commands,
                              time: Res<TimeTicks>,
                              targetq: Query<(&Transform,)>) {
   let shoot_time_between = 60;
   let can_see_target = |e| true;
-  if let Ok((player_entity, mut player, player_transform)) = playerq.get_single_mut() {
+  if let Ok((player_entity, mut player, player_transform, mut player_combat)) =
+    playerq.get_single_mut()
+  {
     let player_pos = player_transform.translation;
 
+    if keys.just_pressed(KeyCode::KeyQ) {
+      player_combat.shield = !player_combat.shield;
+    }
     if keys.just_pressed(KeyCode::KeyT) {
       if let Some((e, _, _)) =
         filter_least(|(e, hostile, transform)| {
@@ -1055,13 +994,13 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
         state.approaching = !state.approaching;
       }
       if keys.just_pressed(KeyCode::KeyF) {
-        c.spawn(missile(player_pos, state.target, 10));
+        c.spawn(missile_visual(player_pos, state.target));
       }
       if keys.just_pressed(KeyCode::KeyL) {
         c.spawn(laser_visual(player_entity, state.target));
       }
       if state.shooting && (time.0 % shoot_time_between == 0) {
-        c.spawn(missile(player_pos, state.target, 10));
+        c.spawn(missile_visual(player_pos, state.target));
       }
       if keys.just_pressed(KeyCode::KeyX) {
         player.untarget();
@@ -1511,9 +1450,9 @@ pub fn space_pirate(pos: Vec3) -> impl Bundle {
 }
 pub fn space_pirate_base(pos: Vec3) -> impl Bundle {
   (Combat { hp: 120,
-            is_hostile: true,
+            is_hostile: false,
             ..default() },
-   Interact::Describe,
+   Interact::SingleOption(InteractSingleOption::Describe),
    name("space pirate base"),
    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
 }
@@ -1521,7 +1460,7 @@ pub fn space_station(pos: Vec3) -> impl Bundle {
   (Combat { hp: 120,
             is_hostile: false,
             ..default() },
-   Interact::Describe,
+   Interact::SingleOption(InteractSingleOption::Describe),
    name("space station"),
    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
 }
@@ -1603,19 +1542,19 @@ pub fn mushroom_man(pos: Vec3) -> impl Bundle {
 }
 
 pub fn sign(pos: Vec3, text: String) -> impl Bundle {
-  (Interact::Describe,
+  (Interact::SingleOption(InteractSingleOption::Describe),
    SpaceObjectBundle::new(pos,
                           1.5,
                           false,
                           Visuals::sprite(MySprite::Sign).with_text(text)))
 }
 pub fn wormhole(pos: Vec3) -> impl Bundle {
-  (Interact::Describe,
+  (Interact::SingleOption(InteractSingleOption::Describe),
    name("wormhole"),
    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
 }
 pub fn asteroid(pos: Vec3) -> impl Bundle {
-  (Interact::Asteroid,
+  (Interact::SingleOption(InteractSingleOption::Asteroid),
    CanBeFollowedByNPC,
    SpaceObjectBundle::new(pos,
                           asteroid_scale(),
@@ -1631,7 +1570,7 @@ fn item_in_space(image: MySprite,
                  -> impl Bundle {
   // let j: Box<dyn SpawnableBundle> = Box::new(image.clone());
   (Name::new(name.to_string()),
-   Interact::Item(item_type),
+   Interact::SingleOption(InteractSingleOption::Item(item_type)),
    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
 }
 fn loot_object(image: MySprite,
@@ -1641,7 +1580,7 @@ fn loot_object(image: MySprite,
                item_type: Item)
                -> impl Bundle {
   (Name::new(name.to_string()),
-   Interact::Item(item_type),
+   Interact::SingleOption(InteractSingleOption::Item(item_type)),
    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
 }
 fn space_cat(pos: Vec3) -> impl Bundle {
@@ -1696,12 +1635,12 @@ fn container(translation: Vec3,
              -> impl Bundle {
   (name("container"),
    // Inventory::from_contents(contents),
-   Interact::Container(vec(contents)),
+   Interact::SingleOption(InteractSingleOption::Container(vec(contents))),
    SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
 }
 pub fn hp_box(pos: Vec3) -> impl Bundle {
   (name("hp box"),
-   Interact::HPBox,
+   Interact::SingleOption(InteractSingleOption::HPBox),
    SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
 }
 
@@ -1710,25 +1649,26 @@ fn treasurecontainer(pos: Vec3) -> impl Bundle {
 }
 fn crystalmonster(pos: Vec3) -> impl Bundle {
   (name("crystal monster"),
-   Interact::Describe,
+   Interact::SingleOption(InteractSingleOption::Describe),
    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::CrystalMonster)))
 }
 fn sphericalcow(pos: Vec3) -> impl Bundle {
   (name("spherical cow"),
-   Interact::Describe,
+   Interact::MultipleOptions(InteractMultipleOptions::SphericalCowDialogueTree{node:CowDialogueTree::A}),
    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow)))
 }
 
 fn tradestation(pos: Vec3) -> impl Bundle {
   let (trade, text) = if prob(0.5) {
     let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
-    (Interact::Trade { inputs: (trade_buy, 1),
-                       outputs: (Item::SpaceCoin, 5) },
+
+    (Interact::SingleOption(InteractSingleOption::Trade { inputs: (trade_buy, 1),
+                                                          outputs: (Item::SpaceCoin, 5) }),
      format!("space station\nbuys {:?}", trade_buy))
   } else {
     let trade_sell = pick([Item::Spice, Item::Coffee, Item::Rock]).unwrap();
-    (Interact::Trade { inputs: (Item::SpaceCoin, 5),
-                       outputs: (trade_sell, 1) },
+    (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCoin, 5),
+                                                          outputs: (trade_sell, 1) }),
      format!("space station\nsells {:?}", trade_sell))
   };
   (name("space station"),
@@ -1741,22 +1681,24 @@ fn tradestation(pos: Vec3) -> impl Bundle {
 }
 fn floatingisland(pos: Vec3) -> impl Bundle {
   (name("floating island"),
-   Interact::Describe,
+   Interact::SingleOption(InteractSingleOption::Describe),
    SpaceObjectBundle::new(pos, 3.4, false, Visuals::sprite(MySprite::FloatingIsland)))
 }
-fn gate(pos: Vec3) -> impl Bundle {
-  (name("gate"),
-         Interact::Gate,
-         Gate,
-         SpaceObjectBundle::new(pos,
-                                2.1,
-                                false,
-                                Visuals::sprite(MySprite::Gate)
-                                .with_text(format!("warp gate to {}",random_zone_name()) )))
-}
+
+// fn gate(pos: Vec3) -> impl Bundle {
+//   (name("gate"),
+//    Interact::SingleOption(InteractSingleOption::Gate),
+//    Gate,
+//    SpaceObjectBundle::new(pos,
+//                           2.1,
+//                           false,
+//                           Visuals::sprite(MySprite::Gate)
+//                           .with_text(format!("warp gate to {}",random_zone_name()) )))
+// }
 fn abandonedship(pos: Vec3) -> impl Bundle {
-  (Interact::ObjectInteractionMiniGame(Box::new(Salvage { how_much_loot: 3 })),
-   name("abandoned ship"),
+  (name("abandoned ship"),
+   Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),
+   // Interact::Describe,
    SpaceObjectBundle::new(pos,
                           2.0,
                           false,
@@ -1770,6 +1712,16 @@ impl Inventory {
   fn add_contents(&mut self, contents: impl IntoIterator<Item = (Item, u32)>) {
     for (item, n) in contents {
       *(self.0.entry(item).or_default()) += n;
+    }
+  }
+  fn trade(&mut self,
+           inputs: impl IntoIterator<Item = (Item, u32)>,
+           outputs: impl IntoIterator<Item = (Item, u32)>) {
+    for (item, n) in outputs {
+      *(self.0.entry(item).or_default()) += n;
+    }
+    for (item, n) in inputs {
+      *(self.0.entry(item).or_default()) -= n;
     }
   }
   fn from_contents(contents: impl IntoIterator<Item = (Item, u32)>) -> Self {
@@ -1801,14 +1753,185 @@ pub fn nd20(n: u32) -> u32 { ndm(n, 20) }
 pub fn one_d6() -> u32 { nd6(1) }
 pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
-#[derive(Component, Clone)]
-enum Interact {
-  // SpaceStation,
-  // WarpGate,
-  // Salvage,
+
+#[derive(Clone, Copy, Assoc)]
+#[func(pub fn options(self) -> Vec<(Self, &'static str, &'static str)>)]
+enum CowDialogueTree {
+  #[assoc(options = vec![(Self::B, "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"")])]
+  A,
+  #[assoc(options = vec![
+        (Self::C, "Why are you in space?", "Cow: \"I'm here to study zero-gravity milk production!\""),
+        (Self::D, "How did you become spherical?", "Cow: \"It's an evolutionary adaptation for space travel.\""),
+        (Self::E, "Are you lost?", "Cow: \"No, space is my new pasture!\"")])]
+  B,
+  #[assoc(options = vec![
+        (Self::F, "How's the milk production going?", "Cow: \"It's out of this world! Want to try some Moon Moo?\""),
+        (Self::G, "Isn't it dangerous up here?", "Cow: \"No need to cow-er in fear, I've got my space suit!\""),
+        (Self::H, "Who sent you here?", "Cow: \"Dr. Bovine von Lactose, the mad dairy scientist!\"")])]
+  C,
+  #[assoc(options = vec![
+        (Self::I, "What are the advantages of being spherical?", "Cow: \"I can roll in any direction, and there are no corners to bump into!\""),
+        (Self::J, "Are there other spherical animals in space?", "Cow: \"I've heard rumors of a cubical chicken, but that's just absurd.\""),
+        (Self::K, "Can you change back to normal?", "Cow: \"Why would I? Being spherical is utterly amazing!\"")])]
+  D,
+  #[assoc(options = vec![
+        (Self::L, "Don't you miss Earth?", "Cow: \"Sometimes, but the view up here is spe-cow-tacular!\""),
+        (Self::M, "What do you eat in space?", "Cow: \"Cosmic ray grass and star dust. It's quite moo-tritious!\""),
+        (Self::N, "How do you moo-ve around?", "Cow: \"I just roll with it! Newton's laws are my best friends.\"")])]
+  E,
+  #[assoc(options = vec![
+        (Self::O, "Yes, I'd love to try some!", "Cow: \"Here's a glass of Moon Moo. It's extra frothy in zero-G!\"")])]
+  F,
+  #[assoc(options = vec![
+        (Self::P, "What's the biggest danger you've faced?", "Cow: \"I once got caught in Saturn's rings. Talk about a tight spot!\"")])]
+  G,
+  #[assoc(options = vec![
+        (Self::Q, "Can I meet this scientist?", "Cow: \"He's on the dark side of the moon. It's a bit of a trek!\"")])]
+  H,
+  #[assoc(options = vec![
+        (Self::R, "Can you demonstrate your rolling?", "Cow: \"Sure! Watch me do a barrel roll!\"")])]
+  I,
+  #[assoc(options = vec![
+        (Self::S, "A cubical chicken? That's crazy!", "Cow: \"I know, right? Geometry in space gets wild!\"")])]
+  J,
+  #[assoc(options = vec![
+        (Self::T, "Do you ever get dizzy from being round?", "Cow: \"Nope, I'm always well-balanced!\"")])]
+  K,
+  #[assoc(options = vec![
+        (Self::U, "What's your favorite view from space?", "Cow: \"The Milky Way, of course! It reminds me of home.\"")])]
+  L,
+  #[assoc(options = vec![
+        (Self::V, "Does star dust taste good?", "Cow: \"It's a bit dry, but it makes my milk sparkle!\"")])]
+  M,
+  #[assoc(options = vec![
+        (Self::W, "Can you explain the physics of your movement?", "Cow: \"It's all about conservation of moo-mentum!\"")])]
+  N,
+  #[assoc(options = vec![
+        (Self::X, "Wow, it's delicious! Can I have the recipe?", "Cow: \"Sorry, it's a closely guarded secret of the cosmos.\"")])]
+  O,
+  #[assoc(options = vec![
+        (Self::Y, "That sounds terrifying! How did you escape?", "Cow: \"I used my quick re-flex-es and dairy-ing escape plan!\"")])]
+  P,
+  #[assoc(options = vec![
+        (Self::Z, "Is he planning to send more animals to space?", "Cow: \"He's working on a flock of zero-gravity sheep as we speak!\"")])]
+  Q,
+  #[assoc(options = vec![
+        (Self::AA, "Impressive! Do you ever get motion sick?", "Cow: \"Nah, I've got a stomach of steel... er, four of them actually!\"")])]
+  R,
+  #[assoc(options = vec![
+        (Self::AB, "Are there any other strange space animals?", "Cow: \"I've heard whispers of a dodecahedron dolphin, but that's just silly.\"")])]
+  S,
+  #[assoc(options = vec![
+        (Self::AC, "You're full of jokes! Are all space cows this funny?", "Cow: \"Of course! Humor helps us cope with the uni-verse-al challenges.\"")])]
+  T,
+  #[assoc(options = vec![
+        (Self::AD, "That's beautiful. Do you ever feel lonely up here?", "Cow: \"Sometimes, but then I remember I'm surrounded by stars... and star-struck fans like you!\"")])]
+  U,
+  #[assoc(options = vec![
+        (Self::AE, "Sparkly milk sounds amazing! Can it grant superpowers?", "Cow: \"Only the power of good bone density and a happy tummy!\"")])]
+  V,
+  #[assoc(options = vec![
+        (Self::AF, "You're quite the physicist! Ever thought of teaching?", "Cow: \"I've been thinking of starting a 'Moo-niversity' actually!\"")])]
+  W,
+  #[assoc(options = vec![
+        (Self::AG, "I understand. Thanks for sharing it with me!", "Cow: \"You're welcome! Remember, what happens in space, stays in space!\"")])]
+  X,
+  #[assoc(options = vec![
+        (Self::AH, "You're quite the adventurer! Any other close calls?", "Cow: \"Well, there was this one time with a black hole... but that's a story for another day!\"")])]
+  Y,
+  #[assoc(options = vec![
+        (Self::AI, "Wow! What's next, pigs in orbit?", "Cow: \"Don't be silly! Everyone knows pigs can't fly... yet.\"")])]
+  Z,
+  #[assoc(options = vec![
+        (Self::AJ, "You're amazing! Can I take a selfie with you?", "Cow: \"Of course! Let's make it a 'span-selfie' - spanning the cosmos!\"")])]
+  AA,
+  #[assoc(options = vec![
+        (Self::AK, "This is getting too weird. I think I need to go.", "Cow: \"Aw, don't have a cow, man! Stay a while and listen to more space tales!\"")])]
+  AB,
+  #[assoc(options = vec![
+        (Self::AL, "You're out of this world! Thanks for the chat!", "Cow: \"My pleasure! Remember, in space, everyone can hear you cream... your coffee!\"")])]
+  AC,
+  #[assoc(options = vec![
+        (Self::AM, "You're never alone with that attitude! Goodbye, space cow!", "Cow: \"Goodbye, Earth friend! May your dreams be as boundless as the universe!\"")])]
+  AD,
+  #[assoc(options = vec![
+        (Self::AN, "I'll take a gallon! This was fun, thanks!", "Cow: \"Come back anytime! The Milky Way's always open!\"")])]
+  AE,
+  #[assoc(options = vec![
+        (Self::AO, "Sign me up for Astro-nomoo-my 101! Farewell!", "Cow: \"So long, and thanks for all the laughs! Keep reaching for the stars!\"")])]
+  AF,
+  #[assoc(options = vec![])]
+  AG,
+  #[assoc(options = vec![])]
+  AH,
+  #[assoc(options = vec![])]
+  AI,
+  #[assoc(options = vec![])]
+  AJ,
+  #[assoc(options = vec![])]
+  AK,
+  #[assoc(options = vec![])]
+  AL,
+  #[assoc(options = vec![])]
+  AM,
+  #[assoc(options = vec![])]
+  AN,
+  #[assoc(options = vec![])]
+  AO
+}
+
+#[derive(Clone)]
+enum InteractMultipleOptions {
+  Salvage { how_much_loot: u8 },
+  SphericalCowDialogueTree { node: CowDialogueTree } // WarpGate
+                                                     // // SpaceStation,
+}
+impl InteractMultipleOptions {
+  fn interact(self) -> (String, Vec<(u8, String, MyCommand, Self)>) {
+    match self {
+      InteractMultipleOptions::Salvage { how_much_loot } => {
+        let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
+        let options = if how_much_loot > 0 {
+          vec![(1,
+                "take some".to_string(),
+                MyCommand::multi([MyCommand::MessageAdd("You found loot".to_string()),
+                                  MyCommand::GiveItemToPlayer(Item::SpaceCoin)]),
+                Self::Salvage { how_much_loot: how_much_loot - 1 }),
+               (2, "don't take".to_string(), MyCommand::None, self.clone()),
+               (3,
+                "leave".to_string(),
+                MyCommand::EndObjectInteractionMiniGame,
+                self.clone()),]
+        } else {
+          vec![(1,
+                "leave".to_string(),
+                MyCommand::EndObjectInteractionMiniGame,
+                self.clone()),]
+        };
+        (msg, options)
+      }
+
+      InteractMultipleOptions::SphericalCowDialogueTree { node } => {
+        let msg = "It's a spherical cow in a vacuum".to_string();
+        let options = node.options()
+                          .into_iter()
+                          .enumerate()
+                          .map(|(n, (node, playersay, cowsay))| {
+                            (n as u8 + 1,
+                             playersay.to_string(),
+                             MyCommand::MessageAdd(cowsay.to_string()),
+                             InteractMultipleOptions::SphericalCowDialogueTree { node })
+                          })
+                          .collect();
+        (msg, options)
+      }
+    }
+  }
+}
+
+#[derive(Clone)]
+enum InteractSingleOption {
   Message(String),
-  // SpaceCat,
-  // SpaceStation,
   Asteroid,
   HPBox,
   Describe,
@@ -1817,9 +1940,145 @@ enum Interact {
     inputs: (Item, u32),
     outputs: (Item, u32)
   },
-  Gate,
-  Container(Vec<(Item, u32)>),
-  ObjectInteractionMiniGame(Box<dyn ObjectInteractionMiniGame>)
+  Gate(Vec3),
+  Container(Vec<(Item, u32)>)
+}
+
+impl InteractSingleOption {
+  fn interact(self,
+              self_entity: Entity,
+              self_name: String,
+              player_inventory: &Inventory)
+              -> (String, MyCommand) {
+    match self {
+      InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::MessageAdd(m)),
+      InteractSingleOption::Asteroid => {
+        (format!("examine {self_name}"),
+         MyCommand::MessageAdd("it's an asteroid".to_string()))
+      }
+      InteractSingleOption::HPBox => {
+        ("take hp box".to_string(),
+         MyCommand::multi([MyCommand::update_player_component(|combat: Combat| {
+                             Combat { hp: combat.hp + 50,
+                                      ..combat }
+                           }),
+                           MyCommand::DespawnEntity(self_entity)]))
+      }
+      InteractSingleOption::Describe => {
+        (format!("examine {self_name}"), MyCommand::MessageAdd(self_name))
+      }
+      InteractSingleOption::Item(item) => {
+        (format!("take {self_name}"),
+         MyCommand::multi([MyCommand::despawn(self_entity),
+                           MyCommand::MessageAdd(format!("You got a {}",debugfmt(item)) ),
+                           MyCommand::GiveItemToPlayer(item)]))
+      }
+
+      InteractSingleOption::Trade { inputs: (input_item, input_number),
+                                    outputs: (output_item, output_number) } => {
+        ("trade".to_string(),
+         if let Some(&n) = player_inventory.0.get(&input_item)
+            && n >= input_number
+         {
+           MyCommand::multi([
+             MyCommand::mutate_player_component(move |mut inventory:&mut Inventory|{
+               inventory.trade([(input_item, input_number)],[(output_item, output_number)]);
+             }),
+             MyCommand::MessageAdd(format!("You traded {:?} {:?} for {:?} {:?}s",
+                                           input_number,
+                                           input_item,
+                                           output_number,
+                                           output_item))
+           ])
+         } else {
+           MyCommand::MessageAdd("You don't have enough items".to_string())
+         })
+      }
+      InteractSingleOption::Gate(destination_pos) => {
+        ("interact".to_string(),
+         MyCommand::update_player_component(move |transform| Transform { translation:
+                                                                           destination_pos,
+                                                                         ..transform }))
+      }
+      InteractSingleOption::Container(items) => {
+        ("take container".to_string(),
+         MyCommand::multi([MyCommand::despawn(self_entity),
+                           MyCommand::MessageAdd("you got things".to_string()),
+                           MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
+                             inventory.add_contents(items);
+                           })]))
+      }
+    }
+  }
+}
+
+#[derive(Component, Clone)]
+enum Interact {
+  SingleOption(InteractSingleOption),
+  MultipleOptions(InteractMultipleOptions)
+}
+const INTERACTION_RANGE: f32 = 8.0;
+fn interact(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
+                  With<Player>>,
+            mut interactable_q: Query<(Entity, &Transform, &mut Interact, Option<&Name>),
+                  Without<Player>>,
+            gate_q: Query<(&GlobalTransform, &Gate)>,
+            mut c: Commands,
+            keys: Res<ButtonInput<KeyCode>>,
+            mut ui_data: ResMut<UIData>) {
+  ui_data.interact_message = None;
+  if let Ok((player, player_transform, player_combat, player_inventory)) =
+    playerq.get_single_mut()
+     && let player_pos = player_transform.translation
+     && let closest_interactable_thing =
+       filter_least(|tup| {
+                      let dist = tup.1.translation.distance(player_pos);
+                      (dist < INTERACTION_RANGE).then_some(dist as u32)
+                    },
+                    &mut interactable_q)
+     && let Some((interact_entity, transform, mut interact, oname)) =
+       closest_interactable_thing
+  {
+    match interact.as_mut() {
+      Interact::SingleOption(interact_single_option) => {
+        let (message, command) =
+          interact_single_option.clone()
+                                .interact(interact_entity, namefmt(oname), player_inventory);
+        ui_data.interact_message = Some(format!("[SPACE: {message}]"));
+        if keys.just_pressed(KeyCode::Space) {
+          c.add(command);
+        }
+      }
+      Interact::MultipleOptions(interact_multiple_options) => {
+        let (msg, options) = interact_multiple_options.clone().interact();
+        ui_data.interact_message =
+          Some(intersperse_newline([msg, default()].into_iter().chain(map(|tup| {
+                                                                            format!("{}: {}",
+                                                                                    tup.0,
+                                                                                    tup.1)
+                                                                          },
+                                                                          &options))));
+        let number_picked =
+          find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n),
+                   [(0, KeyCode::Digit0),
+                    (1u8, KeyCode::Digit1),
+                    (2, KeyCode::Digit2),
+                    (3, KeyCode::Digit3),
+                    (4, KeyCode::Digit4),
+                    (5, KeyCode::Digit5),
+                    (6, KeyCode::Digit6),
+                    (7, KeyCode::Digit7),
+                    (8, KeyCode::Digit8),
+                    (9, KeyCode::Digit9)]);
+        for (n, _, command, new_interact) in options {
+          if number_picked == Some(n) {
+            c.add(command);
+            *interact_multiple_options = new_interact;
+          }
+        }
+      }
+    }
+  }
 }
 
 fn namefmt(oname: Option<&Name>) -> String {
@@ -1830,239 +2089,111 @@ fn namefmt(oname: Option<&Name>) -> String {
 }
 fn lazy<T, F: FnOnce() -> T>(f: F) -> LazyCell<T, F> { LazyCell::new(f) }
 
-// type ObjectInteractionMiniGameChoice = (u8, String);
-trait ObjectInteractionMiniGame: Send + Sync {
-  fn simulate(&mut self, c: &mut Commands, n: u8, selected: bool) -> String;
-}
-#[derive(Component)]
-struct ObjectInteractionMiniGameComponent(Box<dyn ObjectInteractionMiniGame>);
+// fn object_interaction_minigame(mut playerq: Query<(Entity,
+//                                       &mut Transform,
+//                                       &GlobalTransform,
+//                                       &mut Inventory),
+//                                      With<Player>>,
+//                                interactable_q: Query<(Entity,
+//                                       &Transform,
+//                                       &Interact,
+//                                       Option<&Name>),
+//                                      Without<Player>>,
+//                                mut c: Commands,
+//                                keys: Res<ButtonInput<KeyCode>>,
+//                                mut ui_data: ResMut<UIData>) {
+// }
 
-struct Salvage {
-  how_much_loot: u8
-}
-
-impl ObjectInteractionMiniGame for Salvage {
-  fn simulate(&mut self, c: &mut Commands, n: u8, selected: bool) -> String {
-    if self.how_much_loot > 0 {
-      match n {
-        1 => {
-          if selected {
-            self.how_much_loot -= 1;
-          }
-          "take some".to_string()
-        }
-        2 => "dont take".to_string(),
-        3 => {
-          if selected {
-            c.add(MyCommand::EndObjectInteractionMiniGame);
-          }
-          "leave".to_string()
-        }
-        _ => {
-          panic!()
-        }
-      }
-    } else {
-      match n {
-        1 => {
-          if selected {
-            c.add(MyCommand::EndObjectInteractionMiniGame);
-          }
-          "leave".to_string()
-        }
-        _ => {
-          panic!()
-        }
-      }
-    }
-  }
-}
-
-fn simulate_salvage(mut salvage: &mut Salvage,
-                    mut c: &mut Commands,
-                    n: u8,
-                    selected: bool)
-                    -> String {
-  if salvage.how_much_loot > 0 {
-    match n {
-      1 => {
-        if selected {
-          salvage.how_much_loot -= 1;
-        }
-        "take some".to_string()
-      }
-      2 => "dont take".to_string(),
-      3 => {
-        if selected {
-          c.add(MyCommand::EndObjectInteractionMiniGame);
-        }
-        "leave".to_string()
-      }
-      _ => {
-        panic!()
-      }
-    }
-  } else {
-    match n {
-      1 => {
-        if selected {
-          c.add(MyCommand::EndObjectInteractionMiniGame);
-        }
-        "leave".to_string()
-      }
-      _ => {
-        panic!()
-      }
-    }
-  }
-}
-// fn simulate_salvage(Salvage { how_much_loot }: Salvage)
-//                     -> Vec<(String, MyCommand, Salvage)> {
-//   if how_much_loot > 0 {
-//     vec![("take some".to_string(),
-//           MyCommand::GiveItemToPlayer(Item::SpaceCoin),
-//           Salvage { how_much_loot: how_much_loot - 1 }),
-//          ("dont take".to_string(), MyCommand::None, Salvage { how_much_loot }),
-//          ("leave".to_string(),
-//           MyCommand::EndObjectInteractionMiniGame,
-//           Salvage { how_much_loot })]
+// fn interact(mut playerq: Query<(Entity, &mut Transform, &mut Combat, &mut Inventory),
+//                   With<Player>>,
+//             interactable_q: Query<(Entity, &Transform, &Interact, Option<&Name>),
+//                   Without<Player>>,
+//             gate_q: Query<(&GlobalTransform, &Gate)>,
+//             mut c: Commands,
+//             keys: Res<ButtonInput<KeyCode>>,
+//             mut ui_data: ResMut<UIData>) {
+//   if let Ok((player, mut player_transform, mut player_combat, mut player_inventory)) =
+//     playerq.get_single_mut()
+//      && let player_pos = player_transform.translation
+//      && let closest_interactable_thing =
+//        filter_least(|tup| {
+//                       let dist = tup.1.translation.distance(player_pos);
+//                       (dist < INTERACTION_RANGE).then_some(dist as u32)
+//                     },
+//                     &interactable_q)
+//      && let Some((interact_entity, transform, interact, oname)) = closest_interactable_thing
+//   {
+//     let interact_message = match interact {
+//       Interact::Message(m) => m.to_owned(),
+//       Interact::Asteroid => "asteroid".to_string(),
+//       Interact::Describe => namefmt(oname),
+//       // Interact::SpaceCat => "get a space cat".to_string(),
+//       // Interact::SpaceStation => "talk to space station".to_string(),
+//       Interact::Trade { inputs: (input_item, input_number),
+//                         outputs: (output_item, output_number) } => {
+//         format!("trade {:?} {:?} for {:#?} {:#?}s",
+//                 input_number, input_item, output_number, output_item)
+//       }
+//       Interact::Item(item) => format!("get a {:#?}", item),
+//       Interact::Gate => "warp".to_string(),
+//       Interact::Container(contents) => "take container".to_string(),
+//       Interact::HPBox => "get hp".to_string() // Interact::ObjectInteractionMiniGame(object_interaction_mini_game) => {}
+//     };
+//     ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
+//     if keys.just_pressed(KeyCode::Space) {
+//       match interact {
+//         Interact::Message(m) => ui_data.message_add(m),
+//         Interact::Asteroid => {
+//           ui_data.message_add("it's an asteroid");
+//           ui_data.count += 1;
+//         }
+//         Interact::Describe => {
+//           ui_data.message_add(format!("it's a {}", namefmt(oname)));
+//         }
+//         &Interact::Trade { inputs: (input_item, input_number),
+//                            outputs: (output_item, output_number) } => {
+//           if let Some(mut n) = player_inventory.0.get_mut(&input_item)
+//              && *n >= input_number
+//           {
+//             *n -= input_number;
+//             player_inventory.add_contents([(output_item, output_number)]);
+//             ui_data.message_add(format!("you traded {:?} {:?} for {:?} {:?}s ",
+//                                         input_number,
+//                                         input_item,
+//                                         output_number,
+//                                         output_item));
+//           } else {
+//             ui_data.message_add("you don't have the items")
+//           }
+//         }
+//         Interact::Gate => {
+//           if let Some((globaltransform, gate)) = pick(&gate_q) {
+//             player_transform.translation = globaltransform.translation();
+//           }
+//         }
+//         &Interact::Item(item) => {
+//           player_inventory.add_contents([(item, 1)]);
+//           c.entity(interact_entity).despawn_recursive();
+//           ui_data.message_add(format!("you got a {:#?}", item));
+//           // *player_inventory.0.entry(item).or_default() += 1;
+//         }
+//         Interact::Container(contents) => {
+//           c.entity(interact_entity).despawn_recursive();
+//           ui_data.message_add(format!("you got things"));
+//           player_inventory.add_contents(contents.clone());
+//         }
+//         Interact::Item(item) => todo!(),
+//         Interact::Trade { inputs, outputs } => todo!(),
+//         Interact::HPBox => {
+//           c.entity(interact_entity).despawn_recursive();
+//           player_combat.increase_hp(50);
+//         }
+//       }
+//     }
 //   } else {
-//     vec![("leave".to_string(),
-//           MyCommand::EndObjectInteractionMiniGame,
-//           Salvage { how_much_loot })]
+//     ui_data.interact_message = None;
 //   }
 // }
-
-// impl ObjectInteractionMiniGame for Salvage {
-//   fn get_choices(&self) -> Vec<ObjectInteractionMiniGameChoice> {}
-
-//   fn choose(&mut self, choice: ObjectInteractionMiniGameChoice) { todo!() }
-// }
-// #[derive(Component, Clone, Debug)]
-// enum ObjectInteractionMiniGameState {
-//   SpaceStation,
-//   WarpGate,
-//   Salvage
-// }
-fn object_interaction_minigame(mut playerq: Query<(Entity,
-                                      &mut Transform,
-                                      &GlobalTransform,
-                                      &mut Inventory),
-                                     With<Player>>,
-                               interactable_q: Query<(Entity,
-                                      &Transform,
-                                      &Interact,
-                                      Option<&Name>),
-                                     Without<Player>>,
-                               mut c: Commands,
-                               keys: Res<ButtonInput<KeyCode>>,
-                               mut ui_data: ResMut<UIData>) {
-}
-const INTERACTION_RANGE: f32 = 8.0;
-fn interact(mut playerq: Query<(Entity, &mut Transform, &mut Combat, &mut Inventory),
-                  With<Player>>,
-            interactable_q: Query<(Entity, &Transform, &Interact, Option<&Name>),
-                  Without<Player>>,
-            gate_q: Query<(&GlobalTransform, &Gate)>,
-            mut c: Commands,
-            keys: Res<ButtonInput<KeyCode>>,
-            mut ui_data: ResMut<UIData>) {
-  if let Ok((player, mut player_transform, mut player_combat, mut player_inventory)) =
-    playerq.get_single_mut()
-     && let player_pos = player_transform.translation
-     && let closest_interactable_thing =
-       filter_least(|tup| {
-                      let dist = tup.1.translation.distance(player_pos);
-                      (dist < INTERACTION_RANGE).then_some(dist as u32)
-                    },
-                    &interactable_q)
-     && let Some((interact_entity, transform, interact, oname)) = closest_interactable_thing
-  {
-    let interact_message = match interact {
-      Interact::Message(m) => m.to_owned(),
-      Interact::Asteroid => "asteroid".to_string(),
-      Interact::Describe => namefmt(oname),
-      // Interact::SpaceCat => "get a space cat".to_string(),
-      // Interact::SpaceStation => "talk to space station".to_string(),
-      Interact::Trade { inputs: (input_item, input_number),
-                        outputs: (output_item, output_number) } => {
-        format!("trade {:?} {:?} for {:#?} {:#?}s",
-                input_number, input_item, output_number, output_item)
-      }
-      Interact::Item(item) => format!("get a {:#?}", item),
-      Interact::Gate => "warp".to_string(),
-      Interact::Container(contents) => "take container".to_string(),
-      Interact::HPBox => "get hp".to_string(),
-      Interact::ObjectInteractionMiniGame(object_interaction_mini_game) => {}
-    };
-    ui_data.interact_message = Some(format!("[SPACE: {}]", interact_message));
-    if keys.just_pressed(KeyCode::Space) {
-      match interact {
-        Interact::Message(m) => ui_data.message_add(m),
-        Interact::Asteroid => {
-          ui_data.message_add("it's an asteroid");
-          ui_data.count += 1;
-        }
-        Interact::Describe => {
-          ui_data.message_add(format!("it's a {}", namefmt(oname)));
-        }
-        // Interact::SpaceCat => {
-        //   c.entity(interact_entity).despawn_recursive();
-        //   ui_data.message_add("you found a space cat");
-        //   // ui_data.space_cat_count += 1;
-        // }
-        // Interact::SpaceStation => {
-        //   if ui_data.space_cat_count > 0 {
-        //     ui_data.space_cat_count = 0;
-        //     ui_data.message_add("thank you for returning these space cats");
-        //   } else {
-        //     ui_data.message_add("please find our space cats. they are lost");
-        //   }
-        // }
-        &Interact::Trade { inputs: (input_item, input_number),
-                           outputs: (output_item, output_number) } => {
-          if let Some(mut n) = player_inventory.0.get_mut(&input_item)
-             && *n >= input_number
-          {
-            *n -= input_number;
-            *player_inventory.0.entry(output_item).or_default() += output_number;
-            ui_data.message_add(format!("you traded {:?} {:?} for {:?} {:?}s ",
-                                        input_number,
-                                        input_item,
-                                        output_number,
-                                        output_item));
-          } else {
-            ui_data.message_add("you don't have the items")
-          }
-        }
-        Interact::Gate => {
-          if let Some((globaltransform, gate)) = pick(&gate_q) {
-            player_transform.translation = globaltransform.translation();
-          }
-        }
-        &Interact::Item(item) => {
-          player_inventory.add_contents([(item, 1)]);
-          c.entity(interact_entity).despawn_recursive();
-          ui_data.message_add(format!("you got a {:#?}", item));
-          // *player_inventory.0.entry(item).or_default() += 1;
-        }
-        Interact::Container(contents) => {
-          c.entity(interact_entity).despawn_recursive();
-          ui_data.message_add(format!("you got things"));
-          player_inventory.add_contents(contents.clone());
-        }
-        Interact::Item(item) => todo!(),
-        Interact::Trade { inputs, outputs } => todo!(),
-        Interact::HPBox => {
-          c.entity(interact_entity).despawn_recursive();
-          player_combat.increase_hp(50);
-        }
-      }
-    }
-  } else {
-    ui_data.interact_message = None;
-  }
-}
 // #[derive(Clone)]
 // struct OverViewEntry;
 // #[derive(Default, Clone)]
@@ -2160,16 +2291,17 @@ fn ui(mut c: Commands,
                                                   oplanet,
                                                   .. }) = get_target_data(player_target)
     {
-      filter_map(std::convert::identity,
-                 [Some(format!("Target: {name}")),
-                  oplanet.map(rust_utils::prettyfmt),
-                  ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
-                  Some(format!("Distance: {:.1}", distance)),
-                  Some("q: approach".to_string()),
-                  Some("f: shoot missile".to_string()),
-                  Some("l: shoot laser".to_string()),
-                  Some("r: toggle shoot".to_string()),
-                  Some("x: untarget".to_string())]).collect()
+      let somestring = |x| Some(string(x));
+      [Some(format!("Target: {name}")),
+       oplanet.map(rust_utils::prettyfmt),
+       ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
+       Some(format!("Distance: {:.1}", distance)),
+       somestring("q: approach"),
+       somestring("l: shoot laser"),
+       somestring("r: toggle shoot"),
+       somestring("x: untarget")].into_iter()
+                                 .flatten()
+                                 .collect()
     } else {
       default()
     };
@@ -2178,8 +2310,10 @@ fn ui(mut c: Commands,
       map(ToString::to_string,
           [format!("{:.1}", player_pos).as_str(),
            format!("hp: {}", player_combat.hp).as_str(),
+           format!("energy: {}", player_combat.energy).as_str(),
            "w,a,s,d,shift,ctrl: move",
            "z: spawn mushroom man",
+           "q: toggle shield",
            "t: target nearest hostile",
            "g: warp",
            "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
@@ -2217,6 +2351,8 @@ fn ui(mut c: Commands,
     }
   }
 }
+
+pub fn string(t: impl ToString) -> String { t.to_string() }
 #[derive(Component, Clone, Default)]
 struct CanBeFollowedByNPC;
 #[derive(Component, Clone, Default, new)]
@@ -2282,7 +2418,7 @@ enum SpawnableTemplate {
   TreasureContainer,
   #[assoc(to_spawn = hostile_turret.into())]
   HostileTurret,
-  #[assoc(to_spawn = TranslationSpawnable::multi([(Vec3::Y,hostile_turret.into()),(Vec3::ZERO,hostile_turret.into()),(Vec3::NEG_Y,hostile_turret.into())]))]
+  #[assoc(to_spawn = TranslationSpawnable::multi([(Vec3::Y * 4.0,hostile_turret.into()),(Vec3::ZERO,hostile_turret.into()),(Vec3::NEG_Y * 4.0,hostile_turret.into())]))]
   ThreeHostileTurrets,
   #[assoc(to_spawn = space_pirate.into())]
   SpacePirate,
@@ -2322,8 +2458,8 @@ enum SpawnableTemplate {
   Nomad,
   #[assoc(to_spawn = alien_soldier.into())]
   AlienSoldier,
-  #[assoc(to_spawn = gate.into())]
-  Gate,
+  // #[assoc(to_spawn = gate.into())]
+  // Gate,
   #[assoc(to_spawn = abandonedship.into())]
   AbandonedShip,
   // ...
@@ -2414,7 +2550,7 @@ enum SpawnableTemplate {
 //                 Item::Person)
 //   })
 // });
-struct Spawnable(Box<dyn FnOnce(&mut Commands)>);
+struct Spawnable(Box<dyn FnOnce(&mut Commands) + Send + Sync>);
 impl Spawnable {
   fn spawn(self, c: &mut Commands) { self.0(c); }
 }
@@ -2461,38 +2597,6 @@ impl SpawnableTemplate {
       _ => Some(self)
     }
   }
-
-  // fn to_to_spawn(self) -> ToSpawn {
-  //   match self {
-  //     Spawnable::SpaceMan => spaceman.into(),
-  //     Spawnable::NPC => npc.into(),
-  //     Spawnable::WormHole => wormhole.into(),
-  //     Spawnable::SpacePirateBase => space_pirate_base.into(),
-  //     Spawnable::SpaceStation => space_station.into(),
-  //     Spawnable::SpacePirate => space_pirate.into(),
-  //     Spawnable::Asteroid => asteroid.into(),
-  //     Spawnable::SpaceCat => space_cat.into(),
-  //     Spawnable::IceAsteroid => ice_asteroid.into(),
-  //     Spawnable::CrystalAsteroid => crystal_asteroid.into(),
-  //     Spawnable::SpaceCop => space_cop.into(),
-  //     Spawnable::SpaceWizard => space_wizard.into(),
-  //     Spawnable::Nomad => nomad.into(),
-  //     Spawnable::AlienSoldier => alien_soldier.into(),
-  //     Spawnable::HPBox => hp_box.into(),
-  //     Spawnable::SpaceCoin => space_coin.into(),
-  //     Spawnable::TreasureContainer => treasurecontainer.into(),
-  //     Spawnable::CrystalMonster => crystalmonster.into(),
-  //     Spawnable::SphericalCow => sphericalcow.into(),
-  //     Spawnable::TradeStation => tradestation.into(),
-  //     Spawnable::FloatingIsland => floatingisland.into(),
-  //     Spawnable::Gate => gate.into(),
-  //     Spawnable::AbandonedShip => abandonedship.into(),
-  //     other => {
-  //       println("tried to spawn {other}");
-  //       spaceman.into()
-  //     }
-  //   }
-  // }
 }
 
 pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
@@ -2502,6 +2606,7 @@ const NORMAL_ASTEROID_FIELD: SpawnableTemplate =
                              (0.1, SpawnableTemplate::IceAsteroid),
                              (0.1, SpawnableTemplate::SpaceCoin),
                              (0.5, SpawnableTemplate::CrystalMonster),
+                             (0.5, SpawnableTemplate::SphericalCow),
                              (1.0, SpawnableTemplate::SpaceCat)]);
 const VARIOUS_ASTEROIDS: SpawnableTemplate =
   SpawnableTemplate::probs(&[(0.5, SpawnableTemplate::Asteroid),
@@ -2857,12 +2962,13 @@ fn random_zone_name() -> String {
   // (0..4).map(|_| random::<char>()).collect()
 }
 #[derive(Component, Clone)]
+struct GatesConnected(Entity, Entity);
+#[derive(Component, Clone)]
 struct Gate;
 fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
 
-// SpaceMan,
 #[derive(Component, Debug, Clone)]
 pub struct Zone {
   pub faction_control: Option<Faction>,
@@ -3204,10 +3310,12 @@ pub fn main() {
       player_movement,
       camera_follow_player,
       increment_time,
+      origin_time,
       timed_animation_system,
-      missile_movement,
-      laser_system,
-      explosion_system,
+      combat_visual_effects,
+      // missile_movement,
+      // laser_system,
+      // explosion_system,
       player_target_interaction,
     ).chain())
     .add_systems(Update,(
@@ -3218,6 +3326,7 @@ pub fn main() {
       ui,
       spawn_skybox,
       npc_movement,
+      // interact,
       interact,
       navigation,
       click_target,
