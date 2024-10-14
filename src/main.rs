@@ -21,6 +21,8 @@
 pub mod bundletree;
 pub mod ui;
 
+use std::iter::Enumerate;
+
 pub use bevy::prelude::Name;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
@@ -113,6 +115,8 @@ pub enum MySprite {
   SpaceCat,
   #[assoc(path = "spherical_cow.png")]
   SphericalCow,
+  #[assoc(path = "zorp.png")]
+  Zorp,
   #[assoc(path = "space_station.png")]
   SpaceStation,
   #[assoc(path = "ice_planet.png")]
@@ -337,7 +341,7 @@ pub enum GenMesh {
 pub struct Visuals {
   text: Option<String>,
   material_mesh: Option<(MyMaterial, GenMesh)>,
-  shield_active:bool,
+  shield_active: bool,
   sprite: Option<MySprite>,
   targeted: bool
 }
@@ -516,157 +520,169 @@ impl Player {
   }
 }
 
-pub enum MyCommand {
-  None,
-  Multi(Vec<MyCommand>),
-  Spawn(Spawnable),
-  GiveItemToPlayer(Item),
-  EndObjectInteractionMiniGame,
-  DamageEntity(Entity, u32),
-  MessageAdd(String),
-  DespawnEntity(Entity),
-  Arbitrary(Box<dyn FnOnce(&mut World) + 'static + Send + Sync>)
-}
-
 pub fn insert_component<C: Component>(world: &mut World, entity: Entity, component: C) {
   if let Some(mut entity_mut) = world.get_entity_mut(entity) {
     entity_mut.insert(component);
   }
 }
+
 pub fn update_component<C: Component + Clone>(world: &mut World,
                                               entity: Entity,
                                               f: impl FnOnce(C) -> C) {
-  if let Some(mut entity_mut) = world.get_entity_mut(entity)
-     && let Some(mut component) = entity_mut.get_mut::<C>()
-  {
-    let updated = f((*component).clone());
-    *component = updated;
+  if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+    if let Some(mut component) = entity_mut.get_mut::<C>() {
+      let updated = f((*component).clone());
+      *component = updated;
+    }
   }
 }
+
 pub fn mutate_component<C: Component>(world: &mut World,
                                       entity: Entity,
                                       f: impl FnOnce(&mut C)) {
-  if let Some(mut entity_mut) = world.get_entity_mut(entity)
-     && let Some(mut component) = entity_mut.get_mut::<C>()
-  {
-    f(&mut component);
+  if let Some(mut entity_mut) = world.get_entity_mut(entity) {
+    if let Some(mut component) = entity_mut.get_mut::<C>() {
+      f(&mut component);
+    }
   }
 }
+
 pub fn get_player(world: &mut World) -> Option<Entity> {
   world.query_filtered::<Entity, With<Player>>()
        .iter(world)
        .next()
 }
+
+pub struct MyCommand(pub Box<dyn FnOnce(&mut World) + 'static + Send + Sync>);
+
+// impl From<Box<dyn FnOnce(&mut World) + 'static + Send + Sync>> for MyCommand {
+//   fn from(f: Box<dyn FnOnce(&mut World) + 'static + Send + Sync>) -> Self { MyCommand(f) }
+// }
+
+impl<F> From<F> for MyCommand where F: FnOnce(&mut World) + 'static + Send + Sync {
+  fn from(f: F) -> Self { MyCommand(Box::new(f)) }
+}
+
 impl MyCommand {
-  pub fn arbitrary(f: impl FnOnce(&mut World) + 'static + Send + Sync) -> Self {
-    Self::Arbitrary(Box::new(f))
+  pub fn none() -> Self { (|_world: &mut World| {}).into() }
+
+  pub fn multi(commands: impl IntoIterator<Item = MyCommand>) -> Self {
+    let v = vec(commands);
+    (move |world: &mut World| {
+      for command in v {
+        command.0(world);
+      }
+    }).into()
   }
-  pub fn multi(coll: impl IntoIterator<Item = MyCommand>) -> Self {
-    Self::Multi(coll.into_iter().collect())
+
+  pub fn spawn(b: impl Bundle) -> Self {
+    let spawnable: Spawnable = b.into();
+    (move |world: &mut World| {
+      let mut commands = world.commands();
+      spawnable.spawn(&mut commands);
+    }).into()
   }
-  pub fn spawn(b: impl Bundle + 'static) -> Self { Self::Spawn(Spawnable::from(b)) }
-  pub fn despawn(entity: Entity) -> Self {
-    Self::arbitrary(move |world| {
+
+  pub fn give_item_to_player(item: Item) -> Self {
+    (move |world: &mut World| {
+      if let Some(player_entity) = get_player(world) {
+        mutate_component(world, player_entity, |inventory: &mut Inventory| {
+          inventory.add_contents([(item.clone(), 1)]);
+        });
+      }
+    }).into()
+  }
+
+  pub fn end_object_interaction_mini_game() -> Self {
+    (|_world: &mut World| {
+      // Implement mini-game ending logic here
+    }).into()
+  }
+
+  pub fn damage_entity(entity: Entity, amount: u32) -> Self {
+    (move |world: &mut World| {
+      if let Some(mut combat) = world.get_mut::<Combat>(entity) {
+        combat.hp = combat.hp.saturating_sub(amount);
+      }
+    }).into()
+  }
+
+  pub fn message_add(message: impl ToString + Send + Sync + 'static) -> Self {
+    (move |world: &mut World| {
+      if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
+        ui_data.message_add(message.to_string().clone());
+      }
+    }).into()
+  }
+
+  pub fn despawn_entity(entity: Entity) -> Self {
+    (move |world: &mut World| {
       world.commands().entity(entity).despawn_recursive();
-      // world.despawn(entity);
-    })
+    }).into()
   }
+  pub fn despawn(entity: Entity) -> Self {
+    (move |world: &mut World| {
+      world.commands().entity(entity).despawn_recursive();
+    }).into()
+  }
+
   pub fn insert_component<C: Component + 'static>(entity: Entity, component: C) -> Self {
-    Self::arbitrary(move |world| insert_component(world, entity, component))
+    (move |world: &mut World| insert_component(world, entity, component)).into()
   }
-  // pub fn insert_component<C: Component + 'static>(entity: Entity, component: C) -> Self {
-  //   Self::arbitrary(move |world| insert_component(world, entity, component))
-  // }
+
   pub fn update_component<C: Component + Clone + 'static>(entity: Entity,
                                                           f: impl FnOnce(C) -> C
                                                             + 'static
                                                             + Send
                                                             + Sync)
                                                           -> Self {
-    Self::arbitrary(move |world| update_component(world, entity, f))
+    (move |world: &mut World| update_component(world, entity, f)).into()
   }
+
   pub fn mutate_component<C: Component + 'static>(entity: Entity,
                                                   f: impl FnOnce(&mut C)
                                                     + 'static
                                                     + Send
                                                     + Sync)
                                                   -> Self {
-    Self::arbitrary(move |world| mutate_component(world, entity, f))
+    (move |world: &mut World| mutate_component(world, entity, f)).into()
   }
+
   pub fn insert_player_component<C: Component + 'static>(component: C) -> Self {
-    Self::arbitrary(move |world| {
+    (move |world: &mut World| {
       if let Some(player_entity) = get_player(world) {
         insert_component(world, player_entity, component);
       }
-    })
+    }).into()
   }
+
   pub fn update_player_component<C: Component + Clone + 'static>(f: impl FnOnce(C) -> C
                                                                    + 'static
                                                                    + Send
                                                                    + Sync)
                                                                  -> Self {
-    Self::arbitrary(move |world| {
+    (move |world: &mut World| {
       if let Some(player_entity) = get_player(world) {
         update_component(world, player_entity, f);
       }
-    })
+    }).into()
   }
+
   pub fn mutate_player_component<C: Component + Clone + 'static>(f: impl FnOnce(&mut C)
                                                                    + 'static
                                                                    + Send
                                                                    + Sync)
                                                                  -> Self {
-    Self::arbitrary(move |world: &mut World| {
+    (move |world: &mut World| {
       if let Some(player_entity) = get_player(world) {
-        mutate_component(world, player_entity, f)
+        mutate_component(world, player_entity, f);
       }
-    })
+    }).into()
   }
-  // Player-specific helper methods
 }
 
 impl Command for MyCommand {
-  fn apply(self, world: &mut World) {
-    match self {
-      MyCommand::None => {}
-      MyCommand::Multi(commands) => {
-        for command in commands {
-          command.apply(world);
-        }
-      }
-      MyCommand::Spawn(spawnable) => {
-        let c = &mut world.commands();
-        spawnable.0(c);
-      }
-      MyCommand::GiveItemToPlayer(item) => {
-        if let Some(player_entity) = get_player(world) {
-          mutate_component(world, player_entity, |inventory: &mut Inventory| {
-            inventory.add_contents([(item, 1)]);
-          })
-        }
-      }
-      MyCommand::EndObjectInteractionMiniGame => {
-        // Implement mini-game ending logic here
-      }
-      MyCommand::DamageEntity(e, n) => {
-        if let Some(mut combat) = world.get_mut::<Combat>(e) {
-          combat.hp = combat.hp.saturating_sub(n);
-        }
-      }
-      MyCommand::MessageAdd(message) => {
-        if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
-          ui_data.message_add(message);
-        }
-      }
-      MyCommand::DespawnEntity(entity) => {
-        world.commands().entity(entity).despawn_recursive();
-        // world.despawn(entity);
-      }
-      MyCommand::Arbitrary(f) => {
-        f(world);
-      }
-    }
-  }
+  fn apply(self, world: &mut World) { (self.0)(world); }
 }
 
 // fn combat_actions()
@@ -1554,12 +1570,14 @@ pub fn wormhole(pos: Vec3) -> impl Bundle {
    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
 }
 pub fn asteroid(pos: Vec3) -> impl Bundle {
-  (Interact::SingleOption(InteractSingleOption::Asteroid),
-   CanBeFollowedByNPC,
-   SpaceObjectBundle::new(pos,
-                          asteroid_scale(),
-                          false,
-                          Visuals::sprite(MySprite::Asteroid)))
+  (
+    // Interact::SingleOption(InteractSingleOption::Asteroid),
+    Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMinigame{resources_left:5,tool_durability:5}),
+    CanBeFollowedByNPC,
+    SpaceObjectBundle::new(pos,
+      asteroid_scale(),
+      false,
+      Visuals::sprite(MySprite::Asteroid)))
 }
 
 fn item_in_space(image: MySprite,
@@ -1658,6 +1676,11 @@ fn sphericalcow(pos: Vec3) -> impl Bundle {
    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow)))
 }
 
+fn zorp(pos: Vec3) -> impl Bundle {
+  (name("zorp"),
+    Interact::MultipleOptions(InteractMultipleOptions::AlienMerchantDialogue{node:AlienMerchantDialogueTree::Start}),
+   SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::Zorp)))
+}
 fn tradestation(pos: Vec3) -> impl Bundle {
   let (trade, text) = if prob(0.5) {
     let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
@@ -1742,7 +1765,8 @@ enum Item {
   SpaceCoin,
   Crystal,
   DiHydrogenMonoxide,
-  Rock
+  Rock,
+  SpaceMinerals
 }
 pub fn ndm(n: u32, m: u32) -> u32 {
   let mut rng = rand::thread_rng();
@@ -1880,46 +1904,144 @@ enum CowDialogueTree {
   AO
 }
 
+#[derive(Clone, Copy, Assoc)]
+#[func(pub fn options(self) -> Vec<(Self, &'static str, &'static str)>)]
+enum AlienMerchantDialogueTree {
+  #[assoc(options = vec![(Self::Greet, "Greetings, alien merchant!", "Zorp: \"Greetings, space traveler! Care to browse my wares?\"")])]
+  Start,
+  #[assoc(options = vec![
+        (Self::BrowseWares, "I'd like to see what you're selling.", "Zorp: \"Excellent! I have items from across the galaxy.\""),
+        (Self::AskAboutPlanet, "Can you tell me about this planet?", "Zorp: \"Ah, Planet X-427? It's a hub for interstellar commerce!\""),
+        (Self::Farewell, "Maybe another time. Goodbye!", "Zorp: \"Safe travels, friend! May the stars guide your path.\"")])]
+  Greet,
+  #[assoc(options = vec![
+        (Self::BuyItem("Quantum Stabilizer"), "I'll take the Quantum Stabilizer.", "Zorp: \"A fine choice! That'll be 500 space credits.\""),
+        (Self::BuyItem("Hyper-Spanner"), "The Hyper-Spanner looks useful.", "Zorp: \"Indeed it is! 300 space credits, if you please.\""),
+        (Self::BuyItem("Nebula Nectar"), "Is that Nebula Nectar?", "Zorp: \"Good eye! A rare delicacy for just 1000 space credits.\""),
+        (Self::Greet, "On second thought, let me ask you something else.", "Zorp: \"Of course! What would you like to know?\"")])]
+  BrowseWares,
+  #[assoc(options = vec![
+        (Self::AskAboutLocalCulture, "Tell me about the local culture.", "Zorp: \"It's a melting pot of species! You'll find influences from all corners of the universe.\""),
+        (Self::AskAboutDangers, "Are there any dangers I should be aware of?", "Zorp: \"Watch out for the Void Whales in the asteroid belt. Magnificent, but dangerous!\""),
+        (Self::Greet, "Interesting! Let me ask you something else.", "Zorp: \"Always happy to share knowledge! What else interests you?\"")])]
+  AskAboutPlanet,
+  #[assoc(options = vec![])]
+  Farewell,
+  #[assoc(options = vec![
+        (Self::ConfirmPurchase, "Yes, I'll buy it.", "Zorp: \"Excellent! Your new item awaits. Anything else?\""),
+        (Self::BrowseWares, "On second thought, let me see your other items.", "Zorp: \"No problem! Here's what else I have in stock.\""),
+        (Self::Greet, "I've changed my mind. Let's talk about something else.", "Zorp: \"As you wish! What would you like to discuss?\"")])]
+  BuyItem(&'static str),
+  #[assoc(options = vec![
+        (Self::BrowseWares, "I'd like to see more of your wares.", "Zorp: \"Certainly! Let's see what else might catch your eye.\""),
+        (Self::Farewell, "No, that's all for now. Thank you!", "Zorp: \"Thank you for your business! May your journeys be profitable.\"")])]
+  ConfirmPurchase,
+  #[assoc(options = vec![
+        (Self::AskAboutFestivals, "Are there any local festivals?", "Zorp: \"Oh yes! The annual Starfall Celebration is quite a sight to behold.\""),
+        (Self::AskAboutPlanet, "Tell me more about the planet itself.", "Zorp: \"Certainly! What specific aspects interest you?\"")])]
+  AskAboutLocalCulture,
+  #[assoc(options = vec![
+        (Self::AskAboutSecurity, "How's the security here?", "Zorp: \"Top-notch! The Galactic Peacekeepers maintain order in this sector.\""),
+        (Self::AskAboutPlanet, "Any other planetary features I should know about?", "Zorp: \"Well, there's the perpetual aurora in the northern hemisphere...\"")])]
+  AskAboutDangers,
+  #[assoc(options = vec![
+        (Self::Greet, "That sounds amazing! Tell me more about your wares.", "Zorp: \"Of course! I have just the thing for festival-goers...\""),
+        (Self::Farewell, "Thanks for the information. I should get going.", "Zorp: \"Anytime! Don't be a stranger, space traveler!\"")])]
+  AskAboutFestivals,
+  #[assoc(options = vec![
+        (Self::BrowseWares, "Do you sell any security gadgets?", "Zorp: \"Indeed I do! Let me show you our latest personal shield generators.\""),
+        (Self::Farewell, "Good to know. I'll be on my way then.", "Zorp: \"Safe travels! Remember, a cautious traveler is a long-lived traveler.\"")])]
+  AskAboutSecurity
+}
+
 #[derive(Clone)]
 enum InteractMultipleOptions {
-  Salvage { how_much_loot: u8 },
-  SphericalCowDialogueTree { node: CowDialogueTree } // WarpGate
-                                                     // // SpaceStation,
+  Salvage {
+    how_much_loot: u8
+  },
+  SphericalCowDialogueTree {
+    node: CowDialogueTree
+  },
+  AlienMerchantDialogue {
+    node: AlienMerchantDialogueTree
+  },
+  AsteroidMiningMinigame {
+    resources_left: u8,
+    tool_durability: u8
+  }
 }
 impl InteractMultipleOptions {
-  fn interact(self) -> (String, Vec<(u8, String, MyCommand, Self)>) {
+  fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
     match self {
+      InteractMultipleOptions::AlienMerchantDialogue { node } => {
+        let msg =
+          "You encounter Zorp, an alien merchant with tentacles and three eyes.".to_string();
+        let options = mapv(|(node, player_say, merchant_say)| {
+                             (player_say.to_string(),
+                              MyCommand::message_add(merchant_say),
+                              InteractMultipleOptions::AlienMerchantDialogue { node })
+                           },
+                           node.options());
+        (msg, options)
+      }
+      InteractMultipleOptions::AsteroidMiningMinigame { resources_left,
+                                                        tool_durability } => {
+        let msg =
+          format!("You're mining an asteroid. Resources left: {}. Tool durability: {}.",
+                  resources_left, tool_durability);
+        let mut options = vec![];
+
+        if resources_left > 0 && tool_durability > 0 {
+          options.push((
+            "Mine carefully".to_string(),
+            MyCommand::multi([
+              MyCommand::message_add("You mine carefully, preserving your tool."),
+              MyCommand::give_item_to_player(Item::SpaceMinerals),
+            ]),
+            Self::AsteroidMiningMinigame { resources_left: resources_left - 1, tool_durability },
+          ));
+          options.push((
+            "Mine aggressively".to_string(),
+            MyCommand::multi([
+              MyCommand::message_add("You mine aggressively, risking your tool for more resources."),
+              MyCommand::give_item_to_player(Item::SpaceMinerals),
+              MyCommand::give_item_to_player(Item::SpaceMinerals),
+            ]),
+            Self::AsteroidMiningMinigame { resources_left: resources_left - 1, tool_durability: tool_durability - 1 },
+          ));
+        }
+
+        options.push(("Leave asteroid".to_string(),
+                      MyCommand::end_object_interaction_mini_game(),
+                      self.clone()));
+
+        (msg, options)
+      }
       InteractMultipleOptions::Salvage { how_much_loot } => {
         let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
         let options = if how_much_loot > 0 {
-          vec![(1,
-                "take some".to_string(),
-                MyCommand::multi([MyCommand::MessageAdd("You found loot".to_string()),
-                                  MyCommand::GiveItemToPlayer(Item::SpaceCoin)]),
+          vec![("take some".to_string(),
+                MyCommand::multi([MyCommand::message_add("You found loot"),
+                                  MyCommand::give_item_to_player(Item::SpaceCoin)]),
                 Self::Salvage { how_much_loot: how_much_loot - 1 }),
-               (2, "don't take".to_string(), MyCommand::None, self.clone()),
-               (3,
-                "leave".to_string(),
-                MyCommand::EndObjectInteractionMiniGame,
+               ("don't take".to_string(), MyCommand::none(), self.clone()),
+               ("leave".to_string(),
+                MyCommand::end_object_interaction_mini_game(),
                 self.clone()),]
         } else {
-          vec![(1,
-                "leave".to_string(),
-                MyCommand::EndObjectInteractionMiniGame,
+          vec![("leave".to_string(),
+                MyCommand::end_object_interaction_mini_game(),
                 self.clone()),]
         };
         (msg, options)
       }
-
       InteractMultipleOptions::SphericalCowDialogueTree { node } => {
         let msg = "It's a spherical cow in a vacuum".to_string();
         let options = node.options()
                           .into_iter()
-                          .enumerate()
-                          .map(|(n, (node, playersay, cowsay))| {
-                            (n as u8 + 1,
-                             playersay.to_string(),
-                             MyCommand::MessageAdd(cowsay.to_string()),
+                          .map(|(node, playersay, cowsay)| {
+                            (playersay.to_string(),
+                             MyCommand::message_add(cowsay),
                              InteractMultipleOptions::SphericalCowDialogueTree { node })
                           })
                           .collect();
@@ -1932,6 +2054,7 @@ impl InteractMultipleOptions {
 #[derive(Clone)]
 enum InteractSingleOption {
   Message(String),
+  // Salvage { how_much_loot: u8 },
   Asteroid,
   HPBox,
   Describe,
@@ -1951,10 +2074,10 @@ impl InteractSingleOption {
               player_inventory: &Inventory)
               -> (String, MyCommand) {
     match self {
-      InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::MessageAdd(m)),
+      InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
       InteractSingleOption::Asteroid => {
         (format!("examine {self_name}"),
-         MyCommand::MessageAdd("it's an asteroid".to_string()))
+         MyCommand::message_add("it's an asteroid"))
       }
       InteractSingleOption::HPBox => {
         ("take hp box".to_string(),
@@ -1962,16 +2085,16 @@ impl InteractSingleOption {
                              Combat { hp: combat.hp + 50,
                                       ..combat }
                            }),
-                           MyCommand::DespawnEntity(self_entity)]))
+                           MyCommand::despawn(self_entity)]))
       }
       InteractSingleOption::Describe => {
-        (format!("examine {self_name}"), MyCommand::MessageAdd(self_name))
+        (format!("examine {self_name}"), MyCommand::message_add(self_name))
       }
       InteractSingleOption::Item(item) => {
         (format!("take {self_name}"),
          MyCommand::multi([MyCommand::despawn(self_entity),
-                           MyCommand::MessageAdd(format!("You got a {}",debugfmt(item)) ),
-                           MyCommand::GiveItemToPlayer(item)]))
+                           MyCommand::message_add(format!("You got a {}",debugfmt(item)) ),
+                           MyCommand::give_item_to_player(item)]))
       }
 
       InteractSingleOption::Trade { inputs: (input_item, input_number),
@@ -1984,14 +2107,14 @@ impl InteractSingleOption {
              MyCommand::mutate_player_component(move |mut inventory:&mut Inventory|{
                inventory.trade([(input_item, input_number)],[(output_item, output_number)]);
              }),
-             MyCommand::MessageAdd(format!("You traded {:?} {:?} for {:?} {:?}s",
+             MyCommand::message_add(format!("You traded {:?} {:?} for {:?} {:?}s",
                                            input_number,
                                            input_item,
                                            output_number,
                                            output_item))
            ])
          } else {
-           MyCommand::MessageAdd("You don't have enough items".to_string())
+           MyCommand::message_add("You don't have enough items")
          })
       }
       InteractSingleOption::Gate(destination_pos) => {
@@ -2003,11 +2126,35 @@ impl InteractSingleOption {
       InteractSingleOption::Container(items) => {
         ("take container".to_string(),
          MyCommand::multi([MyCommand::despawn(self_entity),
-                           MyCommand::MessageAdd("you got things".to_string()),
+                           MyCommand::message_add("you got things"),
                            MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
                              inventory.add_contents(items);
                            })]))
       }
+//       InteractSingleOption::Salvage { how_much_loot } => {
+//         ("Search for loot",if how_much_loot > 0 {
+// MyCommand::multi([MyCommand::message_add("You found loot"),
+//                                   MyCommand::give_item_to_player(Item::SpaceCoin)])
+
+
+//         } else {  } )
+//         let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
+//         let options = if how_much_loot > 0 {
+//           vec![("take some".to_string(),
+//                 MyCommand::multi([MyCommand::message_add("You found loot"),
+//                                   MyCommand::give_item_to_player(Item::SpaceCoin)]),
+//                 Self::Salvage { how_much_loot: how_much_loot - 1 }),
+//                ("don't take".to_string(), MyCommand::none(), self.clone()),
+//                ("leave".to_string(),
+//                 MyCommand::end_object_interaction_mini_game(),
+//                 self.clone()),]
+//         } else {
+//           vec![("leave".to_string(),
+//                 MyCommand::end_object_interaction_mini_game(),
+//                 self.clone()),]
+//         };
+//         (msg, options)
+//       },
     }
   }
 }
@@ -2052,12 +2199,14 @@ fn interact(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
       Interact::MultipleOptions(interact_multiple_options) => {
         let (msg, options) = interact_multiple_options.clone().interact();
         ui_data.interact_message =
-          Some(intersperse_newline([msg, default()].into_iter().chain(map(|tup| {
-                                                                            format!("{}: {}",
-                                                                                    tup.0,
-                                                                                    tup.1)
-                                                                          },
-                                                                          &options))));
+          Some(intersperse_newline([msg, default()].into_iter()
+                                                   .chain((&options).into_iter()
+                                                                    .enumerate()
+                                                                    .map(|(n, tup)| {
+                                                                      format!("{}: {}",
+                                                                              n + 1,
+                                                                              tup.0)
+                                                                    }))));
         let number_picked =
           find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n),
                    [(0, KeyCode::Digit0),
@@ -2070,10 +2219,10 @@ fn interact(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
                     (7, KeyCode::Digit7),
                     (8, KeyCode::Digit8),
                     (9, KeyCode::Digit9)]);
-        for (n, _, command, new_interact) in options {
-          if number_picked == Some(n) {
+        for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
+          if number_picked == Some(n as u8 + 1) {
             c.add(command);
-            *interact_multiple_options = new_interact;
+            *interact_multiple_options = new_interact.clone();
           }
         }
       }
@@ -2448,6 +2597,8 @@ enum SpawnableTemplate {
   SpaceCat,
   #[assoc(to_spawn = sphericalcow.into())]
   SphericalCow,
+  #[assoc(to_spawn = zorp.into())]
+  Zorp,
   #[assoc(to_spawn = floatingisland.into())]
   FloatingIsland,
   #[assoc(to_spawn = space_cop.into())]
@@ -2607,6 +2758,7 @@ const NORMAL_ASTEROID_FIELD: SpawnableTemplate =
                              (0.1, SpawnableTemplate::SpaceCoin),
                              (0.5, SpawnableTemplate::CrystalMonster),
                              (0.5, SpawnableTemplate::SphericalCow),
+                             (0.5, SpawnableTemplate::Zorp),
                              (1.0, SpawnableTemplate::SpaceCat)]);
 const VARIOUS_ASTEROIDS: SpawnableTemplate =
   SpawnableTemplate::probs(&[(0.5, SpawnableTemplate::Asteroid),
@@ -3326,7 +3478,6 @@ pub fn main() {
       ui,
       spawn_skybox,
       npc_movement,
-      // interact,
       interact,
       navigation,
       click_target,
