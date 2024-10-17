@@ -2182,7 +2182,16 @@ lazy_static!{
 }
 use lazy_static::lazy_static;
 
+fn translated_space_object_with<B:Bundle + Clone>( scale: f32, can_move: bool, visuals: Visuals,b:B)->impl Fn(Vec3)->(B,SpaceObjectBundle){
+  move |translation| (b.clone(),SpaceObjectBundle::new(translation, scale, can_move, visuals.clone()))
+}
 lazy_static! {
+  pub static ref HOSTILE_TURRET: TranslationSpawnable =
+    translated_space_object_with(NORMAL_NPC_SCALE, false, Visuals::sprite(MySprite::Turret),
+                                 (Name::new("turret"),
+                                  NPC { follow_target: None, ..default() },
+                                  Combat { hp: 80, is_hostile: true, ..default() },
+                                 )).into();
   pub static ref HOSTILE_TURRET: TranslationSpawnable = from(|pos: Vec3| {
     (Name::new("turret"),
      NPC { follow_target: None, ..default() },
