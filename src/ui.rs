@@ -143,6 +143,32 @@ impl ViewTemplate for OverViewPopUp {
                                 .children(text)
   }
 }
+pub fn common_style(sb: &mut StyleBuilder) {
+  sb.font_size(32.0)
+    .display(Display::Block)
+    .border(1)
+    .border_color(UI_BORDER_COLOR)
+    .background_color(UI_BACKGROUND_COLOR)
+    .position(bevy::ui::PositionType::Absolute)
+    .padding(3)
+    .pointer_events(false);
+}
+#[derive(Clone, PartialEq)]
+pub struct UIMainView;
+impl ViewTemplate for UIMainView {
+  type View = impl View;
+  fn create(&self, cx: &mut Cx) -> Self::View {
+    let click = cx.create_callback(|| {
+                    info!("Clicked!");
+                  });
+
+    vec![ViewChild::new(InfoBox),
+         ViewChild::new(MessageLogView),
+         ViewChild::new(TargetPopUp),
+         ViewChild::new(OverViewPopUp),
+         ViewChild::new(InteractPopUp)]
+  }
+}
 /// Example of a view template that displays a string.
 #[derive(Clone, PartialEq)]
 pub struct OverlayExample;
@@ -289,32 +315,6 @@ fn style_row(sb: &mut StyleBuilder) {
     .column_gap(4);
 }
 
-pub fn common_style(sb: &mut StyleBuilder) {
-  sb.font_size(32.0)
-    .display(Display::Block)
-    .border(1)
-    .border_color(UI_BORDER_COLOR)
-    .background_color(UI_BACKGROUND_COLOR)
-    .position(bevy::ui::PositionType::Absolute)
-    .padding(3)
-    .pointer_events(false);
-}
-#[derive(Clone, PartialEq)]
-pub struct UIMainView;
-impl ViewTemplate for UIMainView {
-  type View = impl View;
-  fn create(&self, cx: &mut Cx) -> Self::View {
-    let click = cx.create_callback(|| {
-                    info!("Clicked!");
-                  });
-
-    vec![ViewChild::new(InfoBox),
-         ViewChild::new(MessageLogView),
-         ViewChild::new(TargetPopUp),
-         ViewChild::new(OverViewPopUp),
-         ViewChild::new(InteractPopUp)]
-  }
-}
 pub fn ui_root_thing_in_the_world() -> impl Bundle {
   Element::<SpatialBundle>::new() // .insert(TargetCamera(root))
                                  .style((style_test, style_test, style_test, style_test))

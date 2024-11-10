@@ -5,6 +5,7 @@
 // #![feature(type_alias_impl_trait)]
 #![allow(unused_mut)]
 #![allow(non_camel_case_types)]
+#![allow(non_upper_case_globals)]
 #![feature(variant_count)]
 #![feature(strict_overflow_ops)]
 #![feature(iter_intersperse)]
@@ -19,7 +20,7 @@
 // #![feature(const_fn_floating_point_arithmetic)]
 
 pub mod bundletree;
-pub mod ui;
+// pub mod ui;
 
 use std::{cell::OnceCell,
           iter::Enumerate,
@@ -48,17 +49,16 @@ use {avian3d::prelude::*,
      bevy_mod_picking::{prelude::{Highlight, HighlightKind},
                         PickableBundle},
      bevy_panorbit_camera::PanOrbitCamera,
-     bevy_quill::{prelude::*, QuillPlugin},
+     bevy_quill::{prelude::*, QuillPlugin, ViewChild},
      bevy_quill_overlays::QuillOverlaysPlugin,
      dynamics::solver::SolverConfig,
      enum_assoc::Assoc,
      fancy_constructor::new,
      lazy_static::lazy_static,
      rand::{random, thread_rng, Rng},
-     rust_utils::{comment, debug_println, debugfmt, filter_map, find, find_map, first,
-                  map, mapv, prettyfmt, println, sort_by_key, sum, vec},
-     std::{any::Any, cell::LazyCell, f32::consts::PI},
-     ui::{intersperse_newline, ui_root_thing_in_the_world, Message, UIData, UIMainView}};
+     rust_utils::{comment, concat_strings, debug_println, debugfmt, filter_map, find,
+                  find_map, first, map, mapv, prettyfmt, println, sort_by_key, sum, vec},
+     std::{any::Any, cell::LazyCell, f32::consts::PI}};
 
 comment! {
   // Voxel Scenes
@@ -87,262 +87,205 @@ pub const BLOOM_SETTINGS: BloomSettings =
                   composite_mode: BloomCompositeMode::Additive,
                   ..BloomSettings::NATURAL };
 
-#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-#[func(pub const fn path(&self) -> &'static str)]
-pub enum MySprite {
-  #[assoc(path = "white_corners.png")]
-  WhiteCorners,
-  #[assoc(path = "spaceman.png")]
-  SpaceMan,
-  #[assoc(path = "spacecowboy.png")]
-  SpaceCowBoy,
-  #[assoc(path = "spacewizard.png")]
-  SpaceWizard,
-  #[assoc(path = "wormhole.png")]
-  WormHole,
-  #[assoc(path = "gate.png")]
-  Gate,
-  #[assoc(path = "turret.png")]
-  Turret,
-  #[assoc(path = "crystal_monster.png")]
-  CrystalMonster,
-  #[assoc(path = "container.png")]
-  Container,
-  #[assoc(path = "mushroom_man.png")]
-  MushroomMan,
-  #[assoc(path = "asteroid.png")]
-  Asteroid,
-  #[assoc(path = "icesteroid.png")]
-  IceAsteroid,
-  #[assoc(path = "crystal_asteroid.png")]
-  CrystalAsteroid,
-  #[assoc(path = "coin.png")]
-  Coin,
-  #[assoc(path = "space_cat.png")]
-  SpaceCat,
-  #[assoc(path = "spherical_cow.png")]
-  SphericalCow,
-  #[assoc(path = "zorp.png")]
-  Zorp,
-  #[assoc(path = "space_station.png")]
-  SpaceStation,
-  #[assoc(path = "ice_planet.png")]
-  IcePlanet,
-  #[assoc(path = "lava_planet.png")]
-  LavaPlanet,
-  #[assoc(path = "pixelc/habitableplanet.png")]
-  HabitablePlanet,
-  #[assoc(path = "pixelc/browngasgiant.png")]
-  BrownGasGiant,
-  #[assoc(path = "pixelc/marslikeplanet.png")]
-  MarsLikePlanet,
-  #[assoc(path = "sandplanet.png")]
-  SandPlanet,
-  #[assoc(path = "hpbox.png")]
-  HPBox,
-  #[assoc(path = "sign.png")]
-  Sign,
-  #[assoc(path = "floating_island.png")]
-  FloatingIsland,
-  #[assoc(path = "spacepiratebase.png")]
-  SpacePirateBase,
-  #[assoc(path = "spaceshipwhite.png")]
-  SpaceshipWhite,
-  #[assoc(path = "spaceshipblue.png")]
-  SpaceshipBlue,
-  #[assoc(path = "spaceshipred.png")]
-  SpaceshipRed,
-  #[assoc(path = "spaceshipdarkred.png")]
-  SpaceshipDarkRed,
-  #[assoc(path = "spaceshippurple.png")]
-  SpaceshipPurple,
-  #[assoc(path = "spaceshipabandoned.png")]
-  SpaceshipAbandoned,
-  #[assoc(path = "wizardspaceship.png")]
-  WizardSpaceShip,
-  #[assoc(path = "spaceshipgreen.png")]
-  SpaceshipGreen,
-  #[assoc(path = "purpleenemyship.png")]
-  PurpleEnemyShip,
-  #[assoc(path = "spaceshipwhite2.png")]
-  SpaceshipWhite2,
-  #[assoc(path = "stone.png")]
-  Stone,
-  #[assoc(path = "pixelc/bricks.png")]
-  Bricks,
-  #[assoc(path = "pixelc/chest.png")]
-  Chest,
-  #[assoc(path = "pixelc/block_textures.png")]
-  BlockTextures,
-  #[assoc(path = "sun.png")]
-  Sun,
-  #[assoc(path = "fire.png")]
-  Fire,
-  #[assoc(path = "iceberg.png")]
-  Iceberg,
-  #[assoc(path = "coffee.png")]
-  Coffee,
-  #[assoc(path = "stickman.png")]
-  Stickman,
-  #[assoc(path = "grass.png")]
-  Grass,
-  #[assoc(path = "water.png")]
-  Water,
-  #[assoc(path = "tree.png")]
-  Tree,
-  #[assoc(path = "snow.png")]
-  Snow,
-  #[assoc(path = "penguin.png")]
-  Penguin,
-  #[assoc(path = "pixelc/missile.png")]
-  Missile,
-  #[assoc(path = "pixelc/torch.png")]
-  Torch,
-  #[assoc(path = "nasa_starmap.jpeg")]
-  NasaStarmap
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+struct MySprite {
+  path: &'static str
 }
-#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-#[func(pub fn val(&self, h: Handle<Image>) -> StandardMaterial)]
-#[func(pub fn img(&self) -> MySprite)]
-enum MyImageMaterial {
-  #[assoc(img = MySprite::Snow)]
-  #[assoc(val = StandardMaterial { perceptual_roughness: 0.4,
-                                   metallic: 0.0,
-                                   reflectance: 0.5,
-                                   ior: 1.31,
-                                   base_color_texture: Some(h),
-                                   ..default() })]
-  Snow,
-  #[assoc(img = MySprite::Water)]
-  #[assoc(val = StandardMaterial { perceptual_roughness: 0.3,
+impl MySprite {
+  const fn new(path: &'static str) -> Self { Self { path } }
+  const ASTEROID: Self = Self::new("asteroid.png");
+  const BLOCKTEXTURES: Self = Self::new("pixelc/block_textures.png");
+  const BRICKS: Self = Self::new("pixelc/bricks.png");
+  const BROWNGASGIANT: Self = Self::new("pixelc/browngasgiant.png");
+  const CAR: Self = Self::new("car.png");
+  const CHEST: Self = Self::new("pixelc/chest.png");
+  const COFFEE: Self = Self::new("coffee.png");
+  const COIN: Self = Self::new("coin.png");
+  const CONTAINER: Self = Self::new("container.png");
+  const CRYSTALASTEROID: Self = Self::new("crystal_asteroid.png");
+  const CRYSTALMONSTER: Self = Self::new("crystal_monster.png");
+  const FIRE: Self = Self::new("fire.png");
+  const FLOATINGISLAND: Self = Self::new("floating_island.png");
+  const GATE: Self = Self::new("gate.png");
+  const GRASS: Self = Self::new("grass.png");
+  const GROUND: Self = Self::new("ground.png");
+  const HABITABLEPLANET: Self = Self::new("pixelc/habitableplanet.png");
+  const HPBOX: Self = Self::new("hpbox.png");
+  const ICEASTEROID: Self = Self::new("icesteroid.png");
+  const ICEBERG: Self = Self::new("iceberg.png");
+  const ICEPLANET: Self = Self::new("ice_planet.png");
+  const LAVAPLANET: Self = Self::new("lava_planet.png");
+  const MARSLIKEPLANET: Self = Self::new("pixelc/marslikeplanet.png");
+  const MISSILE: Self = Self::new("pixelc/missile.png");
+  const MUSHROOMMAN: Self = Self::new("mushroom_man.png");
+  const NASASTARMAP: Self = Self::new("nasa_starmap.jpe");
+  const NOTE: Self = Self::new("note.png");
+  const PENGUIN: Self = Self::new("penguin.png");
+  const PLAYER: Self = Self::new("player.png");
+  const PORTAL: Self = Self::new("portal.png");
+  const PURPLEENEMYSHIP: Self = Self::new("purpleenemyship.png");
+  const SANDPLANET: Self = Self::new("sandplanet.png");
+  const SIGN: Self = Self::new("sign.png");
+  const SNOW: Self = Self::new("snow.png");
+  const SPACECAT: Self = Self::new("space_cat.png");
+  const SPACECOWBOY: Self = Self::new("spacecowboy.png");
+  const SPACEMAN: Self = Self::new("spaceman.png");
+  const SPACEPIRATEBASE: Self = Self::new("spacepiratebase.png");
+  const SPACESHIPABANDONED: Self = Self::new("spaceshipabandoned.png");
+  const SPACESHIPBLUE: Self = Self::new("spaceshipblue.png");
+  const SPACESHIPDARKRED: Self = Self::new("spaceshipdarkred.png");
+  const SPACESHIPGREEN: Self = Self::new("spaceshipgreen.png");
+  const SPACESHIPPURPLE: Self = Self::new("spaceshippurple.png");
+  const SPACESHIPRED: Self = Self::new("spaceshipred.png");
+  const SPACESHIPWHITE2: Self = Self::new("spaceshipwhite2.png");
+  const SPACESHIPWHITE: Self = Self::new("spaceshipwhite.png");
+  const SPACESTATION: Self = Self::new("space_station.png");
+  const SPACEWIZARD: Self = Self::new("spacewizard.png");
+  const SPHERICALCOW: Self = Self::new("spherical_cow.png");
+  const STICKMAN: Self = Self::new("stickman.png");
+  const STONE: Self = Self::new("stone.png");
+  const SUN: Self = Self::new("sun.png");
+  const TENT: Self = Self::new("tent.png");
+  const TORCH: Self = Self::new("pixelc/torch.png");
+  const TREE: Self = Self::new("tree.png");
+  const TREEMONSTER: Self = Self::new("treemonster.png");
+  const TURRET: Self = Self::new("turret.png");
+  const WATER: Self = Self::new("water.png");
+  const WHITECORNERS: Self = Self::new("white_corners.png");
+  const WIZARDSPACESHIP: Self = Self::new("wizardspaceship.png");
+  const WORMHOLE: Self = Self::new("wormhole.png");
+  const ZORP: Self = Self::new("zorp.png");
+}
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+struct MyImageMaterial {
+  img: MySprite,
+  mat_fn: fn(Handle<Image>) -> StandardMaterial
+}
+impl MyImageMaterial {
+  const fn new(mat_fn: fn(Handle<Image>) -> StandardMaterial, img: MySprite) -> Self {
+    Self { img, mat_fn }
+  }
+  pub fn val(&self, h: Handle<Image>) -> StandardMaterial { (self.mat_fn)(h) }
+  pub fn img(&self) -> MySprite { self.img }
+  const GROUND: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.8,
+                                                        metallic: 0.0,
+                                                        reflectance: 0.2,
+                                                        ..h.into() },
+                                 MySprite::GROUND);
+  const SNOW: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.4,
                                                       metallic: 0.0,
                                                       reflectance: 0.5,
-                                                      base_color_texture:
-                                                      Some(h),
-                                                      ..default() })]
-  Water,
-  #[assoc(img = MySprite::Stone)]
-  #[assoc(val = StandardMaterial { perceptual_roughness: 0.8,
-                                                      metallic: 0.0,
-                                                      reflectance: 0.3,
-                                                      base_color_texture:
-                                                      Some(h),
-                                                      ..default() })]
-  Stone,
-  #[assoc(img = MySprite::Bricks)]
-  #[assoc(val = StandardMaterial { perceptual_roughness: 0.95,
-                                                      metallic: 0.0,
-                                                      reflectance: 0.1,
-                                                      base_color_texture:
-                                   Some(h),
-                                                      ..default() })]
-  Bricks,
-  #[assoc(img = MySprite::Grass)]
-  #[assoc(val = StandardMaterial { perceptual_roughness: 0.8,
-                                                      metallic: 0.0,
-                                                      reflectance: 0.2,
-                                                      base_color_texture:
-                                   Some(h),
-                                                      ..default() })]
-  Grass,
-  #[assoc(img = MySprite::Penguin)]
-  #[assoc(val = StandardMaterial::from(h))]
-  Penguin
+                                                      ior: 1.31,
+                                                      ..h.into() },
+                               MySprite::SNOW);
+  const WATER: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.3,
+                                                       metallic: 0.0,
+                                                       reflectance: 0.5,
+                                                       ..h.into() },
+                                MySprite::WATER);
+  const STONE: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.8,
+                                                       metallic: 0.0,
+                                                       reflectance: 0.3,
+                                                       ..h.into() },
+                                MySprite::STONE);
+  const BRICKS: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.95,
+                                                        metallic: 0.0,
+                                                        reflectance: 0.1,
+                                                        ..h.into() },
+                                 MySprite::BRICKS);
+  const GRASS: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.8,
+                                                       metallic: 0.0,
+                                                       reflectance: 0.2,
+                                                       ..h.into() },
+                                MySprite::GRASS);
+  const PENGUIN: Self = Self::new(From::from, MySprite::PENGUIN);
 }
-#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-#[func(pub fn val(&self) -> StandardMaterial)]
-pub enum MyMaterial {
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Mask(0.0),
-                                   ..GLOWY_COLOR.into() })]
-  GlowyMaterial,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Mask(0.0),
-                                   ..GLOWY_COLOR_2.into() })]
-  GlowyMaterial2,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Mask(0.0),
-                                   ..GLOWY_COLOR_3.into() })]
-  GlowyMaterial3,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Mask(0.0001),
-                                   ..EXPLOSION_COLOR.into() })]
-  ExplosionMaterial,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Mask(0.0001),
-                                   ..LASER_COLOR.into() })]
-  LaserMaterial,
-  #[assoc(val = StandardMaterial::from(Color::srgb(0.2, 0.7, 0.9)))]
-  ParticleMaterial,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Blend,
-                                   ..Color::srgba(0.0, 0.0, 0.0, 0.0).into() })]
-  InvisibleMaterial,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Blend,
-                                   ..Color::srgba(0.0, 0.3, 1.0, 0.1).into() })]
-  HoveredMaterial,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Blend,
-                                   ..Color::srgba(0.0, 0.3, 1.0, 0.3).into() })]
-  PressedMaterial,
-  #[assoc(val = StandardMaterial { unlit: true,
-                                   alpha_mode: AlphaMode::Blend,
-                                   ..Color::srgba(0.0, 0.3, 1.0, 0.2).into() })]
-  SelectedMaterial
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+struct MyMaterial {
+  mat_fn: fn() -> StandardMaterial
 }
-#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-#[func(pub const fn path_and_label(&self) -> (&'static str,&'static str))]
-pub enum MyScene {
-  #[assoc(path_and_label = ("lunarlander.glb", "Scene0"))]
-  LunarLander,
-  #[assoc(path_and_label = ("character_controller_demo.glb", "Scene0"))]
-  CharacterControllerDemo,
-  #[assoc(path_and_label = ("level.glb", "Scene0"))]
-  Level,
-  #[assoc(path_and_label = ("alevel.gltf", "Scene0"))]
-  ALevel,
-  #[assoc(path_and_label = ("this_here_level.glb", "Scene0"))]
-  IslandLevel,
-  #[assoc(path_and_label = ("somesketchlevel.glb", "Scene0"))]
-  SomeSketchLevel,
-  #[assoc(path_and_label = ("snowman.glb", "Scene0"))]
-  Snowman,
-  #[assoc(path_and_label = ("coffee.glb", "Scene0"))]
-  CoffeeScene,
-  #[assoc(path_and_label = ("goxel_level.glb", "Scene0"))]
-  GoxelLevel,
-  #[assoc(path_and_label = ("turtle level.gltf", "Scene0"))]
-  TurtleLevel,
-  #[assoc(path_and_label = ("wat.glb", "Scene0"))]
-  Wat
+impl MyMaterial {
+  const fn new(mat_fn: fn() -> StandardMaterial) -> Self { Self { mat_fn } }
+  pub fn val(&self) -> StandardMaterial { (self.mat_fn)() }
+  const GLOWY: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                      alpha_mode: AlphaMode::Mask(0.0),
+                                                      ..GLOWY_COLOR.into() });
+  const GLOWY_2: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                        alpha_mode: AlphaMode::Mask(0.0),
+                                                        ..GLOWY_COLOR_2.into() });
+  const GLOWY_3: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                        alpha_mode: AlphaMode::Mask(0.0),
+                                                        ..GLOWY_COLOR_3.into() });
+  const EXPLOSION: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                          alpha_mode:
+                                                            AlphaMode::Mask(0.0001),
+                                                          ..EXPLOSION_COLOR.into() });
+  const LASER: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                      alpha_mode:
+                                                        AlphaMode::Mask(0.0001),
+                                                      ..LASER_COLOR.into() });
+  const PARTICLE: Self = Self::new(|| StandardMaterial::from(Color::srgb(0.2, 0.7, 0.9)));
+  const INVISIBLE: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                          alpha_mode: AlphaMode::Blend,
+                                                          ..Color::srgba(0.0, 0.0, 0.0,
+                                                                         0.0).into() });
+  const HOVERED: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                        alpha_mode: AlphaMode::Blend,
+                                                        ..Color::srgba(0.0, 0.3, 1.0,
+                                                                       0.1).into() });
+  const PRESSED: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                        alpha_mode: AlphaMode::Blend,
+                                                        ..Color::srgba(0.0, 0.3, 1.0,
+                                                                       0.3).into() });
+  const SELECTED: Self = Self::new(|| StandardMaterial { unlit: true,
+                                                         alpha_mode: AlphaMode::Blend,
+                                                         ..Color::srgba(0.0, 0.3, 1.0,
+                                                                        0.2).into() });
 }
-// struct GenMesh2(pub fn() -> Mesh);
-// const CUBE: GenMesh2 = GenMesh2(|| Cuboid::new(0.7, 0.7, 0.7).into());
-#[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
-#[func(pub fn gen(&self) -> Mesh)]
-pub enum GenMesh {
-  #[assoc(gen = Cuboid::new(1.0, 1.0, 1.0).into())]
-  UnitCube,
-  #[assoc(gen = primitives::Cylinder::new(1.0, 1.0).into())]
-  UnitCylinder,
-  #[assoc(gen = Cuboid::new(0.7, 0.7, 0.7).into())]
-  Cube,
-  #[assoc(gen = Cuboid::new(2.0, 1.0, 1.0).into())]
-  BoxMesh,
-  #[assoc(gen = Cuboid::new(2.1, 0.3, 2.1).into())]
-  FlatBox,
-  #[assoc(gen = primitives::Capsule3d::default().into())]
-  Capsule,
-  #[assoc(gen = primitives::Torus::default().into())]
-  Torus,
-  #[assoc(gen = primitives::Sphere { radius: 1.0 }.into())]
-  Sphere,
-  #[assoc(gen = Cuboid::new(25.0, 0.1, 25.0).into())]
-  PlaneSize50,
-  #[assoc(gen = primitives::Rectangle::new(BILLBOARD_REL_SCALE, BILLBOARD_REL_SCALE).into())]
-  BillboardMeshSquare
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+pub struct MyScene {
+  path: &'static str,
+  label: &'static str
 }
+impl MyScene {
+  pub const fn new(path: &'static str, label: &'static str) -> Self { Self { path, label } }
+  pub const fn path_and_label(&self) -> (&'static str, &'static str) {
+    (self.path, self.label)
+  }
+  pub const LUNAR_LANDER: Self = Self::new("lunarlander.glb", "Scene0");
+  pub const CHARACTER_CONTROLLER_DEMO: Self =
+    Self::new("character_controller_demo.glb", "Scene0");
+  pub const LEVEL: Self = Self::new("level.glb", "Scene0");
+  pub const A_LEVEL: Self = Self::new("alevel.gltf", "Scene0");
+  pub const ISLAND_LEVEL: Self = Self::new("this_here_level.glb", "Scene0");
+  pub const SOME_SKETCH_LEVEL: Self = Self::new("somesketchlevel.glb", "Scene0");
+  pub const SNOWMAN: Self = Self::new("snowman.glb", "Scene0");
+  pub const COFFEE_SCENE: Self = Self::new("coffee.glb", "Scene0");
+  pub const GOXEL_LEVEL: Self = Self::new("goxel_level.glb", "Scene0");
+  pub const TURTLE_LEVEL: Self = Self::new("turtle level.gltf", "Scene0");
+  pub const WAT: Self = Self::new("wat.glb", "Scene0");
+}
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+pub struct GenMesh {
+  gen_fn: fn() -> Mesh
+}
+impl GenMesh {
+  const fn new(gen_fn: fn() -> Mesh) -> Self { Self { gen_fn } }
+  pub fn gen(&self) -> Mesh { (self.gen_fn)() }
+  pub const UNIT_CUBE: Self = Self::new(|| Cuboid::new(1.0, 1.0, 1.0).into());
+  pub const UNIT_CYLINDER: Self = Self::new(|| primitives::Cylinder::new(1.0, 1.0).into());
+  pub const CUBE: Self = Self::new(|| Cuboid::new(0.7, 0.7, 0.7).into());
+  pub const BOX: Self = Self::new(|| Cuboid::new(2.0, 1.0, 1.0).into());
+  pub const FLAT_BOX: Self = Self::new(|| Cuboid::new(2.1, 0.3, 2.1).into());
+  pub const CAPSULE: Self = Self::new(|| primitives::Capsule3d::default().into());
+  pub const TORUS: Self = Self::new(|| primitives::Torus::default().into());
+  pub const SPHERE: Self = Self::new(|| primitives::Sphere { radius: 1.0 }.into());
+  pub const PLANE_SIZE_50: Self = Self::new(|| Cuboid::new(25.0, 0.1, 25.0).into());
+  pub const BILLBOARD_MESH_SQUARE: Self = Self::new(|| {
+    primitives::Rectangle::new(BILLBOARD_REL_SCALE, BILLBOARD_REL_SCALE).into()
+  });
+}
+const min: fn(f32, f32) -> f32 = f32::min;
 
 #[derive(Component, Clone, PartialEq, Eq, Default)]
 pub struct Visuals {
@@ -364,7 +307,7 @@ impl Visuals {
            ..default() }
   }
   fn material_sphere(material: MyMaterial) -> Self {
-    Self::material_mesh(material, GenMesh::Sphere)
+    Self::material_mesh(material, GenMesh::SPHERE)
   }
   fn with_text(self, text: impl ToString) -> Self {
     Self { text: Some(text.to_string()),
@@ -411,13 +354,13 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
   };
   let mut get_sprite_handle = |sprite: MySprite| {
     sprite_handles.entry(sprite)
-                  .or_insert_with(|| serv.load(format!("embedded://{}", sprite.path())))
+                  .or_insert_with(|| serv.load(format!("embedded://{}", sprite.path)))
                   .clone()
   };
 
   let text_style = TextStyle { font_size: 30.0,
                                ..default() };
-  let invisible_material = get_material_handle(MyMaterial::InvisibleMaterial);
+  let invisible_material = get_material_handle(MyMaterial::INVISIBLE);
   let invisible_highlight =
     Highlight { hovered: Some(HighlightKind::Fixed(invisible_material.clone())),
                 pressed: Some(HighlightKind::Fixed(invisible_material.clone())),
@@ -435,7 +378,7 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
                                           c.spawn((PickableBundle::default(),
                                                    invisible_highlight.clone(),
                      PbrBundle { material: invisible_material.clone() ,
-                                 mesh: get_mesh_handle(GenMesh::Sphere),
+                                 mesh: get_mesh_handle(GenMesh::SPHERE),
                                  ..default() }))
              .set_parent(e)
              .id()
@@ -452,7 +395,7 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
       }
       if let Some(sprite) = visuals.sprite {
         let sprite_handle = get_sprite_handle(sprite);
-        let billboard_mesh_handle = get_mesh_handle(GenMesh::BillboardMeshSquare);
+        let billboard_mesh_handle = get_mesh_handle(GenMesh::BILLBOARD_MESH_SQUARE);
         c.spawn((VisualSprite,
                  BillboardLockAxis { y_axis: true,
                                      rotation: true },
@@ -465,8 +408,8 @@ pub fn visuals(camq: Query<&GlobalTransform, With<Camera3d>>,
          .set_parent(main_visual_child);
       }
       if visuals.targeted {
-        let target_overlay = get_sprite_handle(MySprite::WhiteCorners);
-        let billboard_mesh_handle = get_mesh_handle(GenMesh::BillboardMeshSquare);
+        let target_overlay = get_sprite_handle(MySprite::WHITECORNERS);
+        let billboard_mesh_handle = get_mesh_handle(GenMesh::BILLBOARD_MESH_SQUARE);
         c.spawn((BillboardLockAxis { y_axis: false,
                                      rotation: false },
                  BillboardTextureBundle { mesh:
@@ -701,9 +644,10 @@ impl Command for MyCommand {
 #[derive(Component, Clone)]
 pub enum VisualEffect {
   Laser { target: Entity, shooter: Entity },
-  Missile { target: Entity, init_pos: Vec3 },
+  MISSILE { target: Entity, init_pos: Vec3 },
   Explosion { pos: Vec3 }
 }
+
 const LASER_DURATION_TICKS: u32 = 78;
 const LASER_DAMAGE: u32 = 10;
 
@@ -740,7 +684,7 @@ impl VisualEffect {
           None
         }
       }
-      VisualEffect::Missile { target, init_pos } => {
+      VisualEffect::MISSILE { target, init_pos } => {
         let missile_travel_time_ticks = 100;
         let missile_age = age;
         let frac = missile_age as f32 / missile_travel_time_ticks as f32;
@@ -765,17 +709,17 @@ impl VisualEffect {
 }
 pub fn explosion_visual(pos: Vec3, scale: f32) -> impl Bundle {
   (VisualEffect::Explosion { pos },
-   Visuals::material_sphere(MyMaterial::ExplosionMaterial),
+   Visuals::material_sphere(MyMaterial::EXPLOSION),
    SpatialBundle::default())
 }
 pub fn laser_visual(shooter: Entity, target: Entity) -> impl Bundle {
   (VisualEffect::Laser { target, shooter },
-   Visuals::material_mesh(MyMaterial::LaserMaterial, GenMesh::Sphere),
+   Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
    SpatialBundle::default())
 }
 fn missile_visual(init_pos: Vec3, target: Entity) -> impl Bundle {
-  (VisualEffect::Missile { init_pos, target },
-   Visuals::material_sphere(MyMaterial::GlowyMaterial3),
+  (VisualEffect::MISSILE { init_pos, target },
+   Visuals::material_sphere(MyMaterial::GLOWY_3),
    SpatialBundle::default())
 }
 
@@ -813,7 +757,7 @@ enum CombatEffect {
 enum Weapon {
   Laser,
   Blaster,
-  Missile,
+  MISSILE,
   RailGun,
   EMP,
   Ballistic,
@@ -837,8 +781,8 @@ enum NonTargetedAbility {
 }
 #[derive(Clone, Copy)]
 enum TargetedAbility {
-  FireLaser(u32),
-  FireMissile(u32),
+  FIRELaser(u32),
+  FIREMISSILE(u32),
   HealOther(u32)
 }
 #[derive(Clone, Copy, Default)]
@@ -881,7 +825,7 @@ pub fn combat_system(mut c: Commands,
     let player_pos = player_transform.translation;
     let player_action =
       player.target().map_or(CombatAction::None, |target| {
-                       CombatAction::Targeted(TargetedAbility::FireLaser(10), target)
+                       CombatAction::Targeted(TargetedAbility::FIRELaser(10), target)
                      });
     let active_combatants: Vec<_> =
       combat_query.iter()
@@ -894,9 +838,9 @@ pub fn combat_system(mut c: Commands,
         player_action
       } else if combat.is_hostile {
         if prob(0.5) {
-          CombatAction::Targeted(TargetedAbility::FireLaser(5), player_entity)
+          CombatAction::Targeted(TargetedAbility::FIRELaser(5), player_entity)
         } else {
-          CombatAction::Targeted(TargetedAbility::FireMissile(5), player_entity)
+          CombatAction::Targeted(TargetedAbility::FIREMISSILE(5), player_entity)
         }
       } else {
         CombatAction::None
@@ -923,12 +867,12 @@ pub fn combat_system(mut c: Commands,
             // println("cccc");
             if let Ok((_, _, mut target_combat, _, _)) = combat_query.get_mut(target) {
               match targeted_ability {
-                TargetedAbility::FireLaser(n) => {
+                TargetedAbility::FIRELaser(n) => {
                   // println("cccc");
                   target_combat.decrease_hp(n);
                   c.spawn(laser_visual(self_entity, target));
                 }
-                TargetedAbility::FireMissile(n) => {
+                TargetedAbility::FIREMISSILE(n) => {
                   target_combat.decrease_hp(n);
                   c.spawn(missile_visual(self_pos, target));
                   // c.spawn(missile(self_pos, target, n));
@@ -1045,9 +989,9 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
 }
 
 #[derive(Component, Default, Clone)]
-pub struct Container(pub HashSet<Entity>);
-impl Container {
-  pub fn empty() -> Container { Container::default() }
+pub struct CONTAINER(pub HashSet<Entity>);
+impl CONTAINER {
+  pub fn empty() -> CONTAINER { CONTAINER::default() }
 }
 pub fn name(s: &'static str) -> Name { Name::new(s) }
 #[derive(Component, Clone)]
@@ -1222,7 +1166,7 @@ fn player(translation: Vec3) -> impl Bundle {
    SpaceObjectBundle::new(translation,
                           PLAYER_SCALE,
                           true,
-                          Visuals::sprite(MySprite::SpaceshipWhite)))
+                          Visuals::sprite(MySprite::SPACESHIPWHITE)))
 }
 pub fn player_movement(keyboard_input: Res<ButtonInput<KeyCode>>,
                        camq: Query<&Transform, With<Camera3d>>,
@@ -1278,7 +1222,7 @@ impl SceneSpaceObjectBundle {
           SpaceObjectBundle::new(translation,
                                  scale,
                                  can_move,
-                                 Visuals::sprite(MySprite::Coffee))))
+                                 Visuals::sprite(MySprite::COFFEE))))
   }
 }
 // pub const RAPIER_CONFIG: RapierConfiguration =
@@ -1324,21 +1268,21 @@ fn close_on_esc(mut exit: EventWriter<AppExit>, keyboard_input: Res<ButtonInput<
   }
 }
 
-#[derive(Resource, Default)]
-pub enum GameState {
-  #[default]
-  FlyingInSpace,
-  WarpGui(ui::WarpGui)
-}
-#[derive(Event, Clone, Copy)]
-pub enum GuiInputEvent {
-  Up,
-  Down,
-  Left,
-  Right,
-  Select,
-  Cancel
-}
+// #[derive(Resource, Default)]
+// pub enum GameState {
+//   #[default]
+//   FlyingInSpace,
+//   WarpGui(ui::WarpGui)
+// }
+// #[derive(Event, Clone, Copy)]
+// pub enum GuiInputEvent {
+//   Up,
+//   Down,
+//   Left,
+//   Right,
+//   Select,
+//   Cancel
+// }
 enum Alignment {
   LawfulGood,
   LawfulNeutral,
@@ -1361,7 +1305,7 @@ pub enum Faction {
   #[assoc(alignment = Alignment::ChaoticEvil)]
   SpacePirates,
   #[assoc(alignment = Alignment::ChaoticNeutral)]
-  SpaceWizards,
+  SPACEWIZARDs,
   #[assoc(alignment = Alignment::NeutralGood)]
   Traders,
   #[assoc(alignment = Alignment::LawfulEvil)]
@@ -1406,13 +1350,13 @@ fn colorful_texture() -> Image {
 pub struct Enemy;
 
 type DialogueEffect = fn() -> MyCommand;
-type DialogueTreeNode =
+type DialogueTREENode =
   (&'static str,
    &'static [(&'static str, &'static str, &'static str, Option<DialogueEffect>)]);
-const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
-type DialogueTree = &'static [DialogueTreeNode];
+const DIALOGUE_END: DialogueTREENode = ("END", &[]);
+type DialogueTREE = &'static [DialogueTREENode];
 
-pub const SPHERICAL_SPACE_COW_DIALOGUE:DialogueTree = &[
+pub const SPHERICAL_SPACE_COW_DIALOGUE:DialogueTREE = &[
   ("A", &[
     ("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None),
   ]),
@@ -1446,7 +1390,7 @@ pub const SPHERICAL_SPACE_COW_DIALOGUE:DialogueTree = &[
     ("Q", "Can I meet this scientist?", "Cow: \"He's on the dark side of the moon. It's a bit of a trek!\"", None),
   ]),
   ("I", &[
-    ("R", "Can you demonstrate your rolling?", "Cow: \"Sure! Watch me do a barrel roll!\"", None),
+    ("R", "Can you demonstrate your rolling?", "Cow: \"Sure! WATch me do a barrel roll!\"", None),
   ]),
   ("J", &[
     ("S", "A cubical chicken? That's crazy!", "Cow: \"I know, right? Geometry in space gets wild!\"", None),
@@ -1515,12 +1459,12 @@ pub const SPHERICAL_SPACE_COW_DIALOGUE:DialogueTree = &[
     ("END", "I'll take a gallon! This was fun, thanks!", "Cow: \"Come back anytime! The Milky Way's always open!\"", None),
   ]),
   ("AF", &[
-    ("END", "Sign me up for Astro-nomoo-my 101! Farewell!", "Cow: \"So long, and thanks for all the laughs! Keep reaching for the stars!\"", None),
+    ("END", "SIGN me up for Astro-nomoo-my 101! Farewell!", "Cow: \"So long, and thanks for all the laughs! Keep reaching for the stars!\"", None),
   ]),
   DIALOGUE_END,
 ];
 
-pub const SPACE_COWBOY_DIALOGUE: DialogueTree = &[
+pub const SPACE_COWBOY_DIALOGUE: DialogueTREE = &[
     ("A", &[
         ("B", "Howdy, partner!", "Space Cowboy: \"Well, howdy there, space traveler! Welcome to the cosmic corral!\"", None),
     ]),
@@ -1530,7 +1474,7 @@ pub const SPACE_COWBOY_DIALOGUE: DialogueTree = &[
         ("E", "Have you seen any aliens?", "Space Cowboy: \"Aliens? Why, I've shared a campfire with beings from more galaxies than you can count!\"", None),
     ]),
     ("C", &[
-        ("F", "Asteroid roundup? How does that work?", "Space Cowboy: \"With a quantum lasso and a whole lotta patience, partner!\"", None),
+        ("F", "ASTEROID roundup? How does that work?", "Space Cowboy: \"With a quantum lasso and a whole lotta patience, partner!\"", None),
         ("G", "Comet stampedes sound dangerous!", "Space Cowboy: \"You bet your stars they are! But nothin' my trusty rocket horse can't handle.\"", None),
     ]),
     ("D", &[
@@ -1562,7 +1506,7 @@ pub const SPACE_COWBOY_DIALOGUE: DialogueTree = &[
   DIALOGUE_END,
 ];
 
-pub const SOCRATES_DIALOGUE: DialogueTree = &[
+pub const SOCRATES_DIALOGUE: DialogueTREE = &[
     ("A", &[
         ("B", "Greetings, Socrates! How are you finding space?", "Socrates: \"Ah, greetings, young seeker of knowledge! Space, like wisdom, is vast and full of wonder.\"", None),
     ]),
@@ -1604,7 +1548,7 @@ pub const SOCRATES_DIALOGUE: DialogueTree = &[
   DIALOGUE_END,
 ];
 
-pub const MARIE_CURIE_DIALOGUE: DialogueTree = &[
+pub const MARIE_CURIE_DIALOGUE: DialogueTREE = &[
     ("A", &[
         ("B", "Madame Curie! It's an honor. How are you adapting to space?", "Marie Curie: \"Bonjour! The universe is full of natural marvels. I'm detecting fascinating radiation patterns!\"", None),
     ]),
@@ -1646,7 +1590,7 @@ pub const MARIE_CURIE_DIALOGUE: DialogueTree = &[
   DIALOGUE_END,
 ];
 
-pub const ABRAHAM_LINCOLN_DIALOGUE: DialogueTree = &[
+pub const ABRAHAM_LINCOLN_DIALOGUE: DialogueTREE = &[
     ("A", &[
         ("B", "President Lincoln! How are you finding the space age?", "Lincoln: \"Four score and seven light-years ago... I jest. This future is both terrifying and awe-inspiring.\"", None),
     ]),
@@ -1688,7 +1632,7 @@ pub const ABRAHAM_LINCOLN_DIALOGUE: DialogueTree = &[
   DIALOGUE_END,
 ];
 
-pub const CHRONOS_SPACE_WIZARD_DIALOGUE: DialogueTree = &[
+pub const CHRONOS_SPACE_WIZARD_DIALOGUE: DialogueTREE = &[
   ("A", &[
     ("B", "Who are you, and why have you brought these historical figures to space?", "Space Wizard: \"Greetings, cosmic traveler! I am Chronos, the Space Wizard of Time and Dimension. I have assembled these great minds for a grand purpose!\"", None),
   ]),
@@ -1729,7 +1673,7 @@ pub const CHRONOS_SPACE_WIZARD_DIALOGUE: DialogueTree = &[
   ]),
   DIALOGUE_END,
 ];
-pub const LEONARDO_DA_VINCI_DIALOGUE:DialogueTree  = &[
+pub const LEONARDO_DA_VINCI_DIALOGUE:DialogueTREE  = &[
   ("A", &[
     ("B", "Leonardo da Vinci! How are you finding the future?", "Leonardo: \"Ah, the marvels of this age! My mind overflows with new inventions and artworks inspired by the cosmos!\"", None),
   ]),
@@ -1771,7 +1715,7 @@ pub const LEONARDO_DA_VINCI_DIALOGUE:DialogueTree  = &[
   DIALOGUE_END,
 ];
 
-pub const CLEOPATRA_DIALOGUE:DialogueTree = &[
+pub const CLEOPATRA_DIALOGUE:DialogueTREE = &[
   ("A", &[
     ("B", "Queen Cleopatra! How are you adapting to the space age?", "Cleopatra: \"Greetings, cosmic traveler. I must say, ruling a galactic empire would have been... intriguing.\"", None),
   ]),
@@ -1865,7 +1809,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //                                                             ..default() },|pos| SpaceObjectBundle::new(pos,
 //                                                                                                        NORMAL_NPC_SCALE,
 //                                                                                                        false,
-//                                                                                                        Visuals::sprite(MySprite::Turret)));
+//                                                                                                        Visuals::sprite(MySprite::TURRET)));
 // static AAA:impl Clone = 5u8;
 // pub fn hostile_turret(pos: Vec3) -> impl Bundle {
 //   (Name::new("turret"),
@@ -1877,7 +1821,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //    SpaceObjectBundle::new(pos,
 //                           NORMAL_NPC_SCALE,
 //                           false,
-//                           Visuals::sprite(MySprite::Turret)))
+//                           Visuals::sprite(MySprite::TURRET)))
 // }
 // pub fn space_pirate(pos: Vec3) -> impl Bundle {
 //   (IsHostile(true),
@@ -1887,7 +1831,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //                 NORMAL_NPC_THRUST,
 //                 Faction::SpacePirates,
 //                 50,
-//                 MySprite::SpaceshipRed))
+//                 MySprite::SPACESHIPRED))
 // }
 // pub fn space_pirate_base(pos: Vec3) -> impl Bundle {
 //   (Combat { hp: 120,
@@ -1895,7 +1839,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //             ..default() },
 //    Interact::SingleOption(InteractSingleOption::Describe),
 //    name("space pirate base"),
-//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
+//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SPACEPIRATEBASE)))
 // }
 // pub fn space_station(pos: Vec3) -> impl Bundle {
 //   (Combat { hp: 120,
@@ -1903,7 +1847,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //             ..default() },
 //    Interact::SingleOption(InteractSingleOption::Describe),
 //    name("space station"),
-//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
+//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SPACESTATION)))
 // }
 // type TranslationSpawnableF = LazyLock<> fn(Vec3)
 // pub fn trader(pos: Vec3) -> impl Bundle {
@@ -1913,7 +1857,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //              NORMAL_NPC_THRUST,
 //              Faction::Traders,
 //              30,
-//              MySprite::SpaceshipWhite2)
+//              MySprite::SPACESHIPWHITE2)
 // }
 // pub fn space_cop(pos: Vec3) -> impl Bundle {
 //   scaled_npc(pos,
@@ -1922,16 +1866,16 @@ pub fn normal_sized_npc(pos: Vec3,
 //              NORMAL_NPC_THRUST,
 //              Faction::SpacePolice,
 //              70,
-//              MySprite::SpaceshipBlue)
+//              MySprite::SPACESHIPBLUE)
 // }
 // pub fn space_wizard(pos: Vec3) -> impl Bundle {
 //   scaled_npc(pos,
 //              NORMAL_NPC_SCALE,
 //              "space wizard",
 //              NORMAL_NPC_THRUST,
-//              Faction::SpaceWizards,
+//              Faction::SPACEWIZARDs,
 //              40,
-//              MySprite::WizardSpaceShip)
+//              MySprite::WIZARDSPACESHIP)
 // }
 // pub fn nomad(pos: Vec3) -> impl Bundle {
 //   scaled_npc(pos,
@@ -1940,7 +1884,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //              NORMAL_NPC_THRUST,
 //              Faction::Wanderers,
 //              35,
-//              MySprite::SpaceshipGreen)
+//              MySprite::SPACESHIPGREEN)
 // }
 // pub fn alien_soldier(pos: Vec3) -> impl Bundle {
 //   (IsHostile(true),
@@ -1950,7 +1894,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //                 NORMAL_NPC_THRUST,
 //                 Faction::Invaders,
 //                 80,
-//                 MySprite::PurpleEnemyShip))
+//                 MySprite::PURPLEENEMYSHIP))
 // }
 // pub fn enemy(pos: Vec3) -> impl Bundle {
 //   (Enemy,
@@ -1961,7 +1905,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //                 NORMAL_NPC_THRUST,
 //                 Faction::default(),
 //                 50,
-//                 MySprite::PurpleEnemyShip))
+//                 MySprite::PURPLEENEMYSHIP))
 // }
 // pub fn npc(pos: Vec3) -> impl Bundle {
 //   scaled_npc(pos,
@@ -1970,7 +1914,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //              NORMAL_NPC_THRUST,
 //              Faction::default(),
 //              50,
-//              MySprite::SpaceshipWhite2)
+//              MySprite::SPACESHIPWHITE2)
 // }
 // pub fn named_npc(pos: Vec3, npc: NamedNPC) -> impl Bundle {
 //   let NamedNPC { name,
@@ -1978,7 +1922,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //                  sprite,
 //                  dialogue_tree } = npc;
 //   (Name::new(name),
-//    Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(dialogue_tree)),
+//    Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(dialogue_tree)),
 //    SpaceObjectBundle::new(pos, NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)))
 // }
 // pub fn mushroom_man(pos: Vec3) -> impl Bundle {
@@ -1989,7 +1933,7 @@ pub fn normal_sized_npc(pos: Vec3,
 //               NORMAL_NPC_THRUST,
 //               Faction::Traders,
 //               40,
-//               MySprite::MushroomMan))
+//               MySprite::MUSHROOMMAN))
 // }
 
 pub fn sign(pos: Vec3, text: String) -> impl Bundle {
@@ -1997,22 +1941,22 @@ pub fn sign(pos: Vec3, text: String) -> impl Bundle {
    SpaceObjectBundle::new(pos,
                           1.5,
                           false,
-                          Visuals::sprite(MySprite::Sign).with_text(text)))
+                          Visuals::sprite(MySprite::SIGN).with_text(text)))
 }
 // pub fn wormhole(pos: Vec3) -> impl Bundle {
 //   (Interact::SingleOption(InteractSingleOption::Describe),
 //    name("wormhole"),
-//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
+//    SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WORMHOLE)))
 // }
 // pub fn asteroid(pos: Vec3) -> impl Bundle {
 //   (
-//     // Interact::SingleOption(InteractSingleOption::Asteroid),
-//     Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMinigame{resources_left:5,tool_durability:5}),
+//     // Interact::SingleOption(InteractSingleOption::ASTEROID),
+//     Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame{resources_left:5,tool_durability:5}),
 //     CanBeFollowedByNPC,
 //     SpaceObjectBundle::new(pos,
 //       asteroid_scale(),
 //       false,
-//       Visuals::sprite(MySprite::Asteroid)))
+//       Visuals::sprite(MySprite::ASTEROID)))
 // }
 
 fn item_in_space(image: MySprite,
@@ -2037,42 +1981,42 @@ fn loot_object(image: MySprite,
    SpaceObjectBundle::new(pos, scale, true, Visuals::sprite(image)))
 }
 // fn space_cat(pos: Vec3) -> impl Bundle {
-//   loot_object(MySprite::SpaceCat,
+//   loot_object(MySprite::SPACECAT,
 //               pos,
 //               1.3,
 //               "space cat".to_string(),
-//               Item::SpaceCat)
+//               Item::SPACECAT)
 // }
 // fn spaceman(pos: Vec3) -> impl Bundle {
-//   loot_object(MySprite::SpaceMan,
+//   loot_object(MySprite::SPACEMAN,
 //               pos,
 //               1.3,
 //               "spaceman".to_string(),
 //               Item::Person)
 // }
 // const SPACE_MAN: ToSpawn = from(|pos| {
-//   loot_object(MySprite::SpaceMan,
+//   loot_object(MySprite::SPACEMAN,
 //               pos,
 //               1.3,
 //               "spaceman".to_string(),
 //               Item::Person)
 // });
 // fn space_coin(pos: Vec3) -> impl Bundle {
-//   loot_object(MySprite::Coin,
+//   loot_object(MySprite::COIN,
 //               pos,
 //               1.7,
 //               "space coin".to_string(),
-//               Item::SpaceCoin)
+//               Item::SpaceCOIN)
 // }
 // pub fn ice_asteroid(pos: Vec3) -> impl Bundle {
-//   loot_object(MySprite::IceAsteroid,
+//   loot_object(MySprite::ICEASTEROID,
 //               pos,
 //               asteroid_scale(),
 //               "ice",
 //               Item::DiHydrogenMonoxide)
 // }
 // pub fn crystal_asteroid(pos: Vec3) -> impl Bundle {
-//   loot_object(MySprite::CrystalAsteroid,
+//   loot_object(MySprite::CRYSTALASTEROID,
 //               pos,
 //               asteroid_scale(),
 //               "crystal asteroid",
@@ -2081,29 +2025,29 @@ fn loot_object(image: MySprite,
 // pub fn crystal_monster(pos: Vec3) -> impl Bundle {
 //   (name("crystal monster"),
 //    // Interact::Item(item_type),
-//    SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CrystalMonster)))
+//    SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)))
 // }
 fn container(translation: Vec3,
              contents: impl IntoIterator<Item = (Item, u32)>)
              -> impl Bundle {
   (name("container"),
    // Inventory::from_contents(contents),
-   Interact::SingleOption(InteractSingleOption::Container(vec(contents))),
-   SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::Container)))
+   Interact::SingleOption(InteractSingleOption::CONTAINER(vec(contents))),
+   SpaceObjectBundle::new(translation, 2.1, true, Visuals::sprite(MySprite::CONTAINER)))
 }
 // pub fn hp_box(pos: Vec3) -> impl Bundle {
 //   (name("hp box"),
-//    Interact::SingleOption(InteractSingleOption::HPBox),
-//    SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
+//    Interact::SingleOption(InteractSingleOption::HPBOX),
+//    SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBOX)))
 // }
 
 // fn treasurecontainer(pos: Vec3) -> impl Bundle {
-//   container(pos, [(Item::SpaceCoin, 4), (Item::Coffee, 1)])
+//   container(pos, [(Item::SpaceCOIN, 4), (Item::COFFEE, 1)])
 // }
 // fn crystalmonster(pos: Vec3) -> impl Bundle {
 //   (name("crystal monster"),
 //    Interact::SingleOption(InteractSingleOption::Describe),
-//    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::CrystalMonster)))
+//    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)))
 // }
 // fn spawncrystalmonster(pos: Vec3, mut c: &mut Commands) {
 //   c.spawn((name("crystal monster"),
@@ -2111,12 +2055,12 @@ fn container(translation: Vec3,
 //            SpaceObjectBundle::new(pos,
 //                                   1.7,
 //                                   true,
-//                                   Visuals::sprite(MySprite::CrystalMonster))));
+//                                   Visuals::sprite(MySprite::CRYSTALMONSTER))));
 // }
 // fn sphericalcow(pos: Vec3) -> impl Bundle {
 //   (name("spherical cow"),
-//    Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(SPHERICAL_SPACE_COW)),
-//    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow)))
+//    Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(SPHERICAL_SPACE_COW)),
+//    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SPHERICALCOW)))
 // }
 
 // const fn lazy_translation_spawnable<B:Bundle>(f:fn (Vec3)->B)->LazyLock<TranslationSpawnable>{
@@ -2125,14 +2069,14 @@ fn container(translation: Vec3,
 // static SPHERICAL_COW:LazyLock<TranslationSpawnable> =
 //   lazy_translation_spawnable(|pos:Vec3|
 //                              (name("spherical cow"),
-//                               Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(SPHERICAL_SPACE_COW)),
-//                               SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow))));
+//                               Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(SPHERICAL_SPACE_COW)),
+//                               SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SPHERICALCOW))));
 // lazy_static!{
 //      pub static ref SPHERICAL_COW: TranslationSpawnable =
 //     (|pos:Vec3|
 //      (name("spherical cow"),
-//       Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(SPHERICAL_SPACE_COW)),
-//       SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow)))).into();
+//       Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(SPHERICAL_SPACE_COW)),
+//       SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SPHERICALCOW)))).into();
 // }
 // use lazy_static::lazy_static;
 
@@ -2148,19 +2092,19 @@ fn translated_space_object_with<B: Bundle + Clone>(
 }
 // fn zorp(pos: Vec3) -> impl Bundle {
 //   (name("zorp"),
-//    Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(ZORP)),
-//    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::Zorp)))
+//    Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(ZORP)),
+//    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::ZORP)))
 // }
 // fn tradestation(pos: Vec3) -> impl Bundle {
 //   let (trade, text) = if prob(0.5) {
-//     let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
+//     let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SPACECAT]).unwrap();
 
 //     (Interact::SingleOption(InteractSingleOption::Trade { inputs: (trade_buy, 1),
-//                                                           outputs: (Item::SpaceCoin, 5) }),
+//                                                           outputs: (Item::SpaceCOIN, 5) }),
 //      format!("space station\nbuys {:?}", trade_buy))
 //   } else {
-//     let trade_sell = pick([Item::Spice, Item::Coffee, Item::Rock]).unwrap();
-//     (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCoin, 5),
+//     let trade_sell = pick([Item::Spice, Item::COFFEE, Item::Rock]).unwrap();
+//     (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCOIN, 5),
 //                                                           outputs: (trade_sell, 1) }),
 //      format!("space station\nsells {:?}", trade_sell))
 //   };
@@ -2170,22 +2114,22 @@ fn translated_space_object_with<B: Bundle + Clone>(
 //    SpaceObjectBundle::new(pos,
 //                           3.0,
 //                           false,
-//                           Visuals::sprite(MySprite::SpaceStation).with_text(text)))
+//                           Visuals::sprite(MySprite::SPACESTATION).with_text(text)))
 // }
 // fn floatingisland(pos: Vec3) -> impl Bundle {
 //   (name("floating island"),
 //    Interact::SingleOption(InteractSingleOption::Describe),
-//    SpaceObjectBundle::new(pos, 3.4, false, Visuals::sprite(MySprite::FloatingIsland)))
+//    SpaceObjectBundle::new(pos, 3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)))
 // }
 
 // fn gate(pos: Vec3) -> impl Bundle {
 //   (name("gate"),
-//    Interact::SingleOption(InteractSingleOption::Gate),
-//    Gate,
+//    Interact::SingleOption(InteractSingleOption::GATE),
+//    GATE,
 //    SpaceObjectBundle::new(pos,
 //                           2.1,
 //                           false,
-//                           Visuals::sprite(MySprite::Gate)
+//                           Visuals::sprite(MySprite::GATE)
 //                           .with_text(format!("warp gate to {}",random_zone_name()) )))
 // }
 // fn abandonedship(pos: Vec3) -> impl Bundle {
@@ -2194,7 +2138,7 @@ fn translated_space_object_with<B: Bundle + Clone>(
 //    SpaceObjectBundle::new(pos,
 //                           2.0,
 //                           false,
-//                           Visuals::sprite(MySprite::SpaceshipAbandoned)))
+//                           Visuals::sprite(MySprite::SPACESHIPABANDONED)))
 // }
 
 #[derive(Component, Clone, Debug, Default)]
@@ -2223,11 +2167,11 @@ impl Inventory {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Item {
-  SpaceCat,
+  SPACECAT,
   Person,
   Spice,
-  Coffee,
-  SpaceCoin,
+  COFFEE,
+  SpaceCOIN,
   Crystal,
   DiHydrogenMonoxide,
   Rock,
@@ -2248,8 +2192,8 @@ enum InteractMultipleOptions {
   Salvage {
     how_much_loot: u8
   },
-  DialogueTree(DialogueTree, &'static str),
-  AsteroidMiningMinigame {
+  DialogueTREE(DialogueTREE, &'static str),
+  ASTEROIDMiningMinigame {
     resources_left: u8,
     tool_durability: u8
   }
@@ -2257,7 +2201,7 @@ enum InteractMultipleOptions {
 impl InteractMultipleOptions {
   fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
     match self {
-      InteractMultipleOptions::AsteroidMiningMinigame { resources_left,
+      InteractMultipleOptions::ASTEROIDMiningMinigame { resources_left,
                                                         tool_durability } => {
         let msg =
           format!("You're mining an asteroid. Resources left: {}. Tool durability: {}.",
@@ -2271,7 +2215,7 @@ impl InteractMultipleOptions {
               MyCommand::message_add("You mine carefully, preserving your tool."),
               MyCommand::give_item_to_player(Item::SpaceMinerals),
             ]),
-            Self::AsteroidMiningMinigame { resources_left: resources_left - 1, tool_durability },
+            Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability },
           ));
           options.push((
             "Mine aggressively".to_string(),
@@ -2280,7 +2224,7 @@ impl InteractMultipleOptions {
               MyCommand::give_item_to_player(Item::SpaceMinerals),
               MyCommand::give_item_to_player(Item::SpaceMinerals),
             ]),
-            Self::AsteroidMiningMinigame { resources_left: resources_left - 1, tool_durability: tool_durability - 1 },
+            Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability: tool_durability - 1 },
           ));
         }
 
@@ -2295,7 +2239,7 @@ impl InteractMultipleOptions {
         let options = if how_much_loot > 0 {
           vec![("take some".to_string(),
                 MyCommand::multi([MyCommand::message_add("You found loot"),
-                                  MyCommand::give_item_to_player(Item::SpaceCoin)]),
+                                  MyCommand::give_item_to_player(Item::SpaceCOIN)]),
                 Self::Salvage { how_much_loot: how_much_loot - 1 }),
                ("don't take".to_string(), MyCommand::none(), self.clone()),
                ("leave".to_string(),
@@ -2308,27 +2252,27 @@ impl InteractMultipleOptions {
         };
         (msg, options)
       }
-      InteractMultipleOptions::DialogueTree(tree, node) => {
+      InteractMultipleOptions::DialogueTREE(tree, node) => {
         let msg = "talking npc".to_string();
         if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
           let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
                                         (playersay.to_string(),
                                          MyCommand::message_add(npcsay.to_string()),
-                                         InteractMultipleOptions::DialogueTree(tree,
+                                         InteractMultipleOptions::DialogueTREE(tree,
                                                                                *new_node))
                                       });
           (msg, options.collect())
         } else {
           (msg, default())
         }
-      } // InteractMultipleOptions::SphericalCowDialogueTree { node } => {
+      } // InteractMultipleOptions::SPHERICALCOWDialogueTREE { node } => {
         //   let msg = "It's a spherical cow in a vacuum".to_string();
         //   let options = node.options()
         //                     .into_iter()
         //                     .map(|(node, playersay, cowsay)| {
         //                       (playersay.to_string(),
         //                        MyCommand::message_add(cowsay),
-        //                        InteractMultipleOptions::SphericalCowDialogueTree { node })
+        //                        InteractMultipleOptions::SPHERICALCOWDialogueTREE { node })
         //                     })
         //                     .collect();
         //   (msg, options)
@@ -2341,16 +2285,16 @@ impl InteractMultipleOptions {
 enum InteractSingleOption {
   Message(String),
   // Salvage { how_much_loot: u8 },
-  Asteroid,
-  HPBox,
+  ASTEROID,
+  HPBOX,
   Describe,
   Item(Item),
   Trade {
     inputs: (Item, u32),
     outputs: (Item, u32)
   },
-  Gate(Vec3),
-  Container(Vec<(Item, u32)>)
+  GATE(Vec3),
+  CONTAINER(Vec<(Item, u32)>)
 }
 
 impl InteractSingleOption {
@@ -2361,11 +2305,11 @@ impl InteractSingleOption {
               -> (String, MyCommand) {
     match self {
       InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
-      InteractSingleOption::Asteroid => {
+      InteractSingleOption::ASTEROID => {
         (format!("examine {self_name}"),
          MyCommand::message_add("it's an asteroid"))
       }
-      InteractSingleOption::HPBox => {
+      InteractSingleOption::HPBOX => {
         ("take hp box".to_string(),
          MyCommand::multi([MyCommand::update_player_component(|combat: Combat| {
                              Combat { hp: combat.hp + 50,
@@ -2403,13 +2347,13 @@ impl InteractSingleOption {
            MyCommand::message_add("You don't have enough items")
          })
       }
-      InteractSingleOption::Gate(destination_pos) => {
+      InteractSingleOption::GATE(destination_pos) => {
         ("interact".to_string(),
          MyCommand::update_player_component(move |transform| Transform { translation:
                                                                            destination_pos,
                                                                          ..transform }))
       }
-      InteractSingleOption::Container(items) => {
+      InteractSingleOption::CONTAINER(items) => {
         ("take container".to_string(),
          MyCommand::multi([MyCommand::despawn(self_entity),
                            MyCommand::message_add("you got things"),
@@ -2428,9 +2372,9 @@ enum Interact {
 }
 
 impl Interact {
-  fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
+  fn dialogue_tree_default_state(tree: DialogueTREE) -> Self {
     let (node, _) = tree[0];
-    Self::MultipleOptions(InteractMultipleOptions::DialogueTree(tree, node))
+    Self::MultipleOptions(InteractMultipleOptions::DialogueTREE(tree, node))
   }
 }
 const INTERACTION_RANGE: f32 = 8.0;
@@ -2438,7 +2382,7 @@ fn interact(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
                   With<Player>>,
             mut interactable_q: Query<(Entity, &Transform, &mut Interact, Option<&Name>),
                   Without<Player>>,
-            gate_q: Query<(&GlobalTransform, &Gate)>,
+            gate_q: Query<(&GlobalTransform, &GATE)>,
             mut c: Commands,
             keys: Res<ButtonInput<KeyCode>>,
             mut ui_data: ResMut<UIData>) {
@@ -2510,7 +2454,7 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
                     &mut Interact,
                     Option<&Name>),
                    Without<Player>>,
-             gate_q: Query<(&GlobalTransform, &Gate)>,
+             gate_q: Query<(&GlobalTransform, &GATE)>,
              mut c: Commands,
              keys: Res<ButtonInput<KeyCode>>,
              mut ui_data: ResMut<UIData>) {
@@ -2530,11 +2474,11 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
       Interact::SingleOption(interact_single_option) => {
         let (message, command) = match interact_single_option.clone() {
           InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
-          InteractSingleOption::Asteroid => (
+          InteractSingleOption::ASTEROID => (
             format!("examine {}", namefmt(oname)),
             MyCommand::message_add("it's an asteroid")
           ),
-          InteractSingleOption::HPBox => (
+          InteractSingleOption::HPBOX => (
             "take hp box".to_string(),
             MyCommand::multi([
               MyCommand::update_player_component(|combat: Combat| Combat { hp: combat.hp + 50, ..combat }),
@@ -2573,14 +2517,14 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
               MyCommand::message_add("You don't have the required item")
             }
           ),
-          InteractSingleOption::Gate(destination_pos) => (
+          InteractSingleOption::GATE(destination_pos) => (
             "interact".to_string(),
             MyCommand::update_player_component(move |transform| Transform {
               translation: destination_pos,
               ..transform
             })
           ),
-          InteractSingleOption::Container(items) => (
+          InteractSingleOption::CONTAINER(items) => (
             "take container".to_string(),
             MyCommand::multi([
               MyCommand::despawn(interact_entity),
@@ -2598,21 +2542,21 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
       }
       Interact::MultipleOptions(interact_multiple_options) => {
         let (msg, options) = match interact_multiple_options.clone() {
-          InteractMultipleOptions::DialogueTree(tree, node) => {
+          InteractMultipleOptions::DialogueTREE(tree, node) => {
             let msg = "talking npc".to_string();
             if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
               let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
                                             (playersay.to_string(),
                  MyCommand::message_add(npcsay.to_string()),
-                 InteractMultipleOptions::DialogueTree(tree,
+                 InteractMultipleOptions::DialogueTREE(tree,
                                                        *new_node))
                                           });
               (msg, options.collect())
             } else {
               (msg, default())
             }
-          } // InteractMultipleOptions::SphericalCowDialogueTree { node } => {
-          InteractMultipleOptions::AsteroidMiningMinigame { resources_left,
+          } // InteractMultipleOptions::SPHERICALCOWDialogueTREE { node } => {
+          InteractMultipleOptions::ASTEROIDMiningMinigame { resources_left,
                                                             tool_durability } => {
             let msg =
               format!("You're mining an asteroid. Resources left: {}. Tool durability: {}.",
@@ -2626,7 +2570,7 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
                   MyCommand::message_add("You mine carefully, preserving your tool."),
                   MyCommand::give_item_to_player(Item::SpaceMinerals),
                 ]),
-                InteractMultipleOptions::AsteroidMiningMinigame {
+                InteractMultipleOptions::ASTEROIDMiningMinigame {
                   resources_left: resources_left - 1,
                   tool_durability,
                 },
@@ -2638,7 +2582,7 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
                   MyCommand::give_item_to_player(Item::SpaceMinerals),
                   MyCommand::give_item_to_player(Item::SpaceMinerals),
                 ]),
-                InteractMultipleOptions::AsteroidMiningMinigame {
+                InteractMultipleOptions::ASTEROIDMiningMinigame {
                   resources_left: resources_left - 1,
                   tool_durability: tool_durability - 1,
                 },
@@ -2658,7 +2602,7 @@ fn interact2(mut playerq: Query<(Entity, &mut Transform, &Combat, &Inventory),
             let options = if how_much_loot > 0 {
               vec![("take some".to_string(),
                     MyCommand::multi([MyCommand::message_add("You found loot"),
-                                      MyCommand::give_item_to_player(Item::SpaceCoin)]),
+                                      MyCommand::give_item_to_player(Item::SpaceCOIN)]),
                     InteractMultipleOptions::Salvage { how_much_loot: how_much_loot - 1 }),
                    ("don't take".to_string(),
                     MyCommand::none(),
@@ -2733,141 +2677,387 @@ fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
   scale.powi(2) / (player_pos.distance(pos)).powi(2)
 }
 const MESSAGE_SHOW_TIME_TICKS: u32 = 600;
-fn ui(mut c: Commands,
-      camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
-      playerq: Query<(Entity, &Player, &GlobalTransform, &Combat, &Inventory)>,
-      target_q: Query<(Entity,
-             &Transform,
-             &SpaceObject,
-             Option<&Name>,
-             Option<&Combat>,
-             Option<&Planet>)>,
-      mut ui_data: ResMut<UIData>,
-      time: Res<TimeTicks>,
-      view_root_q: Query<Entity, With<ViewRoot>>) {
-  struct TargetData<'t> {
-    entity: Entity,
-    transform: &'t Transform,
-    distance: f32,
-    signal_strength: f32,
-    spaceobject: &'t SpaceObject,
-    oname: Option<&'t Name>,
-    name: String,
-    ocombat: Option<&'t Combat>,
-    oplanet: Option<&'t Planet>
+// fn ui(mut c: Commands,
+//       camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
+//       playerq: Query<(Entity, &Player, &GlobalTransform, &Combat, &Inventory)>,
+//       target_q: Query<(Entity,
+//              &Transform,
+//              &SpaceObject,
+//              Option<&Name>,
+//              Option<&Combat>,
+//              Option<&Planet>)>,
+//       mut ui_data: ResMut<UIData>,
+//       time: Res<TimeTicks>,
+//       view_root_q: Query<Entity, With<ViewRoot>>) {
+//   struct TargetData<'t> {
+//     entity: Entity,
+//     transform: &'t Transform,
+//     distance: f32,
+//     signal_strength: f32,
+//     spaceobject: &'t SpaceObject,
+//     oname: Option<&'t Name>,
+//     name: String,
+//     ocombat: Option<&'t Combat>,
+//     oplanet: Option<&'t Planet>
+//   }
+//   if let (Ok((_, player, player_globaltransform, player_combat, player_inventory)),
+//           Ok((camera, _))) = (playerq.get_single(), camq.get_single())
+//   {
+//     let player_pos = player_globaltransform.translation();
+//     let get_target_data = |e: Entity| {
+//       target_q.get(e)
+//               .map(|(entity, transform, spaceobject, oname, ocombat, oplanet)| {
+//                      let distance = player_pos.distance(transform.translation);
+//                      let name = namefmt(oname);
+//                      TargetData { entity,
+//                                   transform,
+//                                   spaceobject,
+//                                   oname,
+//                                   name,
+//                                   ocombat,
+//                                   oplanet,
+//                                   distance,
+//                                   signal_strength: 1000.0 * transform.scale.x.powi(2)
+//                                                    / distance.powi(2) }
+//                    })
+//               .ok()
+//     };
+//     let overview_data =
+//       mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
+//            sort_by_key(|(_, _, distance)| *distance as u32,
+//                        filter_map(|tup| match get_target_data(tup.0) {
+//                                     Some(TargetData { distance,
+//                                                       name,
+//                                                       ocombat:
+//                                                         Some(Combat { hp,
+//                                                                       is_hostile:
+//                                                                         true,
+//                                                                       .. }),
+//                                                       .. })
+//                                       if distance < COMBAT_RANGE =>
+//                                     {
+//                                       Some((name, hp, distance))
+//                                     }
+//                                     _ => None
+//                                   },
+//                                   &target_q)));
+//     let target_data = if let Some(player_target) = player.target()
+//                          && let Some(TargetData { distance,
+//                                                   name,
+//                                                   ocombat,
+//                                                   oplanet,
+//                                                   .. }) = get_target_data(player_target)
+//     {
+//       let somestring = |x| Some(string(x));
+//       [Some(format!("Target: {name}")),
+//        oplanet.map(rust_utils::prettyfmt),
+//        ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
+//        Some(format!("Distance: {:.1}", distance)),
+//        somestring("q: approach"),
+//        somestring("l: shoot laser"),
+//        somestring("r: toggle shoot"),
+//        somestring("x: untarget")].into_iter()
+//                                  .flatten()
+//                                  .collect()
+//     } else {
+//       default()
+//     };
+//     let player_inventory = player_inventory.clone();
+//     let infobox_data =
+//       map(ToString::to_string,
+//           [format!("{:.1}", player_pos).as_str(),
+//            format!("hp: {}", player_combat.hp).as_str(),
+//            format!("energy: {}", player_combat.energy).as_str(),
+//            "w,a,s,d,shift,ctrl: move",
+//            "z: spawn mushroom man",
+//            "q: toggle shield",
+//            "t: target nearest hostile",
+//            "g: warp",
+//            "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
+//                                    player_inventory.0.clone()))
+//                         .collect();
+
+//     let current_time = time.0;
+//     let current_time_ticks = current_time;
+//     let message_log = rust_utils::filterv(|Message { string, time }| {
+//                                             time + MESSAGE_SHOW_TIME_TICKS > current_time
+//                                           },
+//                                           ui_data.message_log.clone());
+
+//     let old_ui_data = ui_data.clone();
+//     let player_pos = player_globaltransform.translation();
+//     let overview_data =
+//       mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
+//            sort_by_key(|(_, _, distance)| *distance as u32,
+//                        filter_map(|tup| match get_target_data(tup.0) {
+//                                     Some(TargetData { distance,
+//                                                       name,
+//                                                       ocombat:
+//                                                         Some(Combat { hp,
+//                                                                       is_hostile:
+//                                                                         true,
+//                                                                       .. }),
+//                                                       .. })
+//                                       if distance < COMBAT_RANGE =>
+//                                     {
+//                                       Some((name, hp, distance))
+//                                     }
+//                                     _ => None
+//                                   },
+//                                   &target_q)));
+//     let target_data = if let Some(player_target) = player.target()
+//                          && let Some(TargetData { distance,
+//                                                   name,
+//                                                   ocombat,
+//                                                   oplanet,
+//                                                   .. }) = get_target_data(player_target)
+//     {
+//       let somestring = |x| Some(string(x));
+//       [Some(format!("Target: {name}")),
+//        oplanet.map(rust_utils::prettyfmt),
+//        ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
+//        Some(format!("Distance: {:.1}", distance)),
+//        somestring("q: approach"),
+//        somestring("l: shoot laser"),
+//        somestring("r: toggle shoot"),
+//        somestring("x: untarget")].into_iter()
+//                                  .flatten()
+//                                  .collect()
+//     } else {
+//       default()
+//     };
+//     let player_inventory = player_inventory.clone();
+//     let infobox_data =
+//       map(ToString::to_string,
+//           [format!("{:.1}", player_pos).as_str(),
+//            format!("hp: {}", player_combat.hp).as_str(),
+//            format!("energy: {}", player_combat.energy).as_str(),
+//            "w,a,s,d,shift,ctrl: move",
+//            "z: spawn mushroom man",
+//            "q: toggle shield",
+//            "t: target nearest hostile",
+//            "g: warp",
+//            "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
+//                                    player_inventory.0.clone()))
+//                         .collect();
+
+//     let current_time = time.0;
+//     let current_time_ticks = current_time;
+//     let message_log = rust_utils::filterv(|Message { string, time }| {
+//                                             time + MESSAGE_SHOW_TIME_TICKS > current_time
+//                                           },
+//                                           ui_data.message_log.clone());
+
+//     let old_ui_data = ui_data.clone();
+//     *ui_data = UIData { target_data,
+//                         overview_data,
+//                         current_time_ticks,
+//                         message_log,
+//                         infobox_data,
+//                         ..old_ui_data };
+//     // .as_mut().update(|old_ui_data| UIData { target_data,
+//     //                                              overview_data,
+//     //                                              current_time_ticks,
+//     //                                              message_log,
+//     //                                              infobox_data,
+//     //                                              ..old_ui_data });
+
+//     if view_root_q.is_empty() {
+//       ui_data.message_add("message1");
+//       ui_data.message_add("message2");
+//       ui_data.message_add("message3");
+//       c.spawn(UIMainView.to_root());
+
+//       c.spawn(ui_root_thing_in_the_world());
+//     }
+//   }
+// }
+
+const UI_BACKGROUND_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
+const UI_BORDER_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.7);
+const UI_FONT_COLOR: Color = Color::WHITE;
+pub const MESSAGE_LOG_MAX_LEN: usize = 5;
+
+#[derive(Clone, PartialEq, PartialOrd, Eq, Hash, Ord)]
+pub struct Message {
+  pub time: u32,
+  pub string: String
+}
+
+#[derive(Resource, Default, Clone)]
+pub struct UIData {
+  // target info...
+  pub current_time_ticks: u32,
+  pub message_log: Vec<Message>,
+  pub overview_data: Vec<String>,
+  // pub player_pos: Vec3,
+  pub count: u32,
+  pub foo: usize,
+  pub font: Handle<Font>,
+  pub interact_message: Option<String>,
+  pub target_data: Vec<String>,
+  pub infobox_data: Vec<String> // pub target_interaction_state: Option<PlayerTargetInteractionState>,
+                                // pub space_cat_count: u32,
+                                // pub player_inventory: Inventory
+}
+
+impl UIData {
+  pub fn message_add(&mut self, message: impl ToString) {
+    let time = self.current_time_ticks;
+    self.message_log.push(Message { string: message.to_string(),
+                                    time });
   }
-  if let (Ok((_, player, player_globaltransform, player_combat, player_inventory)),
-          Ok((camera, _))) = (playerq.get_single(), camq.get_single())
+}
+
+pub fn intersperse_newline<T: ToString>(coll: impl IntoIterator<Item = T>) -> String {
+  concat_strings(coll.into_iter()
+                     .map(|v| v.to_string())
+                     .intersperse("\n".to_string()))
+}
+
+// Common styling
+pub fn common_style(sb: &mut StyleBuilder) {
+  sb.font_size(32.0)
+    .display(Display::Block)
+    .border(3)
+    .border_color(UI_BORDER_COLOR)
+    .background_color(UI_BACKGROUND_COLOR)
+    .position(bevy::ui::PositionType::Absolute)
+    .color(UI_FONT_COLOR)
+    .pointer_events(false);
+}
+
+// Main UIPopup struct
+#[derive(Clone, PartialEq, new)]
+pub struct UIPopup {
+  pub style: fn(&mut StyleBuilder),
+  pub display_text_fn: fn(&UIData) -> Vec<String>
+}
+
+impl ViewTemplate for UIPopup {
+  type View = impl View;
+  fn create(&self, cx: &mut Cx) -> Self::View {
+    let &Self { display_text_fn,
+                style } = self;
+    let uidata = cx.use_resource::<UIData>();
+    let display_text = display_text_fn(uidata);
+    Element::<NodeBundle>::new().style((common_style, style))
+                                .children(intersperse_newline(display_text))
+  }
+}
+
+pub fn ui(mut c: Commands,
+          camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
+          playerq: Query<(Entity, &Player, &Transform, &Combat, &Inventory)>,
+          target_q: Query<(Entity,
+                 &Transform,
+                 &SpaceObject,
+                 Option<&Name>,
+                 Option<&Combat>,
+                 Option<&Planet>)>,
+          camera_query: Query<(Entity, &GlobalTransform), With<Camera3d>>,
+          mut ui_data: ResMut<UIData>,
+          time: Res<TimeTicks>,
+          view_root_query: Query<Entity, With<ViewRoot>>) {
+  if view_root_query.is_empty() {
+    let message_log = UIPopup::new(|sb| {
+                                     sb.flex_direction(FlexDirection::ColumnReverse)
+                                       .left(0)
+                                       .bottom(0);
+                                   },
+                                   |uidata| {
+                                     uidata.message_log
+                                           .clone()
+                                           .mutate(|v| v.sort())
+                                           .into_iter()
+                                           .map(|msg| msg.string)
+                                           .collect()
+                                   });
+
+    let interact_popup = UIPopup::new(|sb| {
+                                        sb.justify_self(JustifySelf::Center)
+                                          .top(Val::Percent(70.0));
+                                      },
+                                      |uidata| {
+                                        uidata.interact_message
+                                              .clone()
+                                              .map_or(vec![], |msg| vec![msg])
+                                      });
+
+    let info_box = UIPopup::new(|sb| {
+                                  sb.left(0).top(0);
+                                },
+                                |uidata| uidata.infobox_data.clone());
+
+    let target_popup = UIPopup::new(|sb| {
+                                      sb.bottom(0).right(0);
+                                    },
+                                    |uidata| uidata.target_data.clone());
+
+    let overview_popup = UIPopup::new(|sb| {
+                                        sb.top(0).right(0);
+                                      },
+                                      |uidata| uidata.overview_data.clone());
+
+    c.spawn(mapv(ViewChild::new, [message_log,
+                                  interact_popup,
+                                  info_box,
+                                  target_popup,
+                                  overview_popup]).to_root());
+  }
+
+  // if let Ok((player_entity, player, player_transform)) = player_query.get_single()
+  if let Ok((_, player, player_transform, player_combat, player_inventory)) =
+    playerq.get_single()
+     && let Ok((camera, _)) = camq.get_single()
   {
-    let player_pos = player_globaltransform.translation();
-    let get_target_data = |e: Entity| {
-      target_q.get(e)
-              .map(|(entity, transform, spaceobject, oname, ocombat, oplanet)| {
-                     let distance = player_pos.distance(transform.translation);
-                     let name = namefmt(oname);
-                     TargetData { entity,
-                                  transform,
-                                  spaceobject,
-                                  oname,
-                                  name,
-                                  ocombat,
-                                  oplanet,
-                                  distance,
-                                  signal_strength: 1000.0 * transform.scale.x.powi(2)
-                                                   / distance.powi(2) }
-                   })
-              .ok()
-    };
-    // let overview_max_len = 15;
-    // let overview_data =
-    //   mapv(|TargetData { distance, name, .. }| format!("{name} d.:{:.1}", distance),
-    //        take(overview_max_len,
-    //             sort_by_key(|TargetData { distance, .. }| *distance as u32,
-    //                         filter_map(|tup| get_target_data(tup.0), &target_q))));
-    let overview_data =
-      mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
-           sort_by_key(|(_, _, distance)| *distance as u32,
-                       filter_map(|tup| match get_target_data(tup.0) {
-                                    Some(TargetData { distance,
-                                                      name,
-                                                      ocombat:
-                                                        Some(Combat { hp,
-                                                                      is_hostile:
-                                                                        true,
-                                                                      .. }),
-                                                      .. })
-                                      if distance < COMBAT_RANGE =>
-                                    {
-                                      Some((name, hp, distance))
-                                    }
-                                    _ => None
-                                  },
-                                  &target_q)));
-    let target_data = if let Some(player_target) = player.target()
-                         && let Some(TargetData { distance,
-                                                  name,
-                                                  ocombat,
-                                                  oplanet,
-                                                  .. }) = get_target_data(player_target)
-    {
-      let somestring = |x| Some(string(x));
-      [Some(format!("Target: {name}")),
-       oplanet.map(rust_utils::prettyfmt),
-       ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
-       Some(format!("Distance: {:.1}", distance)),
-       somestring("q: approach"),
-       somestring("l: shoot laser"),
-       somestring("r: toggle shoot"),
-       somestring("x: untarget")].into_iter()
-                                 .flatten()
-                                 .collect()
-    } else {
-      default()
-    };
-    let player_inventory = player_inventory.clone();
-    let infobox_data =
-      map(ToString::to_string,
-          [format!("{:.1}", player_pos).as_str(),
-           format!("hp: {}", player_combat.hp).as_str(),
-           format!("energy: {}", player_combat.energy).as_str(),
-           "w,a,s,d,shift,ctrl: move",
-           "z: spawn mushroom man",
-           "q: toggle shield",
-           "t: target nearest hostile",
-           "g: warp",
-           "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
-                                   player_inventory.0.clone()))
-                        .collect();
+    let player_pos = player_transform.translation;
 
-    let current_time = time.0;
-    let current_time_ticks = current_time;
-    let message_log = rust_utils::filterv(|Message { string, time }| {
-                                            time + MESSAGE_SHOW_TIME_TICKS > current_time
-                                          },
-                                          ui_data.message_log.clone());
+    // Update infobox data
+    let infobox_data = vec![
+            format!("{:.1}", player_pos),
+            // format!("Space Cats: {}", ui_data.space_cat_count),
+        ].into_iter()
+                       .chain(ui_data.player_inventory
+                                     .0
+                                     .clone()
+                                     .into_iter()
+                                     .map(|(item, n)| format!("{} {:?}s", n, item)))
+                       .collect();
 
-    let old_ui_data = ui_data.clone();
-    *ui_data = UIData { target_data,
-                        overview_data,
-                        current_time_ticks,
-                        message_log,
-                        infobox_data,
-                        ..old_ui_data };
-    // .as_mut().update(|old_ui_data| UIData { target_data,
-    //                                              overview_data,
-    //                                              current_time_ticks,
-    //                                              message_log,
-    //                                              infobox_data,
-    //                                              ..old_ui_data });
-
-    if view_root_q.is_empty() {
-      ui_data.message_add("message1");
-      ui_data.message_add("message2");
-      ui_data.message_add("message3");
-      c.spawn(UIMainView.to_root());
-
-      c.spawn(ui_root_thing_in_the_world());
+    // Update target data
+    let mut target_data = Vec::new();
+    if let Ok((camera_entity, camera_transform)) = camera_query.get_single() {
+      for (target_transform, interaction_state, name) in target_q.iter() {
+        let distance = player_pos.distance(target_transform.translation);
+        target_data.push(format!("{}", name));
+        target_data.push(format!("Distance: {:.1}", distance));
+        target_data.push(format!("State: {:?}", interaction_state));
+      }
     }
+
+    // Update overview data
+    let overview_data = vec![
+            format!("Count: {}", ui_data.count),
+            format!("Foo: {}", ui_data.foo),
+            // Add any other overview stats here
+        ];
+
+    // Update UIData
+    let current_time_ticks = time.0;
+    let old_ui_data = ui_data.clone();
+    *ui_data = UIData { current_time_ticks,
+                        infobox_data,
+                        target_data,
+                        overview_data,
+                        message_log: old_ui_data.message_log,
+                        interact_message: old_ui_data.interact_message,
+                        count: old_ui_data.count,
+                        foo: old_ui_data.foo,
+                        font: old_ui_data.font,
+                        // player_inventory: old_ui_data.player_inventory,
+                        // space_cat_count: old_ui_data.space_cat_count,
+                        ..old_ui_data.clone() };
   }
 }
 
@@ -2916,12 +3106,12 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
 
 #[derive(Clone, Copy, Debug)]
 pub enum PlanetType {
-  MarsLikePlanet,
-  HabitablePlanet,
-  SandPlanet,
-  IcePlanet,
-  LavaPlanet,
-  BrownGasGiant
+  MARSLIKEPLANET,
+  HABITABLEPLANET,
+  SANDPLANET,
+  ICEPLANET,
+  LAVAPLANET,
+  BROWNGASGIANT
 }
 #[derive(Clone, Component, Debug)]
 struct Planet {
@@ -2934,59 +3124,59 @@ struct Planet {
 // enum SpawnableTemplate {
 //   Probabilistic(&'static [(f32, SpawnableTemplate)]),
 //   #[assoc(to_spawn = treasurecontainer.into())]
-//   TreasureContainer,
+//   TreasureCONTAINER,
 //   #[assoc(to_spawn = hostile_turret.into())]
-//   HostileTurret,
+//   HostileTURRET,
 //   #[assoc(to_spawn = TranslationSpawnable::multi([(Vec3::Y * 4.0,hostile_turret.into()),(Vec3::ZERO,hostile_turret.into()),(Vec3::NEG_Y * 4.0,hostile_turret.into())]))]
-//   ThreeHostileTurrets,
+//   ThreeHostileTURRETs,
 //   #[assoc(to_spawn = space_pirate.into())]
 //   SpacePirate,
 //   #[assoc(to_spawn = crystalmonster.into())]
-//   CrystalMonster,
+//   CRYSTALMONSTER,
 //   #[assoc(to_spawn = spaceman.into())]
-//   SpaceMan,
+//   SPACEMAN,
 //   #[assoc(to_spawn = wormhole.into())]
-//   WormHole,
+//   WORMHOLE,
 //   #[assoc(to_spawn = npc.into())]
 //   NPC,
 //   #[assoc(to_spawn = hp_box.into())]
-//   HPBox,
+//   HPBOX,
 //   #[assoc(to_spawn = space_coin.into())]
-//   SpaceCoin,
+//   SpaceCOIN,
 //   #[assoc(to_spawn = tradestation.into())]
 //   TradeStation,
 //   #[assoc(to_spawn = space_pirate_base.into())]
-//   SpacePirateBase,
+//   SPACEPIRATEBASE,
 //   #[assoc(to_spawn = asteroid.into())]
-//   Asteroid,
+//   ASTEROID,
 //   #[assoc(to_spawn = ice_asteroid.into())]
-//   IceAsteroid,
+//   ICEASTEROID,
 //   #[assoc(to_spawn = crystal_asteroid.into())]
-//   CrystalAsteroid,
+//   CRYSTALASTEROID,
 //   #[assoc(to_spawn = space_cat.into())]
-//   SpaceCat,
+//   SPACECAT,
 //   // #[assoc(to_spawn = sphericalcow.into())]
 //   #[assoc(to_spawn =
 //           (|pos|
 //            (name("spherical cow"),
-//             Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(SPHERICAL_SPACE_COW)),
-//             SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow))))
+//             Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(SPHERICAL_SPACE_COW)),
+//             SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SPHERICALCOW))))
 //           .into())]
-//   SphericalCow,
+//   SPHERICALCOW,
 //   #[assoc(to_spawn = zorp.into())]
-//   Zorp,
+//   ZORP,
 //   #[assoc(to_spawn = floatingisland.into())]
-//   FloatingIsland,
+//   FLOATINGISLAND,
 //   #[assoc(to_spawn = space_cop.into())]
 //   SpaceCop,
 //   #[assoc(to_spawn = space_wizard.into())]
-//   SpaceWizard,
+//   SPACEWIZARD,
 //   #[assoc(to_spawn = nomad.into())]
 //   Nomad,
 //   #[assoc(to_spawn = alien_soldier.into())]
 //   AlienSoldier,
 //   // #[assoc(to_spawn = gate.into())]
-//   // Gate,
+//   // GATE,
 //   #[assoc(to_spawn = abandonedship.into())]
 //   AbandonedShip,
 //   // ...
@@ -2995,14 +3185,14 @@ struct Planet {
 //   WormholePortal,
 //   SpaceWhale,
 //   AlienArtifact,
-//   SpaceStation,
+//   SPACESTATION,
 //   QuantumAnomaly,
 //   SpaceMine,
 //   NebulaCloud,
 //   SolarFlare,
 //   SpaceDebris,
 //   CometCluster,
-//   DysonSphere,
+//   DysonSPHERE,
 //   AncientRuins,
 //   AlienOutpost,
 //   RepairDrone,
@@ -3034,7 +3224,7 @@ struct Planet {
 //   SpaceMirage,
 //   CosmicStringFragment,
 //   DarkMatterNode,
-//   AsteroidHatcher,
+//   ASTEROIDHatcher,
 //   SpaceLeviathan,
 //   VoidKraken,
 //   StarforgeRemnant,
@@ -3060,16 +3250,20 @@ pub struct NamedNPC {
   name: &'static str,
   faction: Faction,
   sprite: MySprite,
-  dialogue_tree: DialogueTree
+  dialogue_tree: DialogueTREE
 }
 fn talking_person_in_space(pos: Vec3,
                            sprite: MySprite,
                            name: impl ToString,
-                           dialogue_tree: DialogueTree)
+                           dialogue_tree: DialogueTREE)
                            -> impl Bundle {
   (Name::new(name.to_string()),
    Interact::dialogue_tree_default_state(dialogue_tree),
    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(sprite)))
+}
+enum NumberFunction {
+  Static(fn(i32) -> i32),
+  Dynamic(Box<dyn Fn(i32) -> i32>)
 }
 
 struct Spawnable(fn(&mut Commands, Vec3));
@@ -3079,27 +3273,27 @@ impl Spawnable {
   const TIME_TRAVELERS: Self = Self(|c, pos| {
     let randpos = || pos + random_normalized_vector() * 12.0;
     c.spawn(talking_person_in_space(randpos(),
-                                    MySprite::SpaceMan,
+                                    MySprite::SPACEMAN,
                                     "Marie Curie",
                                     MARIE_CURIE_DIALOGUE));
     c.spawn(talking_person_in_space(randpos(),
-                                    MySprite::SpaceWizard,
+                                    MySprite::SPACEWIZARD,
                                     "Chronos, the Space Wizard of Time and Dimension",
                                     CHRONOS_SPACE_WIZARD_DIALOGUE));
     c.spawn(talking_person_in_space(randpos(),
-                                    MySprite::SpaceMan,
+                                    MySprite::SPACEMAN,
                                     "Socrates",
                                     SOCRATES_DIALOGUE));
     c.spawn(talking_person_in_space(randpos(),
-                                    MySprite::SpaceMan,
+                                    MySprite::SPACEMAN,
                                     "Abraham Lincoln",
                                     ABRAHAM_LINCOLN_DIALOGUE));
     c.spawn(talking_person_in_space(randpos(),
-                                    MySprite::SpaceMan,
+                                    MySprite::SPACEMAN,
                                     "Cleopatra",
                                     CLEOPATRA_DIALOGUE));
     c.spawn(talking_person_in_space(randpos(),
-                                    MySprite::SpaceMan,
+                                    MySprite::SPACEMAN,
                                     "Leonardo Da Vinci",
                                     LEONARDO_DA_VINCI_DIALOGUE));
   });
@@ -3109,6 +3303,7 @@ macro_rules! create_probs {
     impl Spawnable {
       $(
         pub const $name: Self = Self(|commands, pos| {
+          // use Spawnable::*;
           let probs = $probs;
           for (p, s) in probs {
             if prob(p) {
@@ -3126,6 +3321,7 @@ macro_rules! create_spawnables {
     impl Spawnable {
       $(
         pub const $name: Self = Self(|commands, pos| {
+          // use Spawnable::*;
           let bundle = ($body)(pos);
           commands.spawn(bundle);
         });
@@ -3143,7 +3339,7 @@ create_spawnables! {
                   NORMAL_NPC_THRUST,
                   Faction::SpacePirates,
                   50,
-                  MySprite::SpaceshipRed))
+                  MySprite::SPACESHIPRED))
   },
   SPACE_PIRATE_BASE => |pos| {
     (Combat { hp: 120,
@@ -3151,7 +3347,7 @@ create_spawnables! {
               ..default() },
      Interact::SingleOption(InteractSingleOption::Describe),
      name("space pirate base"),
-     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpacePirateBase)))
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SPACEPIRATEBASE)))
   },
   SPACE_STATION => |pos| {
     (Combat { hp: 120,
@@ -3159,7 +3355,7 @@ create_spawnables! {
               ..default() },
      Interact::SingleOption(InteractSingleOption::Describe),
      name("space station"),
-     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SpaceStation)))
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::SPACESTATION)))
   },
   TRADER => |pos| {
     scaled_npc(pos,
@@ -3168,7 +3364,7 @@ create_spawnables! {
                NORMAL_NPC_THRUST,
                Faction::Traders,
                30,
-               MySprite::SpaceshipWhite2)
+               MySprite::SPACESHIPWHITE2)
   },
   SPACE_COP => |pos| {
     scaled_npc(pos,
@@ -3177,16 +3373,16 @@ create_spawnables! {
                NORMAL_NPC_THRUST,
                Faction::SpacePolice,
                70,
-               MySprite::SpaceshipBlue)
+               MySprite::SPACESHIPBLUE)
   },
   SPACE_WIZARD => |pos| {
     scaled_npc(pos,
                NORMAL_NPC_SCALE,
                "space wizard",
                NORMAL_NPC_THRUST,
-               Faction::SpaceWizards,
+               Faction::SPACEWIZARDs,
                40,
-               MySprite::WizardSpaceShip)
+               MySprite::WIZARDSPACESHIP)
   },
   NOMAD => |pos| {
     scaled_npc(pos,
@@ -3195,7 +3391,7 @@ create_spawnables! {
                NORMAL_NPC_THRUST,
                Faction::Wanderers,
                35,
-               MySprite::SpaceshipGreen)
+               MySprite::SPACESHIPGREEN)
   },
   ALIEN_SOLDIER => |pos| {
     (IsHostile(true),
@@ -3205,7 +3401,7 @@ create_spawnables! {
                   NORMAL_NPC_THRUST,
                   Faction::Invaders,
                   80,
-                  MySprite::PurpleEnemyShip))
+                  MySprite::PURPLEENEMYSHIP))
   },
   ENEMY => |pos| {
     (Enemy,
@@ -3216,7 +3412,7 @@ create_spawnables! {
                   NORMAL_NPC_THRUST,
                   Faction::default(),
                   50,
-                  MySprite::PurpleEnemyShip))
+                  MySprite::PURPLEENEMYSHIP))
   },
   NPC => |pos| {
     scaled_npc(pos,
@@ -3225,7 +3421,7 @@ create_spawnables! {
                NORMAL_NPC_THRUST,
                Faction::default(),
                50,
-               MySprite::SpaceshipWhite2)
+               MySprite::SPACESHIPWHITE2)
   },
   MUSHROOM_MAN => |pos| {
     (PlayerFollower,
@@ -3235,11 +3431,11 @@ create_spawnables! {
                 NORMAL_NPC_THRUST,
                 Faction::Traders,
                 40,
-                MySprite::MushroomMan))
+                MySprite::MUSHROOMMAN))
   },
   SPACE_COWBOY => |pos| {
     talking_person_in_space(pos,
-                            MySprite::SpaceCowBoy,
+                            MySprite::SPACECOWBOY,
                             "space cowboy",
                             SPACE_COWBOY_DIALOGUE)
   },
@@ -3248,85 +3444,85 @@ create_spawnables! {
   //    SpaceObjectBundle::new(pos,
   //                           1.5,
   //                           false,
-  //                           Visuals::sprite(MySprite::Sign).with_text(String::new())))
+  //                           Visuals::sprite(MySprite::SIGN).with_text(String::new())))
   // },
   WORMHOLE => |pos| {
     (Interact::SingleOption(InteractSingleOption::Describe),
      name("wormhole"),
-     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WormHole)))
+     SpaceObjectBundle::new(pos, 4.0, false, Visuals::sprite(MySprite::WORMHOLE)))
   },
   ASTEROID => |pos| {
-    (Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMinigame{resources_left:5,tool_durability:5}),
+    (Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame{resources_left:5,tool_durability:5}),
      CanBeFollowedByNPC,
      SpaceObjectBundle::new(pos,
                             asteroid_scale(),
                             false,
-                            Visuals::sprite(MySprite::Asteroid)))
+                            Visuals::sprite(MySprite::ASTEROID)))
   },
   SPACE_CAT => |pos| {
     (Name::new("space cat"),
-     Interact::SingleOption(InteractSingleOption::Item(Item::SpaceCat)),
-     SpaceObjectBundle::new(pos, 1.3, true, Visuals::sprite(MySprite::SpaceCat)))
+     Interact::SingleOption(InteractSingleOption::Item(Item::SPACECAT)),
+     SpaceObjectBundle::new(pos, 1.3, true, Visuals::sprite(MySprite::SPACECAT)))
   },
   SPACEMAN => |pos| {
     (Name::new("spaceman"),
      Interact::SingleOption(InteractSingleOption::Item(Item::Person)),
-     SpaceObjectBundle::new(pos, 1.3, true, Visuals::sprite(MySprite::SpaceMan)))
+     SpaceObjectBundle::new(pos, 1.3, true, Visuals::sprite(MySprite::SPACEMAN)))
   },
   SPACE_COIN => |pos| {
     (Name::new("space coin"),
-     Interact::SingleOption(InteractSingleOption::Item(Item::SpaceCoin)),
-     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::Coin)))
+     Interact::SingleOption(InteractSingleOption::Item(Item::SpaceCOIN)),
+     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::COIN)))
   },
   ICE_ASTEROID => |pos| {
     (Name::new("ice"),
      Interact::SingleOption(InteractSingleOption::Item(Item::DiHydrogenMonoxide)),
-     SpaceObjectBundle::new(pos, asteroid_scale(), true, Visuals::sprite(MySprite::IceAsteroid)))
+     SpaceObjectBundle::new(pos, asteroid_scale(), true, Visuals::sprite(MySprite::ICEASTEROID)))
   },
   CRYSTAL_ASTEROID => |pos| {
     (Name::new("crystal asteroid"),
      Interact::SingleOption(InteractSingleOption::Item(Item::Crystal)),
-     SpaceObjectBundle::new(pos, asteroid_scale(), true, Visuals::sprite(MySprite::CrystalAsteroid)))
+     SpaceObjectBundle::new(pos, asteroid_scale(), true, Visuals::sprite(MySprite::CRYSTALASTEROID)))
   },
   CRYSTAL_MONSTER => |pos| {
     (name("crystal monster"),
-     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CrystalMonster)))
+     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)))
   },
   CRYSTAL_MONSTER_2 => |pos| {
     (name("crystal monster"),
      Interact::SingleOption(InteractSingleOption::Describe),
-     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::CrystalMonster)))
+     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)))
   },
   HP_BOX => |pos| {
     (name("hp box"),
-     Interact::SingleOption(InteractSingleOption::HPBox),
-     SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBox)))
+     Interact::SingleOption(InteractSingleOption::HPBOX),
+     SpaceObjectBundle::new(pos, 0.9, true, Visuals::sprite(MySprite::HPBOX)))
   },
   TREASURE_CONTAINER => |pos| {
     (name("container"),
-     Interact::SingleOption(InteractSingleOption::Container(vec![(Item::SpaceCoin, 4), (Item::Coffee, 1)])),
-     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::Container)))
+     Interact::SingleOption(InteractSingleOption::CONTAINER(vec![(Item::SpaceCOIN, 4), (Item::COFFEE, 1)])),
+     SpaceObjectBundle::new(pos, 2.1, true, Visuals::sprite(MySprite::CONTAINER)))
   },
   SPHERICAL_COW => |pos| {
     (name("spherical cow"),
      Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),
-     // Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(SPHERICAL_SPACE_COW)),
-     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SphericalCow)))
+     // Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(SPHERICAL_SPACE_COW)),
+     SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::SPHERICALCOW)))
   },
   // ZORP => |pos| {
   //   (name("zorp"),
-  //    Interact::MultipleOptions(InteractMultipleOptions::DialogueTree(ZORP)),
-  //    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::Zorp)))
+  //    Interact::MultipleOptions(InteractMultipleOptions::DialogueTREE(ZORP)),
+  //    SpaceObjectBundle::new(pos, 1.7, true, Visuals::sprite(MySprite::ZORP)))
   // },
   TRADE_STATION => |pos| {
     let (trade, text) = if prob(0.5) {
-      let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SpaceCat]).unwrap();
+      let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SPACECAT]).unwrap();
       (Interact::SingleOption(InteractSingleOption::Trade { inputs: (trade_buy, 1),
-                                                            outputs: (Item::SpaceCoin, 5) }),
+                                                            outputs: (Item::SpaceCOIN, 5) }),
        format!("space station\nbuys {:?}", trade_buy))
     } else {
-      let trade_sell = pick([Item::Spice, Item::Coffee, Item::Rock]).unwrap();
-      (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCoin, 5),
+      let trade_sell = pick([Item::Spice, Item::COFFEE, Item::Rock]).unwrap();
+      (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCOIN, 5),
                                                             outputs: (trade_sell, 1) }),
        format!("space station\nsells {:?}", trade_sell))
     };
@@ -3336,12 +3532,12 @@ create_spawnables! {
      SpaceObjectBundle::new(pos,
                             3.0,
                             false,
-                            Visuals::sprite(MySprite::SpaceStation).with_text(text)))
+                            Visuals::sprite(MySprite::SPACESTATION).with_text(text)))
   },
   FLOATING_ISLAND => |pos| {
     (name("floating island"),
      Interact::SingleOption(InteractSingleOption::Describe),
-     SpaceObjectBundle::new(pos, 3.4, false, Visuals::sprite(MySprite::FloatingIsland)))
+     SpaceObjectBundle::new(pos, 3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)))
   },
   ABANDONED_SHIP => |pos| {
     (name("abandoned ship"),
@@ -3349,7 +3545,7 @@ create_spawnables! {
      SpaceObjectBundle::new(pos,
                             2.0,
                             false,
-                            Visuals::sprite(MySprite::SpaceshipAbandoned)))
+                            Visuals::sprite(MySprite::SPACESHIPABANDONED)))
   },
 }
 create_probs! {
@@ -3521,20 +3717,20 @@ pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
 #[func(pub fn probs(&self) -> Spawnable)]
 pub enum ZoneType {
   #[assoc(probs = Spawnable::SPACE_PIRATE_ASTEROID_FIELD)]
-  SpacePirateAsteroidField,
+  SpacePirateASTEROIDField,
   #[assoc(probs = Spawnable::INVADERS)]
   InvaderAttack,
   #[assoc(probs = Spawnable::TRADING_ZONE)]
   TradingZone,
 
   #[assoc(probs = Spawnable::NORMAL_ASTEROID_FIELD)]
-  AsteroidField,
+  ASTEROIDField,
   #[assoc(probs = Spawnable::NON_COMBAT_ICE_ASTEROID_FIELD)]
-  IceAsteroidField,
+  ICEASTEROIDField,
   #[assoc(probs = Spawnable::PIRATE_ICE_ASTEROID_FIELD)]
-  PirateIceAsteroidField,
+  PirateICEASTEROIDField,
   #[assoc(probs = Spawnable::SPACE_STATION_ZONE_PROBS)]
-  SpaceStationZone // #[assoc(probs = Spawnable::ANOMALY_CLUSTER_PROBS)]
+  SPACESTATIONZone // #[assoc(probs = Spawnable::ANOMALY_CLUSTER_PROBS)]
                    // AnomalyCluster,
                    // #[assoc(probs = Spawnable::EXOTIC_LIFE_ZONE_PROBS)]
                    // ExoticLifeZone,
@@ -3547,9 +3743,9 @@ fn random_zone_name() -> String {
   // (0..4).map(|_| random::<char>()).collect()
 }
 #[derive(Component, Clone)]
-struct GatesConnected(Entity, Entity);
+struct GATEsConnected(Entity, Entity);
 #[derive(Component, Clone)]
-struct Gate;
+struct GATE;
 fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > rand::random::<f32>() }
@@ -3569,6 +3765,10 @@ struct ZoneEntity {
   zone: Entity
 }
 
+fn create_the_world() {
+  type Graph<T> = Vec<(T, Vec<usize>)>;
+  // let big_graph_of_connected_zones;
+}
 impl Zone {
   fn spawn(&self,
            mut c: &mut Commands,
@@ -3591,12 +3791,12 @@ impl Zone {
       let planet_distance = 700.0;
       let rel_pos = random_normalized_vector() * planet_distance;
       let sprite = match planet_type {
-        PlanetType::MarsLikePlanet => MySprite::MarsLikePlanet,
-        PlanetType::HabitablePlanet => MySprite::HabitablePlanet,
-        PlanetType::IcePlanet => MySprite::IcePlanet,
-        PlanetType::LavaPlanet => MySprite::LavaPlanet,
-        PlanetType::SandPlanet => MySprite::SandPlanet,
-        PlanetType::BrownGasGiant => MySprite::BrownGasGiant
+        PlanetType::MARSLIKEPLANET => MySprite::MARSLIKEPLANET,
+        PlanetType::HABITABLEPLANET => MySprite::HABITABLEPLANET,
+        PlanetType::ICEPLANET => MySprite::ICEPLANET,
+        PlanetType::LAVAPLANET => MySprite::LAVAPLANET,
+        PlanetType::SANDPLANET => MySprite::SANDPLANET,
+        PlanetType::BROWNGASGIANT => MySprite::BROWNGASGIANT
       };
       c.spawn((Planet { planet_type,
                         population: (rangerand(30000.0, 300000.0) as u32).pow(1) },
@@ -3662,7 +3862,7 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   c.spawn((SpaceObjectBundle::new(sun_pos,
                                   sun_scale,
                                   false,
-                                  Visuals::material_sphere(MyMaterial::GlowyMaterial2)),
+                                  Visuals::material_sphere(MyMaterial::GLOWY_2)),
            CubemapVisibleEntities::default(),
            CubemapFrusta::default(),
            PointLight { intensity: 3_000_000.0,
@@ -3673,24 +3873,24 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
                         ..default() }));
   for _ in 0..num_zones {
     let planet_type = if prob(0.6) {
-      Some(pick([PlanetType::SandPlanet,
-                 PlanetType::BrownGasGiant,
-                 PlanetType::MarsLikePlanet,
-                 PlanetType::LavaPlanet,
-                 PlanetType::IcePlanet,
-                 PlanetType::HabitablePlanet]).unwrap())
+      Some(pick([PlanetType::SANDPLANET,
+                 PlanetType::BROWNGASGIANT,
+                 PlanetType::MARSLIKEPLANET,
+                 PlanetType::LAVAPLANET,
+                 PlanetType::ICEPLANET,
+                 PlanetType::HABITABLEPLANET]).unwrap())
     } else {
       None
     };
     let zone_pos = sun_pos + (random_normalized_vector() * zone_dist_from_sun);
 
-    let zone_type = pick([ZoneType::SpacePirateAsteroidField,
+    let zone_type = pick([ZoneType::SpacePirateASTEROIDField,
                           ZoneType::InvaderAttack,
-                          ZoneType::PirateIceAsteroidField,
+                          ZoneType::PirateICEASTEROIDField,
                           ZoneType::TradingZone,
-                          ZoneType::AsteroidField,
-                          ZoneType::IceAsteroidField,
-                          ZoneType::SpaceStationZone]).unwrap();
+                          ZoneType::ASTEROIDField,
+                          ZoneType::ICEASTEROIDField,
+                          ZoneType::SPACESTATIONZone]).unwrap();
     // let zone_entity = c.spawn_empty().id();
     let zone = Zone { zone_radius: 60.0,
                       is_combat_zone: false,
@@ -3780,7 +3980,7 @@ fn spawn_skybox(serv: Res<AssetServer>,
   {
     let skybox_handle = skybox_handle.get_or_insert_with(|| {
                                        serv.load(format!("embedded://{}",
-                                                         MySprite::NasaStarmap.path()))
+                                                         MySprite::NASASTARMAP.path))
                                      })
                                      .clone();
     println("hmm1");
@@ -3859,7 +4059,7 @@ pub fn main() {
       QuillPlugin,
       QuillOverlaysPlugin,
     ))// .add_plugins(add_global_highlight)
-    .add_event::<GuiInputEvent>()
+    // .add_event::<GuiInputEvent>()
     .init_resource::<UIData>()
     .init_resource::<TimeTicks>()
     .insert_resource(gravity)
@@ -3912,7 +4112,7 @@ comment! {
 // #[derive(Clone)]
 // enum SpawnableNPCKind {
 //   NPC,
-//   MushroomMan,
+//   MUSHROOMMAN,
 //   Enemy
 // }
 // #[derive(Debug, Assoc, Clone)]
@@ -3921,19 +4121,19 @@ comment! {
 // #[func(pub fn item(&self) -> Item)]
 // enum LootObjectKind {
 //   #[assoc(scale = asteroid_scale())]
-//   #[assoc(sprite = MySprite::CrystalAsteroid)]
+//   #[assoc(sprite = MySprite::CRYSTALASTEROID)]
 //   #[assoc(item = Item::Crystal)]
-//   CrystalAsteroid,
+//   CRYSTALASTEROID,
 //   #[assoc(scale = asteroid_scale())]
-//   #[assoc(sprite = MySprite::IceAsteroid)]
+//   #[assoc(sprite = MySprite::ICEASTEROID)]
 //   #[assoc(item = Item::DiHydrogenMonoxide)]
-//   IceAsteroid,
+//   ICEASTEROID,
 //   #[assoc(scale = 1.3)]
-//   #[assoc(sprite = MySprite::SpaceCat)]
-//   #[assoc(item = Item::SpaceCat)]
-//   SpaceCat,
+//   #[assoc(sprite = MySprite::SPACECAT)]
+//   #[assoc(item = Item::SPACECAT)]
+//   SPACECAT,
 //   #[assoc(scale = 1.2)]
-//   #[assoc(sprite = MySprite::Coin)]
+//   #[assoc(sprite = MySprite::COIN)]
 //   #[assoc(item = Item::Money)]
 //   Money
 // }
@@ -3955,11 +4155,11 @@ comment! {
 //   }
 // }
 // static SPACE_CAT: EntityTemplate = EntityTemplate::new(|pos| {
-//   loot_object(MySprite::SpaceCat,
+//   loot_object(MySprite::SPACECAT,
 //               pos,
 //               1.3,
 //               "space cat".to_string(),
-//               Item::SpaceCat)
+//               Item::SPACECAT)
 // });
 // use std::{cell::{LazyCell, OnceCell},
 //           rc::Weak,
@@ -4001,15 +4201,15 @@ comment! {
 // #[derive(Assoc, Copy, Clone, Hash, Eq, PartialEq)]
 // #[func(pub fn spawn(&self,mut c:&mut Commands) -> EntityCommands)]
 // enum EntityTemplate {
-//   #[assoc(spawn = c.spawn(loot_object(MySprite::SpaceCat,default(),1.3,"space cat".into(),Item::SpaceCat)))]
-//   SpaceCat,
+//   #[assoc(spawn = c.spawn(loot_object(MySprite::SPACECAT,default(),1.3,"space cat".into(),Item::SPACECAT)))]
+//   SPACECAT,
 //   NeutralNPC,
-//   MushroomMan,
+//   MUSHROOMMAN,
 //   Enemy,
-//   Asteroid,
-//   SphericalCow,
-//   CrystalAsteroid,
-//   IceAsteroid,
+//   ASTEROID,
+//   SPHERICALCOW,
+//   CRYSTALASTEROID,
+//   ICEASTEROID,
 //   Money
 // }
 
@@ -4017,9 +4217,9 @@ comment! {
 // #[derive(Clone)]
 // enum InertSpaceThing {
 //   // #[assoc(scale = "white_corners.png")]
-//   Asteroid,
+//   ASTEROID,
 //   // #[assoc(path = "white_corners.png")]
-//   SphericalCow
+//   SPHERICALCOW
 // }
 // #[derive(Clone)]
 // enum SpawnableSpaceObjectKind {
@@ -4037,9 +4237,9 @@ comment! {
 //     item: Item,
 //     name: String
 //   },
-//   SpaceCat,
+//   SPACECAT,
 //   NeutralNPC,
-//   MushroomMan,
+//   MUSHROOMMAN,
 //   Enemy,
 //   OldLootObject {
 //     kind: LootObjectKind
@@ -4095,12 +4295,12 @@ comment! {
 //             .insert(Interact::Item(item))
 //         // .reborrow()
 //       }
-//       Kind::SpaceCat => self.with_kind(Kind::LootObject { scale: 1.3,
-//                                                           sprite: MySprite::SpaceCat,
-//                                                           item: Item::SpaceCat,
+//       Kind::SPACECAT => self.with_kind(Kind::LootObject { scale: 1.3,
+//                                                           sprite: MySprite::SPACECAT,
+//                                                           item: Item::SPACECAT,
 //                                                           name: "space cat".into() })
 //                             .spawn(c),
-//       Kind::MushroomMan => todo!(),
+//       Kind::MUSHROOMMAN => todo!(),
 //       // Kind::NPC => todo!(),
 //       Kind::NeutralNPC => todo!(),
 //       Kind::Enemy => todo!(),
