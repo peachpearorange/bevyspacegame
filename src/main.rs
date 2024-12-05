@@ -712,6 +712,41 @@ pub fn explosion_visual(pos: Vec3, scale: f32) -> impl Bundle {
    Visuals::material_sphere(MyMaterial::EXPLOSION),
    SpatialBundle::default())
 }
+
+#[derive(Component)]
+struct VisualEffectBox(Box<dyn Fn(&Query<&Transform, Without<VisualEffect>>,
+                                 u32) -> Option<Transform>
+                              + Send
+                              + Sync>);
+
+pub fn laser_visual_new(shooter: Entity, target: Entity) -> impl Bundle {
+  (Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
+   SpatialBundle::default(),
+   VisualEffectBox(Box::new(move |q, age| {
+     let laser_age = age;
+     let time_left = LASER_DURATION_TICKS - laser_age;
+     if let Ok(shooter_transform) = q.get(shooter)
+        && let Ok(target_transform) = q.get(target)
+        && time_left > 0
+     {
+       let start_pos = shooter_transform.translation;
+       let target_pos = target_transform.translation;
+       let distance = start_pos.distance(target_pos);
+       let center_pos = (start_pos + target_pos) * 0.5;
+       let max_laser_radius = 0.18;
+       let laser_radius =
+         max_laser_radius
+         * f32::sin(PI * time_left as f32 / LASER_DURATION_TICKS as f32).powf(0.4);
+
+       Some(Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
+                                                   .with_scale(vec3(laser_radius,
+                                                                    laser_radius,
+                                                                    distance * 0.5)))
+     } else {
+       None
+     }
+   })))
+}
 pub fn laser_visual(shooter: Entity, target: Entity) -> impl Bundle {
   (VisualEffect::Laser { target, shooter },
    Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
