@@ -57,7 +57,8 @@ use {avian3d::prelude::*,
      lazy_static::lazy_static,
      rand::{random, thread_rng, Rng},
      rust_utils::{comment, concat_strings, debug_println, debugfmt, filter_map, find,
-                  find_map, first, map, mapv, prettyfmt, println, sort_by_key, sum, vec},
+                  find_map, first, map, mapv, prettyfmt, println, sort_by_key, sum, vec,
+                  MutateTrait},
      std::{any::Any, cell::LazyCell, f32::consts::PI}};
 
 comment! {
@@ -3053,22 +3054,22 @@ pub fn ui(mut c: Commands,
             format!("{:.1}", player_pos),
             // format!("Space Cats: {}", ui_data.space_cat_count),
         ].into_iter()
-                       .chain(ui_data.player_inventory
-                                     .0
-                                     .clone()
-                                     .into_iter()
-                                     .map(|(item, n)| format!("{} {:?}s", n, item)))
+                       // .chain(ui_data.player_inventory
+                       //               .0
+                       //               .clone()
+                       //               .into_iter()
+                       //               .map(|(item, n)| format!("{} {:?}s", n, item)))
                        .collect();
 
     // Update target data
     let mut target_data = Vec::new();
     if let Ok((camera_entity, camera_transform)) = camera_query.get_single() {
-      for (target_transform, interaction_state, name) in target_q.iter() {
-        let distance = player_pos.distance(target_transform.translation);
-        target_data.push(format!("{}", name));
-        target_data.push(format!("Distance: {:.1}", distance));
-        target_data.push(format!("State: {:?}", interaction_state));
-      }
+      // for (_,target_transform, interaction_state, name) in &target_q {
+      //   let distance = player_pos.distance(target_transform.translation);
+      //   target_data.push(format!("{}", name));
+      //   target_data.push(format!("Distance: {:.1}", distance));
+      //   target_data.push(format!("State: {:?}", interaction_state));
+      // }
     }
 
     // Update overview data
@@ -3085,11 +3086,11 @@ pub fn ui(mut c: Commands,
                         infobox_data,
                         target_data,
                         overview_data,
-                        message_log: old_ui_data.message_log,
-                        interact_message: old_ui_data.interact_message,
+                        message_log: old_ui_data.message_log.clone(),
+                        interact_message: old_ui_data.interact_message.clone(),
                         count: old_ui_data.count,
                         foo: old_ui_data.foo,
-                        font: old_ui_data.font,
+                        font: old_ui_data.font.clone(),
                         // player_inventory: old_ui_data.player_inventory,
                         // space_cat_count: old_ui_data.space_cat_count,
                         ..old_ui_data.clone() };
