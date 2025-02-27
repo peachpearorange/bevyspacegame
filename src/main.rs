@@ -299,6 +299,8 @@ impl Visuals {
   fn none() -> Self { default() }
   fn sprite(sprite: MySprite) -> Self {
     Self { desired_sprite: Some(sprite),
+           material_mesh: Some((MyMaterial::SELECTED, GenMesh::TORUS)),
+
            ..default() }
   }
   fn material_mesh(material: MyMaterial, mesh: GenMesh) -> Self {
@@ -332,6 +334,7 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
                serv: Res<AssetServer>,
                mut c: Commands,
                mut n: Local<u32>,
+               mut j: Local<u32>,
                mut target_entity: Local<Option<Entity>>,
                mut visuals_q: Query<(Entity, Mut<Visuals>, Option<&Sprite3d>)>,
                mut visuals_sprites_q: Query<(&mut Transform, &GlobalTransform),
@@ -360,6 +363,7 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
   };
   let target_overlay = get_sprite_handle(MySprite::WHITECORNERS);
   let billboard_mesh_handle = get_mesh_handle(GenMesh::BILLBOARD_MESH_SQUARE);
+  let invisible_material = get_material_handle(MyMaterial::INVISIBLE);
   // Children
   comment! {
     let target_entity = (*target_entity).unwrap_or_else(||{
@@ -381,21 +385,25 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
                              font_size: 30.0,
                              font_smoothing: Default::default() };
 
-  let invisible_material = get_material_handle(MyMaterial::INVISIBLE);
   for (e, mut visuals, osprite) in &mut visuals_q {
-    if visuals.is_changed() || !visuals.done {
+    if visuals.is_changed() || (osprite.is_none() && visuals.desired_sprite.is_some()) {
       visuals.done = true;
       *n += 1;
       // println(*n);
       if *n % 100 == 0 {
         println(*n);
       }
+      if *j % 100 == 0 {
+        println!("j:{}", *j);
+      }
       if let Some(desired_sprite) = visuals.desired_sprite
          && osprite.is_none()
       {
+        *j += 1;
         let image = get_sprite_handle(desired_sprite);
         if let Some(imgref) = sprite_3d_params.images.get(image.id()) {
-          let pixels_per_metre = imgref.height() as f32;
+          let pixels_per_metre = 0.5 // imgref.height() as f32
+            ;
           // serv.get_handle(path)
           let spriteprops = Sprite3dBuilder {
               image,
@@ -420,6 +428,8 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
 
           c.entity(e).insert(bundle);
           // println("asdfasdf");
+        } else {
+          visuals.done = false;
         }
       }
       // if let Some(sprite) = visuals.sprite {
@@ -444,7 +454,7 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
       }
     }
   }
-  let cam_globaltransform = *camq;
+  let cam_globaltransform = **camq;
   for (mut transform, globaltransform) in &mut visuals_sprites_q {
     let dir = (globaltransform.translation()
                  - cam_globaltransform.translation()).normalize_or(Vec3::Y);
@@ -1097,7 +1107,7 @@ fn debug_input(keys: Res<ButtonInput<KeyCode>>,
                targetq: Query<(&Transform,)>) {
   let campos = camq.1.translation;
   if keys.just_pressed(KeyCode::KeyP) {
-    println!("{campos}");
+    dbg!(campos);
   }
 }
 
@@ -1186,14 +1196,20 @@ fn space_object(scale: f32, can_move: bool, visuals: Visuals) -> impl Bundle {
    AngularVelocity::default(),
    ExternalForce::default().with_persistence(false),
    ExternalImpulse::default(),
-   Visibility::Visible,
+
+   // Visibility::Visible,
    // Pick
    // PickableBundle,
-   // SpatialBundle { transform: Transform { translation,
-   //                                        rotation: default(),
-   //                                        scale: Vec3::splat(scale) },
+
+   Visibility::Visible,
+   // Transform::default(),
+   // InheritedVisibility::default(),
+   // ViewVisibility::default(),
+   // GlobalTransform::default(),
+   //
+   // SpatialBundle { transform: default(),
    //                 ..default() }
-  )
+                   )
 }
 fn sprite_space_object(scale: f32, can_move: bool, sprite: MySprite) -> impl Bundle {
   space_object(scale, can_move, Visuals::sprite(sprite))
@@ -1222,41 +1238,9 @@ comment! {
 
 pub fn set_space_object_scale(mut space_object_q: Query<(&mut Transform, &SpaceObject)>) {
   for (mut transform, space_object) in &mut space_object_q {
-
-    // transform.scale = Vec3::splat(space_object.scale);
-    //
+    transform.scale = Vec3::splat(space_object.scale);
   }
 }
-
-// impl SpaceObjectBundle {
-//   fn new(translation: Vec3, scale: f32, can_move: bool, visuals: Visuals) -> Self {
-//     let collider = Collider::sphere(1.0);
-//     Self((SpaceObject { scale, ..default() },
-//           visuals,
-//           LockedAxes::ROTATION_LOCKED,
-//           ColliderMassProperties::new(&collider, 1.0),
-//           collider,
-//           if can_move {
-//             RigidBody::Dynamic
-//           } else {
-//             RigidBody::Static
-//           },
-//           LinearDamping(1.6),
-//           AngularDamping(1.2),
-//           LinearVelocity::default(),
-//           AngularVelocity::default(),
-//           ExternalForce::default().with_persistence(false),
-//           ExternalImpulse::default(),
-//           Visibility::Visible,
-//           SpatialBundle { transform: Transform { translation,
-//                                                  rotation: default(),
-//                                                  scale: Vec3::splat(scale) },
-//                           ..default() }))
-//   }
-//   fn sprite(translation: Vec3, scale: f32, can_move: bool, sprite: MySprite) -> Self {
-//     Self::new(translation, scale, can_move, Visuals::sprite(sprite))
-//   }
-// }
 
 fn camera_follow_player(mut cam: Single<&mut PanOrbitCamera>,
                         player_transform: Single<&Transform, With<Player>>) {
@@ -3894,25 +3878,21 @@ pub fn main() {
           }),
           ..default()
         }),
-      // DefaultPickingPlugins,
-
         HaalkaPlugin,
       // bevy_vox_scene::VoxScenePlugin,
       bevy_sprite3d::Sprite3dPlugin,
       bevy_panorbit_camera::PanOrbitCameraPlugin,
       // bevy_mod_billboard::prelude::BillboardPlugin,
-      // bevy_mod_picking::DefaultPickingPlugins,
       avian3d::PhysicsPlugins::default(),
       // QuillPlugin,
       // QuillOverlaysPlugin,
-    ))// .add_plugins(add_global_highlight)
+    ))
     // .add_event::<GuiInputEvent>()
     .init_resource::<UIData>()
     .init_resource::<TimeTicks>()
     .insert_resource(gravity)
     .insert_resource(solver_config)
-  .insert_resource(ClearColor(Color::BLACK))
-    // .insert_resource(bevy_mod_picking::debug::DebugPickingMode::Normal)
+    .insert_resource(ClearColor(Color::BLACK))
     // .init_asset::<bevy_vox_scene::VoxelScene>()
     .insert_resource(AMBIENT_LIGHT)
     .add_systems(Startup, (setup// ,add_global_highlight
@@ -3942,7 +3922,7 @@ pub fn main() {
       interact,
       navigation,
       click_target,
-face_camera_system,
+      face_camera_system,
 // face_camera_dir,
 // face_camera,
       // set_visuals,
