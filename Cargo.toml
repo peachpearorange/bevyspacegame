@@ -51,7 +51,7 @@ dist = {inherits = "release", lto = "fat"}
 # bevy_meshem ={git = "https://github.com/Adamkob12/bevy_meshem", rev = "37163302e9db919941478d0647803acf527d4dbf"}
 
 rust_utils = {path = "../rust_utils"}
-rand = "*"
+rand = "0.8.5"
 # iter-comprehensions = "*"
 bevy_vox_scene ="*"
 bevy_sprite3d = "*"
@@ -59,10 +59,11 @@ bevy_sprite3d = "*"
 # bevy_meshem = "*"
 # num_enum = "*"
 # bevy_flycam = "0.14.0"
-bevy_mod_billboard = "*"
+# bevy_mod_billboard = "*"
 # enum-map = "*"
 
-bevy_mod_picking = {version = "0.20.1",features = ["highlight"]}
+haalka = "0.3.0"
+# bevy_mod_picking = {version = "0.20.1",features = ["highlight"]}
 
 
 # # Enable a small amount of optimization in debug mode
@@ -78,7 +79,8 @@ bevy_mod_picking = {version = "0.20.1",features = ["highlight"]}
 # [profile.release]
 # opt-level = 3
 
-bevy = { version = "0.14.1", default-features = false, features = [
+# [replace]
+bevy = { version = "0.15.2", default-features = false, features = [
     "animation",
     "bevy_asset",
     "bevy_gilrs",
@@ -108,11 +110,11 @@ bevy_embedded_assets = "*"
 enum-assoc = "*"
 anymap = "0.12.1"
 by_address = "1.2.1"
-bevy_panorbit_camera = "0.19.3"
+bevy_panorbit_camera = "*"
 # sickle_ui = "0.2.3"
 fancy_constructor = "1.3.0"
-bevy_quill = "0.1.7"
-bevy_quill_overlays = "0.1.2"
+# bevy_quill = "0.1.7"
+# bevy_quill_overlays = "0.1.2"
 uuid = "1.10.0"
 lazy_static = "1.5.0"
 keepops = "0.0.2"
