@@ -3882,7 +3882,16 @@ comment! {
   });
 }
 const fn one(s: Spawnable) -> (f32, Spawnable) { (1.0, s) }
-
+macro_rules! create_probs {
+  ($(($name:ident, $body:expr)),* $(,)?) => {
+    $(
+      pub const $name: Spawnable = {
+        let probs:&[(f32, Spawnable)] =&$body;
+        Spawnable::Probs(probs)
+      };
+    )*
+  }
+}
 create_probs! {
   (NON_COMBAT_ICE_ASTEROID_FIELD,
    [(0.6, ICE_ASTEROID_FIELD),
@@ -4032,23 +4041,26 @@ impl Zone {
       //   }
       // }
     }
-    if let Some(planet_type) = self.planet_type {
+    if let some(planet_type) = self.planet_type {
       let planet_distance = 700.0;
       let rel_pos = random_normalized_vector() * planet_distance;
       let sprite = match planet_type {
-        PlanetType::MARSLIKEPLANET => MySprite::MARSLIKEPLANET,
-        PlanetType::HABITABLEPLANET => MySprite::HABITABLEPLANET,
-        PlanetType::ICEPLANET => MySprite::ICEPLANET,
-        PlanetType::LAVAPLANET => MySprite::LAVAPLANET,
-        PlanetType::SANDPLANET => MySprite::SANDPLANET,
-        PlanetType::BROWNGASGIANT => MySprite::BROWNGASGIANT
+        planettype::marslikeplanet =>
+                                false,
+                               e::marslikeplanet,
+        planettype::habitableplanet => m planet_type,
+         planettype::iceplanet => m      population: (rangerand(30000.0, 300000.0)
+                                                      as u32)
+                                      planettype::browngasgia.pow(1)nt => mysprite::browngasgiant
       };
       spawn_at_pos(&mut c,
-                   space_object(100.0, false, Visuals::sprite(sprite),
-                                Planet {
-                                  planet_type,
-                                  population:
-                                  (rangerand(30000.0, 300000.0) as u32).pow(1)
+                   space_object(100.0,
+                                false,
+                                Visuals::sprite(sprite),
+                                Planet { planet_type,
+                                         population: (rangerand(30000.0, 300000.0)
+                                                      as u32)
+                                                             .pow(1)
                                 }),
                    zone_pos + rel_pos);
     }
