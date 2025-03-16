@@ -3025,31 +3025,36 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
   }
 }
 
-// create a method for specifying sprite per planet using enum_assoc. read the documentation for enum_assoc to make sure you do it correctly
-// #[derive(Clone, Copy, Debug)]
+// #[derive(Clone, Copy, Debug, Assoc)]
+// #[func(pub fn sprite(&self) -> MySprite)]
 // pub enum PlanetType {
+//   #[assoc(sprite = MySprite::MARSLIKEPLANET)]
 //   MARSLIKEPLANET,
+//   #[assoc(sprite = MySprite::HABITABLEPLANET)]
 //   HABITABLEPLANET,
+//   #[assoc(sprite = MySprite::DESERT_PLANET_IMAGEN_3)]
 //   SANDPLANET,
+//   #[assoc(sprite = MySprite::ICEPLANET)]
 //   ICEPLANET,
+//   #[assoc(sprite = MySprite::LAVAPLANET)]
 //   LAVAPLANET,
+//   #[assoc(sprite = MySprite::BROWNGASGIANT)]
 //   BROWNGASGIANT
 // }
-#[derive(Clone, Copy, Debug, Assoc)]
-#[func(pub fn sprite(&self) -> MySprite)]
-pub enum PlanetType {
-  #[assoc(sprite = MySprite::MARSLIKEPLANET)]
-  MARSLIKEPLANET,
-  #[assoc(sprite = MySprite::HABITABLEPLANET)]
-  HABITABLEPLANET,
-  #[assoc(sprite = MySprite::DESERT_PLANET_IMAGEN_3)]
-  SANDPLANET,
-  #[assoc(sprite = MySprite::ICEPLANET)]
-  ICEPLANET,
-  #[assoc(sprite = MySprite::LAVAPLANET)]
-  LAVAPLANET,
-  #[assoc(sprite = MySprite::BROWNGASGIANT)]
-  BROWNGASGIANT
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlanetType {
+  pub sprite: MySprite
+}
+impl PlanetType {
+  pub const fn new(sprite: MySprite) -> Self { Self { sprite } }
+  pub const fn sprite(&self) -> MySprite { self.sprite }
+  pub const MARSLIKEPLANET: Self = Self::new(MySprite::MARSLIKEPLANET);
+  pub const HABITABLEPLANET: Self = Self::new(MySprite::HABITABLEPLANET);
+  pub const SANDPLANET: Self = Self::new(MySprite::DESERT_PLANET_IMAGEN_3);
+  pub const ICEPLANET: Self = Self::new(MySprite::ICEPLANET);
+  pub const LAVAPLANET: Self = Self::new(MySprite::LAVAPLANET);
+  pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
 }
 
 #[derive(Clone, Component, Debug)]
