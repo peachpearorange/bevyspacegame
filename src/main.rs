@@ -52,7 +52,9 @@ use {avian3d::prelude::*,
      rust_utils::{comment, concat_strings, debugfmt, filter_map, find, find_map, map,
                   prettyfmt, println, sum, vec},
      std::f32::consts::PI};
-use {bevy::core_pipeline::Skybox,
+use {bevy::{asset::{AssetPath, LoadState},
+            core_pipeline::Skybox,
+            render::render_resource::{Extent3d, TextureViewDescriptor}},
      bevy_sprite3d::{Sprite3d, Sprite3dParams}};
 
 comment! {
@@ -91,6 +93,7 @@ pub struct MySprite {
 }
 impl MySprite {
   const fn new(path: &'static str) -> Self { Self { path } }
+  fn embedded_path(&self) -> String { format!("embedded://{}", self.path) }
   const ASTEROID: Self = Self::new("asteroid.png");
   const BLOCKTEXTURES: Self = Self::new("pixelc/block_textures.png");
   const BRICKS: Self = Self::new("pixelc/bricks.png");
@@ -102,6 +105,7 @@ impl MySprite {
   const CONTAINER: Self = Self::new("container.png");
   const CRYSTALASTEROID: Self = Self::new("crystal_asteroid.png");
   const CRYSTALMONSTER: Self = Self::new("crystal_monster.png");
+  const DESERT_PLANET_IMAGEN_3: Self = Self::new("desert_planet_imagen_3.png");
   const FIRE: Self = Self::new("fire.png");
   const FLOATINGISLAND: Self = Self::new("floating_island.png");
   const GATE: Self = Self::new("gate.png");
@@ -112,11 +116,16 @@ impl MySprite {
   const ICEASTEROID: Self = Self::new("icesteroid.png");
   const ICEBERG: Self = Self::new("iceberg.png");
   const ICEPLANET: Self = Self::new("ice_planet.png");
+  const IMAGEN3GREENSPACESHIP: Self = Self::new("imagen3greenspaceship.png");
+  const IMAGEN3WIZARDSPACESHIP: Self = Self::new("imagen3wizardspaceship.png");
+  const IMAGEN3WHITESPACESHIP: Self = Self::new("imagen3whitespaceship.png");
+  const IMAGEN3SPACESTATION: Self = Self::new("imagen3spacestation.png");
+  const IMAGEN3FLOATINGISLAND: Self = Self::new("imagen3floatingisland.png");
   const LAVAPLANET: Self = Self::new("lava_planet.png");
   const MARSLIKEPLANET: Self = Self::new("pixelc/marslikeplanet.png");
   const MISSILE: Self = Self::new("pixelc/missile.png");
   const MUSHROOMMAN: Self = Self::new("mushroom_man.png");
-  const NASASTARMAP: Self = Self::new("nasa_starmap.jpe");
+  const NASASTARMAP: Self = Self::new("nasa_starmap.jpg");
   const NOTE: Self = Self::new("note.png");
   const PENGUIN: Self = Self::new("penguin.png");
   const PLAYER: Self = Self::new("player.png");
@@ -124,6 +133,8 @@ impl MySprite {
   const PURPLEENEMYSHIP: Self = Self::new("purpleenemyship.png");
   const SANDPLANET: Self = Self::new("sandplanet.png");
   const SIGN: Self = Self::new("sign.png");
+  const SKYBOX: Self = Self::new("skybox.jpeg");
+  const SKYBOXMANYWORLDSSPACE: Self = Self::new("skyboxmanyworldsspace.jpg");
   const SNOW: Self = Self::new("snow.png");
   const SPACECAT: Self = Self::new("space_cat.png");
   const SPACECOWBOY: Self = Self::new("spacecowboy.png");
@@ -342,10 +353,11 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
                mut c: Commands,
                mut n: Local<u32>,
                mut j: Local<u32>,
+               // images: Res<Assets<Image>>,
                mut target_entity: Local<Option<Entity>>,
-               mut visuals_q: Query<(Entity, Mut<Visuals>, Option<&Mesh3d>)>,
-               mut visuals_sprites_q: Query<(&mut Transform, &GlobalTransform),
-                     With<VisualSprite>>,
+               mut visuals_q: Query<(Entity, Mut<Visuals>, &Transform, Option<&Mesh3d>)>,
+               // mut visuals_sprites_q: Query<(&mut Transform, &GlobalTransform),
+               //       With<VisualSprite>>,
                mut option_target_overlay_entity: Local<Option<Entity>>,
                mut sprite_params: Sprite3dParams,
                mut sprite_handles: Local<HashMap<MySprite, Handle<Image>>>,
@@ -409,29 +421,41 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
                              font_size: 30.0,
                              font_smoothing: Default::default() };
 
-  for (e, mut visuals, omesh) in &mut visuals_q {
+  for (e, mut visuals, transform, omesh) in &mut visuals_q {
     let is_done = omesh.is_some();
     if !is_done {
       match *visuals {
-        Visuals::Sprite(sprite @ MySprite { path }) => {
-          println!("d");
-          dbg!(sprite);
-          if sprite_handles.get(&sprite).is_none() {
-            println!("e");
-            let embeddedpath = format!("embedded://{path}");
-            dbg!(&embeddedpath);
-            println!("c");
-            let h = serv.load(embeddedpath);
-            sprite_handles.insert(sprite, h);
-          }
-          let h = sprite_handles.get(&sprite).unwrap();
-          dbg!(&h);
-          println!("a");
+        Visuals::Sprite(sprite) => {
+          // println!("d");
+          // dbg!(sprite);
+          // let h = match sprite_handles.get(&sprite) {
+          //   Some(h) => h.clone(),
+          //   None => {
+          //     // dbg!(&embeddedpath);
+          //     // println!("c");
+          //     let h = serv.load(embeddedpath);
+          //     sprite_handles.insert(sprite, h.clone());
+          //     h.clone()
+          //   }
+          // };
+          // let assetpath:
+          // sprite_params.images.get(id)
+          // serv.get
+          // let h = sprite_handles.get(&sprite).unwrap();
           // let h = get_sprite_handle(sprite);
-          if (dbg!(serv.get_load_state(h.id())).is_some_and(|s| dbg!(s.is_loaded()))) {
-            println!("b");
-            let pixels_per_metre = 1.5;
-            let sprite_builder = Sprite3dBuilder { image: h.clone(),
+
+          // let embeddedpath = "embedded://lava_planet.png";
+          let embeddedpath = sprite.embedded_path();
+          // dbg!(&embeddedpath);
+          let h = serv.load(embeddedpath);
+          // dbg!(&h);
+          if let Some(img) = sprite_params.images.get(h.id()) {
+            // println!("a");
+            let height = img.height();
+            let scale = transform.scale.x;
+            let pixels_per_metre = height as f32 / 2.5;
+            // let pixels_per_metre = 0.02;
+            let sprite_builder = Sprite3dBuilder { image: h,
                                                    pixels_per_metre,
                                                    alpha_mode: AlphaMode::Blend,
                                                    unlit: true,
@@ -441,7 +465,24 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
             c.entity(e).insert(bundle);
             // visuals.done = true;
             *j += 1;
+          } else {
+            c.spawn(Sprite::from_image(h));
           }
+
+          // if  matches!(serv.get_load_state(h.id()), Some(LoadState::Loaded)) {
+          //   // println!("b");
+          //   let pixels_per_metre = 1.5;
+          //   let sprite_builder = Sprite3dBuilder { image: h.clone(),
+          //                                          pixels_per_metre,
+          //                                          alpha_mode: AlphaMode::Blend,
+          //                                          unlit: true,
+          //                                          double_sided: true,
+          //                                          ..default() };
+          //   let bundle = sprite_builder.bundle(&mut sprite_params);
+          //   c.entity(e).insert(bundle);
+          //   // visuals.done = true;
+          //   *j += 1;
+          // }
         }
         Visuals::MaterialMesh { material, mesh } => {
           let material = get_material_handle(material);
@@ -454,12 +495,12 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
       }
     }
   }
-  let cam_globaltransform = **camq;
-  for (mut transform, globaltransform) in &mut visuals_sprites_q {
-    let dir = (globaltransform.translation()
-                 - cam_globaltransform.translation()).normalize_or(Vec3::Y);
-    transform.look_to(dir, Vec3::Y);
-  }
+  // let cam_globaltransform = **camq;
+  // for (mut transform, globaltransform) in &mut visuals_sprites_q {
+  //   let dir = (globaltransform.translation()
+  //                - cam_globaltransform.translation()).normalize_or(Vec3::Y);
+  //   transform.look_to(dir, Vec3::Y);
+  // }
 }
 
 // #[derive(Component)]
@@ -491,8 +532,9 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
 
 #[derive(Component)]
 pub enum FacingMode {
-  Position,  // Face toward camera position
-  Direction  // Face in camera's direction
+  Position,
+  PositionIgnoreY,
+  Direction
 }
 
 pub fn face_camera_system(camera_q: Query<&Transform, With<Camera3d>>,
@@ -502,10 +544,11 @@ pub fn face_camera_system(camera_q: Query<&Transform, With<Camera3d>>,
                                 Without<Camera3d>>) {
   if let Ok(cam_transform) = camera_q.get_single() {
     for (mut transform, global, mode) in &mut facers_q {
-      let direction = match mode {
-        FacingMode::Position => {
+      let direction: Vec3 = match mode {
+        FacingMode::PositionIgnoreY => {
           (global.translation() - cam_transform.translation).with_y(0.0)
         }
+        FacingMode::Position => global.translation() - cam_transform.translation,
         FacingMode::Direction => cam_transform.forward().as_vec3()
       };
       transform.look_to(direction, Vec3::Y);
@@ -2970,6 +3013,7 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
                          dist > NPC_FOLLOW_RANGE_MIN && dist < NPC_FOLLOW_RANGE_MAX
                        })
     };
+    // let spr = MySprite::try_from(PlanetType::MARSLIKEPLANET);
     if let Some(target_entity) = npc.follow_target
        && in_range(target_entity)
     {
@@ -2992,19 +3036,19 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
 //   BROWNGASGIANT
 // }
 #[derive(Clone, Copy, Debug, Assoc)]
-#[assoc(derive(Debug))]
+#[func(pub fn sprite(&self) -> MySprite)]
 pub enum PlanetType {
-  #[assoc(MySprite::MARSLIKEPLANET)]
+  #[assoc(sprite = MySprite::MARSLIKEPLANET)]
   MARSLIKEPLANET,
-  #[assoc(MySprite::HABITABLEPLANET)]
+  #[assoc(sprite = MySprite::HABITABLEPLANET)]
   HABITABLEPLANET,
-  #[assoc(MySprite::SANDPLANET)]
+  #[assoc(sprite = MySprite::DESERT_PLANET_IMAGEN_3)]
   SANDPLANET,
-  #[assoc(MySprite::ICEPLANET)]
+  #[assoc(sprite = MySprite::ICEPLANET)]
   ICEPLANET,
-  #[assoc(MySprite::LAVAPLANET)]
+  #[assoc(sprite = MySprite::LAVAPLANET)]
   LAVAPLANET,
-  #[assoc(MySprite::BROWNGASGIANT)]
+  #[assoc(sprite = MySprite::BROWNGASGIANT)]
   BROWNGASGIANT
 }
 
@@ -3186,7 +3230,7 @@ impl Spawnable {
 
 #[derive(Bundle)]
 struct SpawnableBundle<B: Bundle> {
-  pub transfom: Transform,
+  pub transform: Transform,
   pub bundle: B
 }
 fn space_object<B: Bundle>(scale: f32,
@@ -3195,38 +3239,37 @@ fn space_object<B: Bundle>(scale: f32,
                            b: B)
                            -> SpawnableBundle<impl Bundle> {
   let collider = Collider::sphere(1.0);
-  SpawnableBundle { transfom: Transform::from_scale(Vec3::splat(scale)),
+  SpawnableBundle { transform: Transform::from_scale(Vec3::splat(scale)),
                     bundle: (b,
-            SpaceObject { scale, ..default() },
-            visuals,
-            LockedAxes::ROTATION_LOCKED,
-            ColliderMassProperties::from_shape(&collider, 1.0),
-            collider,
-            if can_move {
-              RigidBody::Dynamic
-            } else {
-              RigidBody::Static
-            },
-            LinearDamping(1.6),
-            AngularDamping(1.2),
-            LinearVelocity::default(),
-            AngularVelocity::default(),
-            ExternalForce::default().with_persistence(false),
-            ExternalImpulse::default(),
+                             SpaceObject { scale, ..default() },
+                             visuals,
+                             LockedAxes::ROTATION_LOCKED,
+                             ColliderMassProperties::from_shape(&collider, 1.0),
+                             collider,
+                             if can_move {
+                               RigidBody::Dynamic
+                             } else {
+                               RigidBody::Static
+                             },
+                             LinearDamping(1.6),
+                             AngularDamping(1.2),
+                             LinearVelocity::default(),
+                             AngularVelocity::default(),
+                             ExternalForce::default().with_persistence(false),
+                             ExternalImpulse::default(),
+                             // Visibility::Visible,
+                             // Pick
+                             // PickableBundle,
 
-            // Visibility::Visible,
-            // Pick
-            // PickableBundle,
-
-            Visibility::Visible,
-            // Transform::default(),
-            // InheritedVisibility::default(),
-            // ViewVisibility::default(),
-            // GlobalTransform::default(),
-            //
-            // SpatialBundle { transform: default(),
-            //                 ..default() }
-    ) }
+                             // Transform::default(),
+                             // InheritedVisibility::default(),
+                             // ViewVisibility::default(),
+                             // GlobalTransform::default(),
+                             //
+                             // SpatialBundle { transform: default(),
+                             //                 ..default() }
+                             FacingMode::Position,
+                             Visibility::Visible) }
 }
 // impl<B: Bundle> From<B> for Spawnable {
 //   fn from(b: B) -> Self {
@@ -3243,9 +3286,9 @@ macro_rules! create_spawnables {
       pub const $name: Spawnable = Spawnable::FunctionPointerSpawner(
         |c, pos|
         {
-          let mut b: SpawnableBundle<_> = $body;
-          b.transform.translation = pos;
-          c.spawn(b).id()
+          let SpawnableBundle{mut transform,bundle,..} = $body;
+          transform.translation = pos;
+          c.spawn((transform,bundle)).id()
         });
     )*
   }
@@ -3260,7 +3303,7 @@ impl<F, B> SpawnableTrait for F
         B: Bundle
 {
   fn spawn_at(&self, c: &mut Commands, pos: Vec3) -> Entity {
-    let mut bundle = self(c, pos);
+    let mut bundle = self();
     bundle.transform.translation = pos;
     c.spawn(bundle).id()
   }
@@ -3269,14 +3312,14 @@ impl<F, B> SpawnableTrait for F
 impl SpawnableTrait for Spawnable {
   fn spawn_at(&self, c: &mut Commands, pos: Vec3) -> Entity {
     match self {
-      Spawnable::FunctionPointerSpawner(f) => f.spawn_at(c, pos),
+      Spawnable::FunctionPointerSpawner(f) => f(c, pos),
       Spawnable::Probs(probs) => {
         for (p, s) in *probs {
-          if fastrand::f32() < *p {
+          if prob(*p) {
             return s.spawn_at(c, pos);
           }
         }
-        c.spawn(()).id() // Or handle the "no match" case differently
+        c.spawn(()).id()
       }
     }
   }
@@ -3517,20 +3560,7 @@ impl SpawnableTrait for Spawnable {
 // }
 
 create_spawnables! {
-  (PLAYER,
-   space_object(
-     PLAYER_SCALE,
-     true,
-     Visuals::sprite(MySprite::SPACESHIPWHITE),
-     (
-       Player::default(),
-       Name::new("You"),
-       Combat { hp: 400, ..Default::default() },
-       Inventory::default(),
-       Navigation::new(PLAYER_FORCE),
-       CanBeFollowedByNPC,
-     )
-   )),
+
   (SUN,
    space_object(300.0,
                 false,
@@ -3550,8 +3580,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::SpacePirates,
      50,
-     MySprite::SPACESHIPRED
-   )),
+     MySprite::SPACESHIPRED)),
   // (SPACE_PIRATE,
   //  (NORMAL_NPC_SCALE,
   //   scaled_enemy(
@@ -3565,23 +3594,17 @@ create_spawnables! {
      4.0,
      false,
      Visuals::sprite(MySprite::SPACEPIRATEBASE),
-     (
-       Combat { hp: 120, is_hostile: false, ..Default::default() },
-       Interact::SingleOption(InteractSingleOption::Describe),
-       Name::new("space pirate base"),
-     )
-   )),
+     (Combat { hp: 120, is_hostile: false, ..Default::default() },
+      Interact::SingleOption(InteractSingleOption::Describe),
+      Name::new("space pirate base"),))),
   (SPACE_STATION,
    space_object(
      4.0,
      false,
      Visuals::sprite(MySprite::SPACESTATION),
-     (
-       Combat { hp: 120, is_hostile: false, ..Default::default() },
+     (Combat { hp: 120, is_hostile: false, ..Default::default() },
        Interact::SingleOption(InteractSingleOption::Describe),
-       Name::new("space station"),
-     )
-   )),
+       Name::new("space station"),))),
   (TRADER,
    scaled_npc(
      NORMAL_NPC_SCALE,
@@ -3589,8 +3612,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::Traders,
      30,
-     MySprite::SPACESHIPWHITE2
-   )),
+     MySprite::SPACESHIPWHITE2)),
   (SPACE_COP,
    scaled_npc(
      NORMAL_NPC_SCALE,
@@ -3598,8 +3620,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::SpacePolice,
      70,
-     MySprite::SPACESHIPBLUE
-   )),
+     MySprite::SPACESHIPBLUE)),
   (SPACE_WIZARD,
    scaled_npc(
      NORMAL_NPC_SCALE,
@@ -3607,8 +3628,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::SPACEWIZARDs,
      40,
-     MySprite::WIZARDSPACESHIP
-   )),
+     MySprite::IMAGEN3WIZARDSPACESHIP)),
   (NOMAD,
    scaled_npc(
      NORMAL_NPC_SCALE,
@@ -3616,8 +3636,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::Wanderers,
      35,
-     MySprite::SPACESHIPGREEN
-   )),
+     MySprite::IMAGEN3GREENSPACESHIP)),
   (ALIEN_SOLDIER,
    scaled_enemy(
      NORMAL_NPC_SCALE,
@@ -3625,28 +3644,19 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::Invaders,
      80,
-     MySprite::PURPLEENEMYSHIP
-   )),
-  // (ENEMY,
-  //  {
-  //    // If you have an Enemy marker, include it as needed.
-  //    let enemy_bundle = scaled_enemy(
-  //      NORMAL_NPC_SCALE,
-  //      "enemy",
-  //      NORMAL_NPC_THRUST,
-  //      Faction::default(),
-  //      50,
-  //      MySprite::PURPLEENEMYSHIP
-  //    );
-  //    MySpawnableBundle {
-  //      transform: enemy_bundle.transform,
-  //      bundle: (
-  //        enemy_bundle.bundle,
-  //        Combat::default(), // Extra enemy component
-  //      ),
-  //    }
-  //  }
-  // ),
+     MySprite::PURPLEENEMYSHIP)),
+
+  (PLAYER,
+   space_object(PLAYER_SCALE,
+                true,
+                Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP),
+                (Player::default(),
+                 name("You"),
+                 Combat { hp: 400,
+                          ..default() },
+                 Inventory::default(),
+                 Navigation::new(PLAYER_FORCE),
+                 CanBeFollowedByNPC))),
   (NPC,
    scaled_npc(
      NORMAL_NPC_SCALE,
@@ -3654,8 +3664,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::default(),
      50,
-     MySprite::SPACESHIPWHITE2
-   )),
+     MySprite::SPACESHIPWHITE2)),
   (MUSHROOM_MAN,
    scaled_npc(
      NORMAL_NPC_SCALE,
@@ -3663,24 +3672,19 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::Traders,
      40,
-     MySprite::MUSHROOMMAN
-   )),
+     MySprite::MUSHROOMMAN)),
   (SPACE_COWBOY,
    talking_person_in_space(
      MySprite::SPACECOWBOY,
      "space cowboy",
-     SPACE_COWBOY_DIALOGUE
-   )),
+     SPACE_COWBOY_DIALOGUE)),
   (SIGN,
    space_object(
      1.5,
      false,
      Visuals::sprite(MySprite::SIGN),
-     (
-       Interact::SingleOption(InteractSingleOption::Describe),
-       TextDisplay::from("cowboy"),
-     )
-   )),
+     (Interact::SingleOption(InteractSingleOption::Describe),
+       TextDisplay::from("cowboy")))),
   (WORMHOLE,
    space_object(
      4.0,
@@ -3808,37 +3812,26 @@ create_spawnables! {
    )),
   (TRADE_STATION,
    {
-     let (trade, _text) = if prob(0.5) {
-       let trade_buy = pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SPACECAT]).unwrap();
-       (
-         Interact::SingleOption(InteractSingleOption::Trade {
-           inputs: (trade_buy, 1),
-           outputs: (Item::SpaceCOIN, 5),
-         }),
-         format!("space station buys {:?}", trade_buy)
-       )
+     let (trade, text) = if prob(0.5) {
+       let trade_buy =
+         pick([Item::DiHydrogenMonoxide, Item::Crystal, Item::SPACECAT]).unwrap();
+       (Interact::SingleOption(InteractSingleOption::Trade {
+         inputs: (trade_buy, 1),
+         outputs: (Item::SpaceCOIN, 5) }),
+        format!("space station\nbuys {:?}", trade_buy))
      } else {
-       let trade_sell = pick(&[Item::Spice, Item::COFFEE, Item::Rock]).unwrap();
-       (
-         Interact::SingleOption(InteractSingleOption::Trade {
-           inputs: (Item::SpaceCOIN, 5),
-           outputs: (trade_sell, 1),
-         }),
-         format!("space station sells {:?}", trade_sell)
-       )
+       let trade_sell = pick([Item::Spice, Item::COFFEE, Item::Rock]).unwrap();
+       (Interact::SingleOption(InteractSingleOption::Trade { inputs: (Item::SpaceCOIN, 5),
+                                                             outputs: (trade_sell, 1) }),
+        format!("space station\nsells {:?}", trade_sell))
      };
-     space_object(
-       3.0,
-       false,
-       Visuals::sprite(MySprite::SPACESTATION),
-       (
-         Name::new("space station"),
-         trade,
-         TextDisplay::from("space station"),
-         CanBeFollowedByNPC,
-       )
-     )
-   }),
+     space_object(3.0,
+                  false,
+                  Visuals::sprite(MySprite::IMAGEN3SPACESTATION),
+                  (name("space station"),
+                   CanBeFollowedByNPC,
+                   trade,
+                   TextDisplay::from("space station")))}),
   (FLOATING_ISLAND,
    space_object(
      3.4,
@@ -4019,9 +4012,11 @@ struct ZoneEntity {
 }
 
 fn create_the_world() {
+  // Image::new(size, dimension, data, format, asset_usage)
   type Graph<T> = Vec<(T, Vec<usize>)>;
   // let big_graph_of_connected_zones;
 }
+
 impl Zone {
   fn spawn(&self,
            mut c: &mut Commands,
@@ -4041,18 +4036,11 @@ impl Zone {
       //   }
       // }
     }
-    if let some(planet_type) = self.planet_type {
+    if let Some(planet_type) = self.planet_type {
       let planet_distance = 700.0;
       let rel_pos = random_normalized_vector() * planet_distance;
-      let sprite = match planet_type {
-        planettype::marslikeplanet =>
-                                false,
-                               e::marslikeplanet,
-        planettype::habitableplanet => m planet_type,
-         planettype::iceplanet => m      population: (rangerand(30000.0, 300000.0)
-                                                      as u32)
-                                      planettype::browngasgia.pow(1)nt => mysprite::browngasgiant
-      };
+
+      let sprite = planet_type.sprite();
       spawn_at_pos(&mut c,
                    space_object(100.0,
                                 false,
@@ -4060,8 +4048,7 @@ impl Zone {
                                 Planet { planet_type,
                                          population: (rangerand(30000.0, 300000.0)
                                                       as u32)
-                                                             .pow(1)
-                                }),
+                                                             .pow(1) }),
                    zone_pos + rel_pos);
     }
   }
@@ -4116,7 +4103,7 @@ fn spawn_sprite(serv: Res<AssetServer>,
   match &*oh {
     None => *oh = Some(serv.load("embedded://lava_planet.png")),
     Some(h) => {
-      if (!*done && (serv.get_load_state(h.id()).is_some_and(|s| s.is_loaded()))) {
+      if (!*done) && matches!(serv.get_load_state(h.id()), Some(LoadState::Loaded)) {
         c.spawn(Sprite3dBuilder { image: h.clone(),
                                   pixels_per_metre: 0.02,
                                   double_sided: true,
@@ -4262,32 +4249,34 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
   println("setup");
 }
 
-comment! {
-  fn spawn_skybox(serv: Res<AssetServer>,
-                  mut images: ResMut<Assets<Image>>,
-                  mut cam_entity: Query<Entity, With<Camera>>,
-                  mut c: Commands,
-                  mut skybox_handle: Local<Option<Handle<Image>>>,
-                  mut done: Local<bool>) {
-    if !*done {
-      let skybox_handle = skybox_handle.get_or_insert_with(|| {
-        serv.load(format!("embedded://{}",
-                          MySprite::NASASTARMAP.path))
-      })
-                                       .clone();
-      println("hmm1");
-      if let Some(mut skybox) = images.get_mut(&skybox_handle) {
-        println("hmm2");
-        skybox.reinterpret_stacked_2d_as_array(skybox.height() / skybox.width());
+fn spawn_skybox(serv: Res<AssetServer>,
+                mut images: ResMut<Assets<Image>>,
+                mut camq: Query<Entity, (With<Camera>, Without<Skybox>)>,
+                mut c: Commands,
+                mut skybox_handle: Local<Option<Handle<Image>>>) {
+  if let Ok(cam_entity) = camq.get_single() {
+    // Image::reinterpret_stacked_2d_as_array(&mut self, layers);
+    let skybox_handle = serv.load(MySprite::SKYBOX.embedded_path());
+    if let Some(mut skybox) = images.get_mut(&skybox_handle) {
+      println("hmm2");
+      // skybox.reinterpret_size(Extent3d { width: skybox.width() / 3,
+      //                                    height: skybox.height() / 2,
+      //                                    depth_or_array_layers: 6 });
+      skybox.reinterpret_stacked_2d_as_array(skybox.height() / skybox.width());
 
-        skybox.texture_view_descriptor =
-          Some(TextureViewDescriptor { dimension: Some(bevy::render::render_resource::TextureViewDimension::Cube),
-                                       ..default() });
-        c.entity(cam_entity)
-         .insert(Skybox { image: skybox_handle.clone(),
-                          brightness: 600.0 });
-        *done = true;
-      }
+      skybox.texture_view_descriptor =
+        Some(TextureViewDescriptor {
+          dimension:
+          Some(bevy::render::render_resource::TextureViewDimension::Cube),
+          ..default() });
+      c.entity(cam_entity)
+       .insert(Skybox { image: skybox_handle.clone(),
+                        brightness: 600.0,
+                        rotation: default() });
+      // *done = true;
+    } else {
+      c.spawn(Skybox { image: skybox_handle,
+                       ..default() });
     }
   }
 }
