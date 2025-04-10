@@ -1,4 +1,3 @@
-```rust
 use crate::game::loot::LootDrop; // Assuming LootDrop location
 use crate::game::objects::{ObjectKind, ProceduralParams, RegionShape, Zone}; // Assuming Zone/ObjectKind/etc location
 use crate::game::world_gen::ProceduralObjectType; // Assuming ProceduralObjectType location
@@ -34,4 +33,3 @@ pub const TREACHEROUS_ICE_FIELD: Zone = Zone {
         // object_template: ObjectKind::Harvestable { ... } // Another potential mechanism
     }),
 };
-```
