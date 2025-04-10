@@ -1,35 +1,97 @@
-use crate::game::loot::LootDrop; // Assuming LootDrop location
-use crate::game::objects::{ObjectKind, ProceduralParams, RegionShape, Zone}; // Assuming Zone/ObjectKind/etc location
-use crate::game::world_gen::ProceduralObjectType; // Assuming ProceduralObjectType location
-use crate::types::{EnemyType, MySprite, ResourceType}; // Assuming enum locations
+```rust
+use crate::{Item, MySprite, Name, Vec3};
+use bevy::prelude::Component;
+use rust_utils::{vec, HashMap}; // Assuming HashMap is used internally or needed
 
-// Defines the potential resources found in procedurally generated harvestables
-pub static ICE_FIELD_RESOURCES: &[LootDrop] = &[
-    // Assuming LootDrop can represent the resource type and yield range
-    LootDrop::Resource(ResourceType::RareIsotopes, 5..15),
-];
+// --- Synthesized Types based on Prompt Requirements & Context Style ---
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Item {
+    SPACECAT,
+    Person,
+    Spice,
+    COFFEE,
+    SpaceCOIN,
+    Crystal,
+    DiHydrogenMonoxide,
+    Rock,
+    SpaceMinerals,
+    RareIsotopes, // Added based on description
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ObjectKind {
+    Static {
+        sprite: MySprite,
+    },
+    Harvestable {
+        sprite: MySprite,
+        item: Item,
+        hp: u32,
+    },
+    // Add other kinds as needed based on context/future descriptions
+}
+
+// Helper const fns for ObjectKind creation
+pub const fn static_obj(sprite: MySprite) -> ObjectKind {
+    ObjectKind::Static { sprite }
+}
+
+pub const fn harvestable(sprite: MySprite, item: Item, hp: u32) -> ObjectKind {
+    ObjectKind::Harvestable { sprite, item, hp }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Region {
+    Sphere { radius: f32 },
+    Ring { inner_radius: f32, outer_radius: f32 },
+    Box { dimensions: [f32; 3] },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProceduralParams {
+    pub proc_object_type: ObjectKind,
+    pub region: Region,
+    pub density: f32,       // Objects per unit volume/area
+    pub scale: (f32, f32), // Min/Max scale multiplier
+    pub seed: u64,
+    pub possible_loot: &'static [(Item, f32)], // Item and drop chance
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ZoneVisualEffect {
+    CrackingIce,
+    ElectricalStorm,
+    NebulaGas,
+    // Add others as needed
+}
+
+#[derive(Component, Clone, Debug)]
+pub struct Zone {
+    pub name: &'static str,
+    pub manual_objects: &'static [([f32; 3], ObjectKind)],
+    pub procedural_params: Option<ProceduralParams>,
+    pub visual_effect: Option<ZoneVisualEffect>,
+    // Add other fields like faction_control, etc. if needed from context/future prompts
+}
+
+// --- Static Definitions ---
+
+pub static RARE_ISOTOPE_LOOT: [(Item, f32); 1] = [(Item::RareIsotopes, 0.8)]; // 80% chance
+
+// --- Main Zone Definition ---
 
 pub const TREACHEROUS_ICE_FIELD: Zone = Zone {
     name: "Treacherous Ice Field",
-    manual_objects: &[
-        // Static Listening Post
-        static_obj([1500.0, -500.0, 200.0], MySprite::ListeningPost, 50.0),
-    ],
+    manual_objects: &[([0.0, 0.0, 0.0], static_obj(MySprite::IMAGEN3SPACESTATION))], // Listening Post
     procedural_params: Some(ProceduralParams {
-        region: RegionShape::Ring {
-            inner_radius: 800.0,
-            outer_radius: 2500.0,
-            height: 300.0,
-        },
-        density: 0.000005, // Density of objects per cubic unit
-        scale: (15.0, 45.0), // Represents radius range for generated objects
-        seed: 8472,
-        // Assuming the procedural generator uses this to determine the resource
-        // type and yield for the Harvestable objects it creates.
-        // The visual representation (ice asteroid) might be inferred or set elsewhere.
-        possible_loot: ICE_FIELD_RESOURCES,
-        // Explicitly stating object type if ProceduralParams supports it (Example field)
-        // object_type_filter: Some(ProceduralObjectType::Harvestable),
-        // object_template: ObjectKind::Harvestable { ... } // Another potential mechanism
+        proc_object_type: harvestable(MySprite::ICEASTEROID, Item::RareIsotopes, 100),
+        region: Region::Ring { inner_radius: 100.0, outer_radius: 150.0 },
+        density: 0.05,
+        scale: (0.8, 2.3),
+        seed: 12345,
+        possible_loot: &RARE_ISOTOPE_LOOT,
     }),
+    visual_effect: Some(ZoneVisualEffect::CrackingIce),
 };
+```
