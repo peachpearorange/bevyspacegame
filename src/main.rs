@@ -94,6 +94,12 @@ pub struct MySprite {
 impl MySprite {
   const fn new(path: &'static str) -> Self { Self { path } }
   fn embedded_path(&self) -> String { format!("embedded://{}", self.path) }
+  const GPT4O_GREEN_CAR_SHIP: Self = Self::new("4o green car ship.png");
+  const GPT4O_MINING_SHIP: Self = Self::new("4o mining ship.png");
+  const GPT4O_PIRATE_SHIP: Self = Self::new("4o pirate ship.png");
+  const GPT4O_PIRATE_STATION: Self = Self::new("4o pirate station.png");
+  const GPT4O_TRADING_STATION: Self = Self::new("4o trading station.png");
+  const GPT4O_WHITE_EXPLORATION_SHIP: Self = Self::new("4o white exploration ship.png");
   const ASTEROID: Self = Self::new("asteroid.png");
   const BLOCKTEXTURES: Self = Self::new("pixelc/block_textures.png");
   const BRICKS: Self = Self::new("pixelc/bricks.png");
@@ -3042,6 +3048,14 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
 //   BROWNGASGIANT
 // }
 
+// fn make_slice() -> [i32] {
+//   let mut v = Vec::new();
+//   v.push(1);
+//   v.push(1);
+//   v.push(1);
+//   v.as_slice().clone()
+// }
+
 #[derive(Clone, Copy, Debug)]
 pub struct PlanetType {
   pub sprite: MySprite
@@ -3585,7 +3599,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::SpacePirates,
      50,
-     MySprite::SPACESHIPRED)),
+     MySprite::GPT4O_PIRATE_SHIP)),
   // (SPACE_PIRATE,
   //  (NORMAL_NPC_SCALE,
   //   scaled_enemy(
@@ -3598,7 +3612,7 @@ create_spawnables! {
    space_object(
      4.0,
      false,
-     Visuals::sprite(MySprite::SPACEPIRATEBASE),
+     Visuals::sprite(MySprite::GPT4O_PIRATE_STATION),
      (Combat { hp: 120, is_hostile: false, ..Default::default() },
       Interact::SingleOption(InteractSingleOption::Describe),
       Name::new("space pirate base"),))),
@@ -3606,7 +3620,7 @@ create_spawnables! {
    space_object(
      4.0,
      false,
-     Visuals::sprite(MySprite::SPACESTATION),
+     Visuals::sprite(MySprite::GPT4O_TRADING_STATION),
      (Combat { hp: 120, is_hostile: false, ..Default::default() },
        Interact::SingleOption(InteractSingleOption::Describe),
        Name::new("space station"),))),
@@ -3641,7 +3655,15 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::Wanderers,
      35,
-     MySprite::IMAGEN3GREENSPACESHIP)),
+     MySprite::GPT4O_GREEN_CAR_SHIP)),
+  (MINER,
+   scaled_npc(
+     NORMAL_NPC_SCALE,
+     "miner",
+     NORMAL_NPC_THRUST,
+     Faction::Traders,
+     35,
+     MySprite::GPT4O_MINING_SHIP)),
   (ALIEN_SOLDIER,
    scaled_enemy(
      NORMAL_NPC_SCALE,
@@ -3669,7 +3691,7 @@ create_spawnables! {
      NORMAL_NPC_THRUST,
      Faction::default(),
      50,
-     MySprite::SPACESHIPWHITE2)),
+     MySprite::GPT4O_WHITE_EXPLORATION_SHIP)),
   (MUSHROOM_MAN,
    scaled_npc(
      NORMAL_NPC_SCALE,
