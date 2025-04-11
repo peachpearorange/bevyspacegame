@@ -1279,9 +1279,16 @@ enum NavigationKind {
 }
 #[derive(Component, Debug, Clone, Copy, new)]
 pub struct Navigation {
-  max_thrust: f32,
+  // max_thrust: f32,
+  max_speed: f32,
   #[new(default)]
   navigation_kind: NavigationKind
+}
+impl Navigation {
+  fn speed(speed: f32) -> Self {
+    Self { max_speed: speed,
+           navigation_kind: NavigationKind::None }
+  }
 }
 
 fn navigation(mut navigators_q: Query<(&Navigation,
@@ -1289,12 +1296,14 @@ fn navigation(mut navigators_q: Query<(&Navigation,
                      &mut ExternalForce,
                      &mut LinearVelocity)>,
               chase_targets_q: Query<&GlobalTransform>) {
-  for (&Navigation { max_thrust,
+  for (&Navigation { max_speed,
                      navigation_kind },
        &Transform { translation, .. },
        mut force,
        velocity) in &mut navigators_q
   {
+    let max_thrust = todo!();
+
     match navigation_kind {
       NavigationKind::None => {}
       NavigationKind::Dir3(dir) => {
@@ -3684,6 +3693,7 @@ create_spawnables! {
    ))
 }
 enum SpawnableTemplate {
+  None,
   // enum variants remain unchanged
   SpaceObject {
     scale: f32,
@@ -3694,7 +3704,9 @@ enum SpawnableTemplate {
     name: &'static str,
     hp: u32,
     speed: f32,
-    sprite: MySprite
+    sprite: MySprite,
+    scale: f32,
+    faction: Faction
   },
   Enemy {
     name: &'static str,
@@ -3748,21 +3760,49 @@ enum SpawnableTemplate {
 }
 
 impl SpawnableTemplate {
-  fn insert_with_extra(self, m: &mut EntityCommands, extras: impl Bundle) {
+  fn insert(m: &mut EntityCommands, template: Self, extras: impl Bundle) {
     m.insert(extras);
-    self.recursive_insert(m)
-  }
-}
-
-impl SpawnableTemplate {
-  fn recursive_insert(self, m: &mut EntityCommands) {
     // ai you should prefer to use this over writing Self::SpaceObject { scale: , can_move: , visuals:  }
     // maybe make some other similar helper functions
+    // let insert = Self::insert;
+    let space_object_bundle = |scale: f32, can_move: bool, visuals: Visuals| {
+      let collider = Collider::sphere(1.0);
+      (SpaceObject { scale, ..default() },
+       visuals,
+       LockedAxes::ROTATION_LOCKED,
+       ColliderMassProperties::from_shape(&collider, 1.0),
+       collider,
+       if can_move {
+         RigidBody::Dynamic
+       } else {
+         RigidBody::Static
+       },
+       LinearDamping(1.6),
+       AngularDamping(1.2),
+       LinearVelocity::default(),
+       AngularVelocity::default(),
+       ExternalForce::default().with_persistence(false),
+       ExternalImpulse::default(),
+       FacingMode::Position,
+       Visibility::Visible)
+    };
     let space_object =
       |scale: f32, can_move: bool, visuals: Visuals| Self::SpaceObject { scale,
                                                                          can_move,
                                                                          visuals };
+    let npc = |scale: f32,
+               name: &'static str,
+               speed: f32,
+               faction: Faction,
+               hp: u32,
+               sprite: MySprite| Self::NPC { name,
+                                                           scale,
+                                                           faction,
+                                                           hp,
+                                                           speed,
+                                                           sprite };
     match self {
+      Self::None => {}
       Self::SpaceObject { scale, can_move, visuals } => {
         let collider = Collider::sphere(1.0);
         m.insert((
@@ -3783,72 +3823,55 @@ impl SpawnableTemplate {
         ));
       }
 
-      Self::ScaledNPC { scale, name, thrust, faction, hp, sprite } => {
-        let npc_components = (
-          Name::new(name),
-          Navigation::new(thrust),
-          NPC { follow_target: None, faction },
-          Combat { hp, ..default() }
-        );
+      Self::ScaledNPC { scale, name, speed, faction, hp, sprite } =>
+        Self::insert(m,
+                     space_object(scale, true, Visuals::sprite(sprite)),
+                     (Name::new(name),
+                      Navigation::speed(speed),
+                      NPC { follow_target: None, faction },
+                      Combat { hp, ..default() }
+                     )),
+      Self::NPC { name, hp, speed, sprite } =>
+        Self::insert(m,
+                     space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite))
+                     (Name::new(name),
+                      Navigation::speed(speed),
+                      NPC { follow_target: None, faction: Faction::default() },
+                      Combat { hp, ..default() })),
 
-        Self::SpaceObject {
-          scale,
-          can_move: true,
-          visuals: Visuals::sprite(sprite)
-        }.insert_with_extra(m, npc_components);
-      }
-
-      Self::NPC { name, hp, speed, sprite } => {
-        let npc_components = (
-          Name::new(name),
-          Navigation::new(speed),
-          NPC { follow_target: None, faction: Faction::default() },
-          Combat { hp, ..default() }
-        );
-
-        Self::SpaceObject {
-          scale: NORMAL_NPC_SCALE,
-          can_move: true,
-          visuals: Visuals::sprite(sprite)
-        }.insert_with_extra(m, npc_components);
-      }
 
       Self::Enemy { name, hp, speed, sprite } => {
-        let enemy_components = (
-          Name::new(name),
-          Navigation::new(speed),
-          NPC { follow_target: None, faction: Faction::SpacePirates },
-          Combat { hp, is_hostile: true, ..default() }
-        );
-
-        Self::SpaceObject {
-          scale: NORMAL_NPC_SCALE,
-          can_move: true,
-          visuals: Visuals::sprite(sprite)
-        }.insert_with_extra(m, enemy_components);
+        Self::insert(m,
+                     Self::SpaceObject {
+                       scale: NORMAL_NPC_SCALE,
+                       can_move: true,
+                       visuals: Visuals::sprite(sprite)
+                     },
+                     (
+                       Name::new(name),
+                       Navigation::new(speed),
+                       NPC { follow_target: None, faction: Faction::SpacePirates },
+                       Combat { hp, is_hostile: true, ..default() }
+                     )),
       }
 
       Self::Item { sprite, item_type } => {
-        let item_components = (
+        Self::insert(m,
+                     space_object(1.0,true,Visuals::sprite(sprite))
+                     ,
+                     (
           Name::new(format!("{:?}", item_type)),
           Interact::SingleOption(InteractSingleOption::Item(item_type))
-        );
-
-        Self::SpaceObject {
-          scale: 1.0,
-          can_move: true,
-          visuals: Visuals::sprite(sprite)
-        }.insert_with_extra(m, item_components);
+        )),
       }
 
-      Self::Npc => {
-        Self::NPC {
-          name: "npc",
-          hp: 50,
-          speed: NORMAL_NPC_THRUST,
-          sprite: MySprite::GPT4O_WHITE_EXPLORATION_SHIP
-        }.recursive_insert(m)
-      }
+      Self::Npc => Self::NPC {
+        name: "npc",
+        hp: 50,
+        speed: NORMAL_NPC_THRUST,
+        sprite: MySprite::GPT4O_WHITE_EXPLORATION_SHIP
+      }.recursive_insert(m),
+
 
       Self::Trader => {
         Self::ScaledNPC {
@@ -4146,6 +4169,7 @@ impl SpawnableTemplate {
     }
   }
 }
+
 comment! {
   static TIME_TRAVELERS: S = S(|mut c, pos| {
     let randpos = || pos + random_normalized_vector() * 12.0;
