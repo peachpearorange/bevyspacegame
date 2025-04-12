@@ -56,15 +56,15 @@ Return file content as string or nil if error."
 
 **Output Requirements:**
 
-1.  **CODE ONLY:** Provide ONLY the raw Rust code block required. Start directly with `pub const` or necessary `pub static` definitions (like patrol routes or loot tables if needed). Do NOT include ```rust markdown, introductory text, explanations, or closing remarks.
+1.  **CODE:** Provide the raw Rust code block required. Start directly with `pub const` or necessary `pub static` definitions (like patrol routes or loot tables if needed). Do NOT include ```rust markdown, introductory text, explanations, or closing remarks.
 2.  **`use` Statements:** Start with necessary `use` statements to bring required types into scope. Infer paths from the CONTEXT CODE or assume common paths like `crate::game::objects::*`, `crate::types::*`, etc.
-3.  **`static` Definitions (If Needed):** Define `pub static` loot tables or patrol routes BEFORE the main `Zone` const definition, referencing types from the context code.
+3.  **`static` Definitions (If Needed):** Define `pub static` loot tables or patrol routes or dialogue trees or similar (if appropriate) before the main `Zone` const definition, referencing types from the context code.
 4.  **Main Definition:** Define a single `pub const ZONE_NAME: Zone = Zone { ... };` where `ZONE_NAME` is the SCREAMING_SNAKE_CASE version specified later.
 5.  **`Zone` Struct Fields:** Populate the `Zone` struct precisely, using types and helper functions defined in the CONTEXT CODE.
     * `name: &'static str`: User-friendly string.
-    * `manual_objects: &'static [([f32; 3], ObjectKind)]`: Use coordinates `[f32; 3]` and construct `ObjectKind` ONLY using the helper `const fn`s (like `static_obj`, `harvestable`, etc.) found in the context code.
-    * `procedural_params: Option<ProceduralParams>`: If `Some`, populate fields (`proc_object_type`, `region`, `density`, `scale` (radius range), `seed`, `possible_loot`) using types defined in context code. Reference `pub static` loot tables.
+    * `manual_objects: &'static [([f32; 3], SpawnableTemplate)]`: Use coordinates `[f32; 3]` and construct `SpawnableTemplate` using the helper `const fn`s or FRU or just write SpawnableTemplate::Asteroid.
 6.  **Validity & Style:** Ensure generated code is valid Rust, uses types/functions from context correctly, and follows standard formatting.
+7.  **Feedback:** if you have feedback or comments about this prompt, any further information you need or code that should be there, please let me know in a comment.
 
 --- START ZONE DESCRIPTION ---
 "
@@ -138,7 +138,7 @@ Writes the RAW response from the AI directly to the file. Errors signal directly
 
 
 (my/generate-rust-zone
- "A treacherous ice field with unstable, cracking ice asteroids (visual effect). Contains harvestable RareIsotopes within some asteroids. Procedurally generate ice asteroids in a ring shape. Manually place 1 static listening post."
+ "A treacherous ice field with ice asteroids. place about 30 ice asteroids in a roughly disk shape with radius 100 . Manually place 3 static listening posts."
  "treacherous ice field")
 
 
