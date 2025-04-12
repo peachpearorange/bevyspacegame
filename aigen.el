@@ -71,7 +71,6 @@ Return file content as string or nil if error."
   "The detailed prompt prefix string explaining Rust zone code generation rules.")
 
 
-;; --- Main Function (Hardcoded src/main.rs Context) ---
 (defun my/generate-rust-zone (zone-description-prompt zone-location-name)
   "Generate Rust zone code via gptel, including src/main.rs as context.
 
@@ -93,14 +92,12 @@ Writes the RAW response from the AI directly to the file. Errors signal directly
          (relative-output-file (format "src/aigen/%s.rs" const-name-snake-case))
          ;; Directly read src/main.rs content
          (main-rs-content (my/read-file-content-safely "src/main.rs"))
+         (example-rs-content (my/read-file-content-safely
+                              "src/aigen/SPACE_DAIRY_FARM.rs"))
          ;; Format context string, handle potential read failure
          (context-code-section
-          (if main-rs-content
-              (format "\n\n--- START CONTEXT CODE FROM src/main.rs ---\n```rust\n%s\n```\n--- END CONTEXT CODE ---\n\n"
-                      main-rs-content)
-            ;; If src/main.rs couldn't be read, include a warning in the prompt *and* message buffer
-            (progn (message "Warning: Could not read context file src/main.rs")
-                   "\n\n--- CONTEXT CODE UNAVAILABLE (Could not read src/main.rs) ---\n\n")))
+          (format "\n\n--- START CONTEXT CODE FROM src/main.rs ---\n```rust\n%s\n```\n--- \n\n--- START ZONE DEFINITON EXAMPLE CODE FROM src/aigen/TREACHEROUS_ICE_FIELD.rs ---\n```rust\n%s\n``` END CONTEXT CODE ---\n\n"
+                  main-rs-content example-rs-content))
          ;; Construct the final prompt
          (full-prompt (format "%s%s%s\n--- END ZONE DESCRIPTION ---\n\n**Required Const Name:** %s"
                               context-code-section ; Context first
@@ -134,8 +131,29 @@ Writes the RAW response from the AI directly to the file. Errors signal directly
 
   (message "Request initiated for zone '%s'. Waiting for GPTel response..." zone-location-name))
 
+(my/generate-rust-zone
+ "A floating island in space with a person living on it. get creative."
+ "inhabited floating island")
 
+(my/generate-rust-zone
+ "Space prison where the most dangerous criminals are contained. Get creative."
+ "space prison")
 
+(my/generate-rust-zone
+ "An area in space where there are many references to the video game Space Station 13. Anything that references ss13 is good. Get creative. Add about 30 objects."
+ "ss13 scene")
+
+(my/generate-rust-zone
+ "An area in space where there are space stations that are in between a lava planet and an ice planet. The stations are used for trading between the planets. Also some NPCs that can be talked to and background objects. Get creative."
+ "two planet trading zone")
+
+(my/generate-rust-zone
+ "An area in space in an asteroid field with a few barn-stations and space cowboys and space cows that are used to make space milk."
+ "space dairy farm")
+
+(my/generate-rust-zone
+ "An asteroid field with 10 space pirates and 3 space pirate stations. A habitable planet nearby. Also some space coins and loot objects."
+ "space pirate asteroid field")
 
 (my/generate-rust-zone
  "A treacherous ice field with ice asteroids. place about 30 ice asteroids in a roughly disk shape with radius 100 . Manually place 3 static listening posts."

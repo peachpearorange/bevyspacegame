@@ -21,8 +21,11 @@
 
 pub mod bundletree;
 // pub mod ui;
+mod aigen;
+use aigen::*;
 
 pub use bevy::prelude::Name;
+use dynamics::integrator::IntegrationSet;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
@@ -222,7 +225,7 @@ impl MyImageMaterial {
                                 MySprite::GRASS);
   const PENGUIN: Self = Self::new(From::from, MySprite::PENGUIN);
 }
-#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq,Debug)]
 pub struct MyMaterial {
   mat_fn: fn() -> StandardMaterial
 }
@@ -287,7 +290,7 @@ impl MyScene {
   pub const TURTLE_LEVEL: Self = Self::new("turtle level.gltf", "Scene0");
   pub const WAT: Self = Self::new("wat.glb", "Scene0");
 }
-#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq,Debug)]
 pub struct GenMesh {
   gen_fn: fn() -> Mesh
 }
@@ -316,7 +319,7 @@ impl<T: ToString> From<T> for TextDisplay {
   fn from(value: T) -> Self { Self(value.to_string()) }
 }
 
-#[derive(Component, Clone, PartialEq, Eq)]
+#[derive(Component, Clone,Copy, PartialEq, Eq,Debug)]
 pub enum Visuals {
   Sprite(MySprite),
   MaterialMesh { material: MyMaterial, mesh: GenMesh } // None
@@ -334,11 +337,11 @@ pub enum Visuals {
 
 impl Visuals {
   // fn none() -> Self{Self::None}
-  fn sprite(sprite: MySprite) -> Self { Self::Sprite(sprite) }
-  fn material_mesh(material: MyMaterial, mesh: GenMesh) -> Self {
+  const fn sprite(sprite: MySprite) -> Self { Self::Sprite(sprite) }
+  const fn material_mesh(material: MyMaterial, mesh: GenMesh) -> Self {
     Self::MaterialMesh { material, mesh }
   }
-  fn material_sphere(material: MyMaterial) -> Self {
+  const fn material_sphere(material: MyMaterial) -> Self {
     Self::material_mesh(material, GenMesh::SPHERE)
   }
   // fn with_text(self, text: impl ToString) -> Self {
@@ -967,102 +970,194 @@ impl Combat {
   fn decrease_hp(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
   fn increase_hp(&mut self, n: u32) { self.hp += n; }
 }
+comment!{
+  pub fn combat_system(mut c: Commands,
+                       time: Res<TimeTicks>,
+                       mut combat_query: Query<(Entity,
+                                                &Transform,
+                                                &mut Combat,
+                                                Option<&IsHostile>
+                       )>,
+                       playerq: Single<(Entity, &Transform, &Player)>) {
+    let modval = time.0 % COMBAT_INTERVAL_TICKS;
+    if modval != 0 {
+      if modval >= (COMBAT_INTERVAL_TICKS / 3) {
+        for (entity, transform, mut combat) in &mut combat_query {
+          if combat.hp_depleted() {
+            c.spawn(explosion_visual(transform.translation, 2.0));
+            c.entity(entity).despawn_recursive();
+          }
+        }
+      }
+      return;
+    }
+
+    let (player_entity, player_transform, player) = playerq.into_inner();
+
+    let player_pos = player_transform.translation;
+    let player_action = player.target()
+                              .map_or(CombatAction::None, |target| {
+                                CombatAction::Targeted(TargetedAbility::FIRELaser(10), target)
+                              });
+    let active_combatants: Vec<_> =
+      combat_query.iter()
+                  .filter_map(|(e, transform, _, _, InZone { in_player_zone })| {
+                    in_player_zone.then_some((e, transform.translation))
+                  })
+                  .collect();
+    let choose_action = |e: Entity, combat: Combat| {
+      if e == player_entity {
+        player_action
+      } else if combat.is_hostile {
+        if prob(0.5) {
+          CombatAction::Targeted(TargetedAbility::FIRELaser(5), player_entity)
+        } else {
+          CombatAction::Targeted(TargetedAbility::FIREMISSILE(5), player_entity)
+        }
+      } else {
+        CombatAction::None
+      }
+    };
+    let combat_actions =
+      vec(filter_map(|(e, transform, &combat, _, &InZone { in_player_zone })| {
+        in_player_zone.then_some((e,
+                                  transform.translation,
+                                  choose_action(e, combat)))
+      },
+                     &combat_query));
+    // map(|(self_entity, self_pos)| {
+    //                          (self_entity, self_pos, choose_action(self_entity, self_pos))
+    //                        },
+    //                        active_combatants);
+    for (self_entity, self_pos) in active_combatants {
+      // println("aaaa");
+      if let Ok((_, _, &self_combat, _, _)) = combat_query.get(self_entity) {
+        let self_action = choose_action(self_entity, self_combat);
+        match self_action {
+          CombatAction::None => {}
+          CombatAction::Targeted(targeted_ability, target) => {
+            // println("cccc");
+            if let Ok((_, _, mut target_combat, _, _)) = combat_query.get_mut(target) {
+              match targeted_ability {
+                TargetedAbility::FIRELaser(n) => {
+                  // println("cccc");
+                  target_combat.decrease_hp(n);
+                  c.spawn(laser_visual(self_entity, target));
+                }
+                TargetedAbility::FIREMISSILE(n) => {
+                  target_combat.decrease_hp(n);
+                  c.spawn(missile_visual(self_pos, target));
+                  // c.spawn(missile(self_pos, target, n));
+                }
+                TargetedAbility::HealOther(n) => {
+                  target_combat.increase_hp(n);
+                }
+              }
+            }
+          }
+          CombatAction::NonTargeted(non_targeted_ability) => {
+            if let Ok((_, _, mut self_combat, _, _)) = combat_query.get_mut(self_entity) {
+              match non_targeted_ability {
+                NonTargetedAbility::HealSelf(n) => {
+                  self_combat.increase_hp(n);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
 pub fn combat_system(mut c: Commands,
                      time: Res<TimeTicks>,
                      mut combat_query: Query<(Entity,
                             &Transform,
                             &mut Combat,
-                            Option<&IsHostile>,
-                            &InZone)>,
+                            Option<&IsHostile>
+                            )>,
                      playerq: Single<(Entity, &Transform, &Player)>) {
-  let modval = time.0 % COMBAT_INTERVAL_TICKS;
-  if modval != 0 {
-    if modval >= (COMBAT_INTERVAL_TICKS / 3) {
-      for (entity, transform, mut combat, _, _) in &mut combat_query {
-        if combat.hp_depleted() {
-          c.spawn(explosion_visual(transform.translation, 2.0));
-          c.entity(entity).despawn_recursive();
-        }
-      }
-    }
-    return;
-  }
+    // Define the proximity threshold for combat
+    const PROXIMITY_THRESHOLD: f32 = 120.0; // Adjust this value as needed
 
-  let (player_entity, player_transform, player) = playerq.into_inner();
+    let modval = time.0 % COMBAT_INTERVAL_TICKS;
+    if modval != 0 {
+        if modval >= (COMBAT_INTERVAL_TICKS / 3) {
+            for (entity, transform, mut combat, _) in &mut combat_query {
+                if combat.hp_depleted() {
+                    c.spawn(explosion_visual(transform.translation, 2.0));
+                    c.entity(entity).despawn_recursive();
+                }
+            }
+        }
+        return;
+    }
 
-  let player_pos = player_transform.translation;
-  let player_action = player.target()
-                            .map_or(CombatAction::None, |target| {
-                              CombatAction::Targeted(TargetedAbility::FIRELaser(10), target)
-                            });
-  let active_combatants: Vec<_> =
-    combat_query.iter()
-                .filter_map(|(e, transform, _, _, InZone { in_player_zone })| {
-                  in_player_zone.then_some((e, transform.translation))
-                })
-                .collect();
-  let choose_action = |e: Entity, combat: Combat| {
-    if e == player_entity {
-      player_action
-    } else if combat.is_hostile {
-      if prob(0.5) {
-        CombatAction::Targeted(TargetedAbility::FIRELaser(5), player_entity)
-      } else {
-        CombatAction::Targeted(TargetedAbility::FIREMISSILE(5), player_entity)
-      }
-    } else {
-      CombatAction::None
-    }
-  };
-  let combat_actions =
-    vec(filter_map(|(e, transform, &combat, _, &InZone { in_player_zone })| {
-                     in_player_zone.then_some((e,
-                                               transform.translation,
-                                               choose_action(e, combat)))
-                   },
-                   &combat_query));
-  // map(|(self_entity, self_pos)| {
-  //                          (self_entity, self_pos, choose_action(self_entity, self_pos))
-  //                        },
-  //                        active_combatants);
-  for (self_entity, self_pos) in active_combatants {
-    // println("aaaa");
-    if let Ok((_, _, &self_combat, _, _)) = combat_query.get(self_entity) {
-      let self_action = choose_action(self_entity, self_combat);
-      match self_action {
-        CombatAction::None => {}
-        CombatAction::Targeted(targeted_ability, target) => {
-          // println("cccc");
-          if let Ok((_, _, mut target_combat, _, _)) = combat_query.get_mut(target) {
-            match targeted_ability {
-              TargetedAbility::FIRELaser(n) => {
-                // println("cccc");
-                target_combat.decrease_hp(n);
-                c.spawn(laser_visual(self_entity, target));
-              }
-              TargetedAbility::FIREMISSILE(n) => {
-                target_combat.decrease_hp(n);
-                c.spawn(missile_visual(self_pos, target));
-                // c.spawn(missile(self_pos, target, n));
-              }
-              TargetedAbility::HealOther(n) => {
-                target_combat.increase_hp(n);
-              }
+    let (player_entity, player_transform, player) = playerq.into_inner();
+    let player_pos = player_transform.translation;
+    let player_action = player.target()
+                              .map_or(CombatAction::None, |target| {
+                                CombatAction::Targeted(TargetedAbility::FIRELaser(10), target)
+                              });
+
+    // Collect active combatants within proximity threshold
+    let active_combatants: Vec<_> =
+        combat_query.iter()
+                    .filter_map(|(entity, transform, _, _)| {
+                        let distance = (transform.translation - player_pos).length();
+                        (distance <= PROXIMITY_THRESHOLD).then_some((entity, transform.translation))
+                    })
+                    .collect();
+
+    let choose_action = |e: Entity, combat: &Combat| {
+        if e == player_entity {
+            player_action
+        } else if combat.is_hostile {
+            if prob(0.5) {
+                CombatAction::Targeted(TargetedAbility::FIRELaser(5), player_entity)
+            } else {
+                CombatAction::Targeted(TargetedAbility::FIREMISSILE(5), player_entity)
             }
-          }
+        } else {
+            CombatAction::None
         }
-        CombatAction::NonTargeted(non_targeted_ability) => {
-          if let Ok((_, _, mut self_combat, _, _)) = combat_query.get_mut(self_entity) {
-            match non_targeted_ability {
-              NonTargetedAbility::HealSelf(n) => {
-                self_combat.increase_hp(n);
-              }
+    };
+
+    for (self_entity, self_pos) in active_combatants {
+        if let Ok((_, _, self_combat, _)) = combat_query.get(self_entity) {
+            let self_action = choose_action(self_entity, self_combat);
+            match self_action {
+                CombatAction::None => {}
+                CombatAction::Targeted(targeted_ability, target) => {
+                    if let Ok((_, _, mut target_combat, _)) = combat_query.get_mut(target) {
+                        match targeted_ability {
+                            TargetedAbility::FIRELaser(n) => {
+                                target_combat.decrease_hp(n);
+                                c.spawn(laser_visual(self_entity, target));
+                            }
+                            TargetedAbility::FIREMISSILE(n) => {
+                                target_combat.decrease_hp(n);
+                                c.spawn(missile_visual(self_pos, target));
+                                // c.spawn(missile(self_pos, target, n));
+                            }
+                            TargetedAbility::HealOther(n) => {
+                                target_combat.increase_hp(n);
+                            }
+                        }
+                    }
+                }
+                CombatAction::NonTargeted(non_targeted_ability) => {
+                    if let Ok((_, _, mut self_combat, _)) = combat_query.get_mut(self_entity) {
+                        match non_targeted_ability {
+                            NonTargetedAbility::HealSelf(n) => {
+                                self_combat.increase_hp(n);
+                            }
+                        }
+                    }
+                }
             }
-          }
         }
-      }
     }
-  }
 }
 
 fn filter_least_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
@@ -1483,7 +1578,9 @@ pub enum Faction {
   #[assoc(alignment = Alignment::LawfulEvil)]
   Invaders,
   #[assoc(alignment = Alignment::NeutralGood)]
-  Explorers
+  Explorers,
+  #[assoc(alignment = Alignment::Neutral)]
+  Neutral,
 }
 
 #[derive(Component, Clone)]
@@ -2734,11 +2831,11 @@ enum Degree {
   High,
   Higher
 }
-// const NORMAL_NPC_SPEED = 5.0;
+#[derive(Clone,Copy, Debug)]
 enum SpawnableTemplate {
   Empty,
-  // enum variants remain unchanged
   SpaceObject {
+    // SpaceObjects have a sphere shaped collider where the scale is the radius. good to keep in mind when spawning large objects
     scale: f32,
     can_move: bool,
     visuals: Visuals
@@ -2780,6 +2877,7 @@ enum SpawnableTemplate {
   Sun,
   Planet{
     planet_type:PlanetType,
+    radius:f32,
     population:u32,
     name:&'static str
 },
@@ -2865,7 +2963,7 @@ enum SpawnableTemplate {
 }
 impl SpawnableTemplate {
   pub fn spawn_at(self, c:&mut Commands,pos:Vec3) -> Entity {
-    let mut ec = c.spawn_empty();
+    let mut ec = c.spawn(Transform::from_translation(pos));
     SpawnableTemplate::insert(&mut ec, self, ());
     ec.id()
   }
@@ -2901,6 +2999,7 @@ impl SpawnableTemplate {
         let collider = Collider::sphere(1.0);
         Self::insert(m, Self::Empty, (
           SpaceObject { scale, ..default() },
+          FacingMode::Position,
           visuals,
           LockedAxes::ROTATION_LOCKED,
           ColliderMassProperties::from_shape(&collider, 1.0),
@@ -2915,7 +3014,10 @@ impl SpawnableTemplate {
           Visibility::Visible,
         ))
       }
-
+      Self::Planet { planet_type, radius, population, name }=>
+Self::insert(m,
+                     Self::space_object(radius, false, Visuals::sprite(planet_type.sprite())),
+                     (Name::new(name),)),
       Self::TalkingPerson { name, sprite, dialogue_tree } =>
         Self::insert(m,
                      Self::space_object(1.7, true, Visuals::sprite(sprite)),
@@ -3123,7 +3225,7 @@ impl SpawnableTemplate {
           Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),
         )),
       Self::Player =>
-        Self::insert(m,
+        {Self::insert(m,
                      Self::space_object(PLAYER_SCALE, true,
                                         Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP)),
                      (Player::default(),
@@ -3131,14 +3233,16 @@ impl SpawnableTemplate {
                       Combat { hp: 400, ..default() },
                       Inventory::default(),
                       Navigation::new(PLAYER_FORCE),
-                      CanBeFollowedByNPC)),
+                      CanBeFollowedByNPC));
+         println("player spawned");
+        },
       Self::SpacePirate =>
         Self::insert(m, Self::Enemy {
           name: "Space Pirate", hp: 60, speed: NORMAL_NPC_SPEED * 1.1,
           sprite: MySprite::PURPLEENEMYSHIP,
         }, ()),
       Self::SpacePirateBase => 
-        Self::insert(m, space_object(
+        Self::insert(m, Self::space_object(
      4.0,
      false,
      Visuals::sprite(MySprite::GPT4O_PIRATE_STATION),
@@ -3163,7 +3267,7 @@ impl SpawnableTemplate {
 #[derive(Clone, Debug)]
 pub struct Zone {
     pub name: &'static str,
-    pub manual_objects: &'static [([f32; 3], SpawnableTemplate)],
+    pub objects: &'static [([f32; 3], SpawnableTemplate)],
     pub faction_control: Option<Faction>,
 }
 comment! {
@@ -3186,17 +3290,17 @@ comment! {
     }
   });
 }
-const fn one(s: Spawnable) -> (f32, Spawnable) { (1.0, s) }
-macro_rules! create_probs {
-  ($(($name:ident, $body:expr)),* $(,)?) => {
-    $(
-      pub const $name: Spawnable = {
-        let probs:&[(f32, Spawnable)] =&$body;
-        Spawnable::Probs(probs)
-      };
-    )*
-  }
-}
+// const fn one(s: Spawnable) -> (f32, Spawnable) { (1.0, s) }
+// macro_rules! create_probs {
+//   ($(($name:ident, $body:expr)),* $(,)?) => {
+//     $(
+//       pub const $name: Spawnable = {
+//         let probs:&[(f32, Spawnable)] =&$body;
+//         Spawnable::Probs(probs)
+//       };
+//     )*
+//   }
+// }
 
 pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
 
@@ -3240,78 +3344,52 @@ struct ZoneEntity {
 
 
 impl Zone {
-  fn spawn(self,
+  fn spawn_at(self,
            mut c: &mut Commands,
            zone_pos: Vec3 // , zone_entity: Entity
   ) {
-    let num_objects = 60;
-    // let k: Box<dyn Bundle> = Box::new(Camera::default());
-    // DynamicBundle
-    c.spawn(sign(zone_pos, prettyfmt(self)));
-    for _ in 0..num_objects {
-      let object_pos =
-        zone_pos + (random_normalized_vector() * self.zone_radius * rangerand(0.5, 1.0));
-      self.zone_type.probs().spawn_at(c, object_pos);
-
-      // if let Some(spawnable) = self.zone_type.probs().pick() {
-      //   if let Some(to_spawn) = spawnable.to_spawn() {
-      //     to_spawn.spawn(c, object_pos);
-      //     // to_spawn.0(&mut c, object_pos);
-      //   }
-      // }
-    }
-    if let Some(planet_type) = self.planet_type {
-      let planet_distance = 700.0;
-      let rel_pos = random_normalized_vector() * planet_distance;
-
-      let sprite = planet_type.sprite();
-      spawn_at_pos(&mut c,
-                   space_object(100.0,
-                                false,
-                                Visuals::sprite(sprite),
-                                Planet { planet_type,
-                                         population: (rangerand(30000.0, 300000.0)
-                                                      as u32)
-                                                             .pow(1) }),
-                   zone_pos + rel_pos);
+    for (relpos, obj) in self.objects{
+      obj.spawn_at(&mut c, zone_pos + Vec3::from_array(*relpos) );
     }
   }
 }
 
 const MAX_ZONE_RANGE: f32 = 200.0;
 
-#[derive(Component, Debug, PartialEq, Eq, Clone)]
-pub struct InZone {
-  in_player_zone: bool // zone: Option<Entity>
-}
+// #[derive(Component, Debug, PartialEq, Eq, Clone)]
+// pub struct InZone {
+//   in_player_zone: bool // zone: Option<Entity>
+// }
 
-fn update_in_zone(player_transform: Single<&Transform, With<Player>>,
-                  mut entity_query: Query<(Entity, &Transform, Option<&mut InZone>),
-                        Without<Player>>,
-                  zone_query: Query<(Entity, &Zone, &Transform)>,
-                  mut c: Commands) {
-  let player_zone = find(|(zone_entity, zone, zone_transform)| {
-                           player_transform.translation
-                                           .distance(zone_transform.translation)
-                           < MAX_ZONE_RANGE
-                         },
-                         &zone_query);
+comment!{
+  fn update_in_zone(player_transform: Single<&Transform, With<Player>>,
+                    mut entity_query: Query<(Entity, &Transform, Option<&mut InZone>),
+                                            Without<Player>>,
+                    zone_query: Query<(Entity, &Zone, &Transform)>,
+                    mut c: Commands) {
+    let player_zone = find(|(zone_entity, zone, zone_transform)| {
+      player_transform.translation
+                      .distance(zone_transform.translation)
+        < MAX_ZONE_RANGE
+    },
+                           &zone_query);
 
-  for (entity, transform, mut in_zone) in entity_query.iter_mut() {
-    let new_in_zone =
-      InZone { in_player_zone:
+    for (entity, transform, mut in_zone) in entity_query.iter_mut() {
+      let new_in_zone =
+        InZone { in_player_zone:
                  player_zone.map_or(false, |(zone_entity, zone, zone_transform)| {
-                              zone_transform.translation.distance(transform.translation)
-                              < MAX_ZONE_RANGE
-                            }) };
-    match in_zone {
-      Some(mut in_zone) => {
-        if *in_zone != new_in_zone {
-          *in_zone = new_in_zone;
+                   zone_transform.translation.distance(transform.translation)
+                     < MAX_ZONE_RANGE
+                 }) };
+      match in_zone {
+        Some(mut in_zone) => {
+          if *in_zone != new_in_zone {
+            *in_zone = new_in_zone;
+          }
         }
-      }
-      None => {
-        c.entity(entity).insert(new_in_zone);
+        None => {
+          c.entity(entity).insert(new_in_zone);
+        }
       }
     }
   }
@@ -3346,64 +3424,22 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
              mut c: Commands) {
   let sun_pos = Vec3::ZERO;
-  // let sun_scale = 300.0;
-  let zone_dist_from_sun = 2000.0;
-  let num_zones = 8;
   SpawnableTemplate::Player.spawn_at(&mut c, Vec3::Y * 1000.0);
-  // spawn_at_pos(&mut c, player(), Vec3::Y * 1000.0);
-  // Spawnable::from(player()).spawn_at(&mut c, Vec3::Y * 1000.0);
-  // BundleFn(player).spawn_at(&mut c, Vec3::Y * 1000.0);
   // dbg!(SUN);
   SpawnableTemplate::Sun.spawn_at(&mut c, sun_pos);
-  // spawn_at_pos(&mut c,
-  //              (space_object(sun_scale,
-  //                            false,
-  //                            Visuals::material_sphere(MyMaterial::GLOWY_2)),
-  //               CubemapVisibleEntities::default(),
-  //               CubemapFrusta::default(),
-  //               PointLight { intensity: 3_000_000.0,
-  //                            radius: 1.0,
-  //                            range: 10000.0,
-  //                            shadows_enabled: true,
-  //                            color: Color::srgb(0.9, 0.8, 0.6),
-  //                            ..default() }),
-  //              sun_pos);
-  for _ in 0..num_zones {
-    let planet_type = if prob(0.6) {
-      Some(pick([PlanetType::SANDPLANET,
-                 PlanetType::BROWNGASGIANT,
-                 PlanetType::MARSLIKEPLANET,
-                 PlanetType::LAVAPLANET,
-                 PlanetType::ICEPLANET,
-                 PlanetType::HABITABLEPLANET]).unwrap())
-    } else {
-      None
-    };
-    let zone_pos = sun_pos + (random_normalized_vector() * zone_dist_from_sun);
+  for (pos, zone) in [
+    ([-1000.0,200.0,0.0] ,INHABITED_FLOATING_ISLAND::INHABITED_FLOATING_ISLAND),
+    ([-1000.0,200.0,1000.0] ,SPACE_DAIRY_FARM::SPACE_DAIRY_FARM),
+    ([0.0,200.0,-1000.0] ,SPACE_PIRATE_ASTEROID_FIELD::SPACE_PIRATE_ASTEROID_FIELD),
+    ([0.0,-200.0,1000.0] ,SPACE_PRISON::SPACE_PRISON),
+    ([1000.0,-200.0,-1000.0] ,SS13_SCENE::SS13_SCENE),
+    ([1000.0,200.0,0.0] ,TREACHEROUS_ICE_FIELD),
+  ]{
+    zone.spawn_at(&mut c, Vec3::from_array(pos) );
 
-    let zone_type = pick([ZoneType::SpacePirateASTEROIDField,
-                          ZoneType::InvaderAttack,
-                          ZoneType::PirateICEASTEROIDField,
-                          ZoneType::TradingZone,
-                          ZoneType::ASTEROIDField,
-                          ZoneType::ICEASTEROIDField,
-                          ZoneType::SPACESTATIONZone]).unwrap();
-    // let zone_entity = c.spawn_empty().id();
-    let zone = Zone { zone_radius: 60.0,
-                      is_combat_zone: false,
-                      faction_control: None,
-                      zone_type,
-                      planet_type };
-    zone.spawn(&mut c, zone_pos);
-    c.spawn((zone, Transform::from_translation(zone_pos)));
+    
   }
 
-  // c.spawn(PbrBundle {
-  //   mesh: meshes.add(Circle::new(4.0)),
-  //   material: materials.add(Color::WHITE),
-  //   transform: Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)),
-  //   ..default()
-  // });
   let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
   c.spawn((PointLight { shadows_enabled: true,
                         ..default() },
@@ -3595,6 +3631,7 @@ pub fn main() {
       // update_in_zone,
       combat_system,
       warp,
+
       // ui,
       // spawn_skybox,
       npc_movement,
@@ -3642,26 +3679,26 @@ pub fn main() {
     ideology: Ideology
   }
   pub struct WorldMap(Vec<Country>);
-  pub fn integration_parameters() -> IntegrationParameters {
-    IntegrationParameters { damping_ratio: 4.0,
-                            // dt: todo!(),
-                            // min_ccd_dt: todo!(),
-                            // erp: todo!(),
-                            // joint_erp: todo!(),
-                            // joint_damping_ratio: todo!(),
-                            // warmstart_coefficient: todo!(),
-                            // length_unit: todo!(),
-                            // normalized_allowed_linear_error: todo!(),
-                            // normalized_max_penetration_correction: todo!(),
-                            // normalized_prediction_distance: todo!(),
-                            // num_solver_iterations: todo!(),
-                            // num_additional_friction_iterations: todo!(),
-                            // num_internal_pgs_iterations: todo!(),
-                            // num_internal_stabilization_iterations: todo!(),
-                            // min_island_size: todo!(),
-                            // max_ccd_substeps: todo!(),
-                            ..default() }
-  }
+// pub fn integration_parameters() -> IntegrationSet {
+//     IntegrationParameters { damping_ratio: 4.0,
+//                             // dt: todo!(),
+//                             // min_ccd_dt: todo!(),
+//                             // erp: todo!(),
+//                             // joint_erp: todo!(),
+//                             // joint_damping_ratio: todo!(),
+//                             // warmstart_coefficient: todo!(),
+//                             // length_unit: todo!(),
+//                             // normalized_allowed_linear_error: todo!(),
+//                             // normalized_max_penetration_correction: todo!(),
+//                             // normalized_prediction_distance: todo!(),
+//                             // num_solver_iterations: todo!(),
+//                             // num_additional_friction_iterations: todo!(),
+//                             // num_internal_pgs_iterations: todo!(),
+//                             // num_internal_stabilization_iterations: todo!(),
+//                             // min_island_size: todo!(),
+//                             // max_ccd_substeps: todo!(),
+//                             ..default() }
+//   }
 
 
 
