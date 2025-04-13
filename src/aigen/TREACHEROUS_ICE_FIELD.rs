@@ -156,4 +156,4 @@ pub const TREACHEROUS_ICE_FIELD: Zone =
                     ([-50.0, 14.0, -80.0], Object::IceAsteroid),
                     ([75.0, -3.0, 55.0], Object::IceAsteroid),
                     ([-25.0, 0.0, -95.0], Object::IceAsteroid)],
-         faction_control: Some(Faction::Explorers) };
+         faction_control: Some(Faction::EXPLORERS) };
