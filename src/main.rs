@@ -22,10 +22,16 @@
 pub mod bundletree;
 // pub mod ui;
 mod aigen;
+use std::{collections::VecDeque, ops::DerefMut};
+
 use aigen::*;
 
+use bevy::ecs::query::QueryData;
 pub use bevy::prelude::Name;
 use dynamics::integrator::IntegrationSet;
+use future::Map;
+use haalka::{align::Alignment, element::IntoElement};
+use rust_utils::mapv;
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
@@ -110,6 +116,8 @@ impl MySprite {
   const GPT4O_SPACE_CAT: Self = Self::new("gpt4o space cat.png");
   const GPT4O_SPACE_MAN: Self = Self::new("gpt4o space man.png");
   const GPT4O_SPHERICAL_COW: Self = Self::new("gpt4o spherical cow.png");
+  const GPT4O_PLANET_ARRAKIS: Self = Self::new("GPT4O Arrakis.png");
+  const GPT4O_PLANET_MUSTAFAR: Self = Self::new("GPT4O Mustafar.png");
   const ASTEROID: Self = Self::new("asteroid.png");
   const BLOCKTEXTURES: Self = Self::new("pixelc/block_textures.png");
   const BRICKS: Self = Self::new("pixelc/bricks.png");
@@ -435,38 +443,17 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
   let text_color = TextColor::from(Color::WHITE);
   let text_font = TextFont { font: default(),
                              font_size: 30.0,
-                             font_smoothing: Default::default() };
+                             font_smoothing: default() };
 
   for (e, mut visuals, transform, omesh) in &mut visuals_q {
     let is_done = omesh.is_some();
     if !is_done {
       match *visuals {
         Visuals::Sprite(sprite) => {
-          // println!("d");
-          // dbg!(sprite);
-          // let h = match sprite_handles.get(&sprite) {
-          //   Some(h) => h.clone(),
-          //   None => {
-          //     // dbg!(&embeddedpath);
-          //     // println!("c");
-          //     let h = serv.load(embeddedpath);
-          //     sprite_handles.insert(sprite, h.clone());
-          //     h.clone()
-          //   }
-          // };
-          // let assetpath:
-          // sprite_params.images.get(id)
-          // serv.get
-          // let h = sprite_handles.get(&sprite).unwrap();
-          // let h = get_sprite_handle(sprite);
-
-          // let embeddedpath = "embedded://lava_planet.png";
           let embeddedpath = sprite.embedded_path();
           // dbg!(&embeddedpath);
           let h = serv.load(embeddedpath);
-          // dbg!(&h);
           if let Some(img) = sprite_params.images.get(h.id()) {
-            // println!("a");
             let height = img.height();
             let scale = transform.scale.x;
             let pixels_per_metre = height as f32 / 2.5;
@@ -484,21 +471,6 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
           } else {
             c.spawn(Sprite::from_image(h));
           }
-
-          // if  matches!(serv.get_load_state(h.id()), Some(LoadState::Loaded)) {
-          //   // println!("b");
-          //   let pixels_per_metre = 1.5;
-          //   let sprite_builder = Sprite3dBuilder { image: h.clone(),
-          //                                          pixels_per_metre,
-          //                                          alpha_mode: AlphaMode::Blend,
-          //                                          unlit: true,
-          //                                          double_sided: true,
-          //                                          ..default() };
-          //   let bundle = sprite_builder.bundle(&mut sprite_params);
-          //   c.entity(e).insert(bundle);
-          //   // visuals.done = true;
-          //   *j += 1;
-          // }
         }
         Visuals::MaterialMesh { material, mesh } => {
           let material = get_material_handle(material);
@@ -506,45 +478,12 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
           c.entity(e)
            .insert((Mesh3d(mesh_handle), MeshMaterial3d(material)));
           // visuals.done = true;
-          println("created material mesh");
+          // println("created material mesh");
         }
       }
     }
   }
-  // let cam_globaltransform = **camq;
-  // for (mut transform, globaltransform) in &mut visuals_sprites_q {
-  //   let dir = (globaltransform.translation()
-  //                - cam_globaltransform.translation()).normalize_or(Vec3::Y);
-  //   transform.look_to(dir, Vec3::Y);
-  // }
 }
-
-// #[derive(Component)]
-// pub struct FaceCamera;
-// pub fn face_camera(camq: Query<&GlobalTransform, With<Camera3d>>,
-//                    mut camera_facers_q: Query<(&mut Transform, &GlobalTransform),
-//                          (With<FaceCamera>, Without<Camera3d>)>) {
-//   if let Ok(cam_globaltransform) = camq.get_single() {
-//     for (mut transform, globaltransform) in &mut camera_facers_q {
-//       let dir = Vec3 { y: 0.0,
-//                        ..(globaltransform.translation()
-//                           - cam_globaltransform.translation()) };
-//       transform.look_to(dir, Vec3::Y);
-//     }
-//   }
-// }
-// #[derive(Component)]
-// pub struct FaceCameraDir;
-// pub fn face_camera_dir(camq: Query<&Transform, With<Camera3d>>,
-//                        mut camera_facers_q: Query<&mut Transform,
-//                              (With<FaceCameraDir>,
-//                               Without<Camera3d>)>) {
-//   if let Ok(cam_transform) = camq.get_single() {
-//     for mut transform in &mut camera_facers_q {
-//       transform.look_to(cam_transform.forward().into(), Vec3::Y);
-//     }
-//   }
-// }
 
 #[derive(Component)]
 pub enum FacingMode {
@@ -693,11 +632,13 @@ impl MyCommand {
     }).into()
   }
 
-  pub fn message_add(message: impl ToString + Send + Sync + 'static) -> Self {
+  pub fn message_add(message: impl Into<String> + Send + Sync + 'static) -> Self {
     (move |world: &mut World| {
-      if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
-        ui_data.message_add(message.to_string().clone());
-      }
+      let s:String = message.into();
+      MESSAGE_LOG.update_mut(|v| v.push(Message::from(s)));
+      // if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
+      //   ui_data.message_add(message.to_string().clone());
+      // }
     }).into()
   }
 
@@ -1208,7 +1149,7 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
     player_combat.shield = !player_combat.shield;
   }
   if keys.just_pressed(KeyCode::KeyZ) {
-    SpawnableTemplate::MushroomMan
+    Object::MushroomMan
     .spawn_at(&mut c, player_pos);
   }
   if keys.just_pressed(KeyCode::KeyT) {
@@ -1398,24 +1339,29 @@ fn navigation(mut navigators_q: Query<(&Navigation,
        mut force,
        mut velocity) in &mut navigators_q
   {
-    // let max_speed = todo!();
-
+    let mut accelerate = |v:Vec3|{
+        velocity.0 += v.normalize_or_zero() * 0.6;
+        velocity.0 = velocity.0.clamp_length_max(max_speed);
+};
     match navigation_kind {
       NavigationKind::None => {}
       NavigationKind::Dir3(dir) => {
-        velocity.0 += dir.as_vec3();
-        velocity.0 = velocity.0.clamp_length_max(max_speed);
+        accelerate(dir.as_vec3());
+        // velocity.0 += ;
+        // velocity.0 = velocity.0.clamp_length_max(max_speed);
         // force.apply_force(dir.as_vec3() * max_speed);
       }
       NavigationKind::Vec3(v) => {
-        velocity.0 += v;
-        velocity.0 = velocity.0.clamp_length_max(max_speed);
+        accelerate(v);
+        // velocity.0 += v;
+        // velocity.0 = velocity.0.clamp_length_max(max_speed);
         // force.apply_force(vec.normalize_or_zero() * max_speed);
       }
       NavigationKind::Pos(pos) => {
         let v = (pos - translation);
-        velocity.0 += v;
-        velocity.0 = velocity.0.clamp_length_max(max_speed);
+        accelerate(v);
+        // velocity.0 += v;
+        // velocity.0 = velocity.0.clamp_length_max(max_speed);
         // force.apply_force((pos - translation).normalize_or_zero() * max_speed);
       }
       NavigationKind::Chase(entity) => {
@@ -1550,7 +1496,32 @@ fn close_on_esc(mut exit: EventWriter<AppExit>, keyboard_input: Res<ButtonInput<
 //   Select,
 //   Cancel
 // }
-enum Alignment {
+// convert this enum to a wrapper struct with named fields around &'static str and CharacterAlignment. convert variants to const instances in an impl block
+// #[derive(Eq, PartialEq, Clone, Copy, Assoc, Default, Debug)]
+// #[func(pub const fn alignment(&self) -> CharacterAlignment)]
+// pub enum Faction {
+//   #[default]
+//   #[assoc(alignment = CharacterAlignment::Neutral)]
+//   Wanderers,
+//   #[assoc(alignment = CharacterAlignment::LawfulGood)]
+//   SpacePolice,
+//   #[assoc(alignment = CharacterAlignment::ChaoticEvil)]
+//   SpacePirates,
+//   #[assoc(alignment = CharacterAlignment::ChaoticNeutral)]
+//   SPACEWIZARDs,
+//   #[assoc(alignment = CharacterAlignment::Neutral)]
+//   Traders,
+//   #[assoc(alignment = CharacterAlignment::LawfulEvil)]
+//   Invaders,
+//   #[assoc(alignment = CharacterAlignment::NeutralGood)]
+//   Explorers,
+//   #[assoc(alignment = CharacterAlignment::Neutral)]
+//   Neutral,
+// }
+
+
+#[derive(Eq, PartialEq,Clone,Copy, Debug)]
+enum CharacterAlignment {
   LawfulGood,
   LawfulNeutral,
   LawfulEvil,
@@ -1561,28 +1532,35 @@ enum Alignment {
   ChaoticNeutral,
   ChaoticEvil
 }
-#[derive(Eq, PartialEq, Clone, Copy, Assoc, Default, Debug)]
-#[func(pub const fn alignment(&self) -> Alignment)]
-pub enum Faction {
-  #[default]
-  #[assoc(alignment = Alignment::Neutral)]
-  Wanderers,
-  #[assoc(alignment = Alignment::LawfulGood)]
-  SpacePolice,
-  #[assoc(alignment = Alignment::ChaoticEvil)]
-  SpacePirates,
-  #[assoc(alignment = Alignment::ChaoticNeutral)]
-  SPACEWIZARDs,
-  #[assoc(alignment = Alignment::Neutral)]
-  Traders,
-  #[assoc(alignment = Alignment::LawfulEvil)]
-  Invaders,
-  #[assoc(alignment = Alignment::NeutralGood)]
-  Explorers,
-  #[assoc(alignment = Alignment::Neutral)]
-  Neutral,
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
+pub struct Faction {
+    pub name: &'static str,
+    pub alignment: CharacterAlignment,
 }
+// finish writing these to use the new function
+impl Faction {
+  pub const fn new(name: &'static str, alignment: CharacterAlignment) -> Self {
+    Self { name, alignment }
+  }
+  pub const fn alignment(&self) -> CharacterAlignment {
+    self.alignment
+  }
 
+  pub const WANDERERS: Self = Self::new("Wanderers", CharacterAlignment::Neutral);
+  pub const SPACE_POLICE: Self = Self::new("SpacePolice", CharacterAlignment::LawfulGood);
+  pub const SPACE_PIRATES: Self = Self::new("SpacePirates", CharacterAlignment::ChaoticEvil);
+  pub const SPACEWIZARDS: Self = Self::new("SPACEWIZARDs", CharacterAlignment::ChaoticNeutral);
+  pub const TRADERS: Self = Self::new("Traders", CharacterAlignment::Neutral);
+  pub const INVADERS: Self = Self::new("Invaders", CharacterAlignment::LawfulEvil);
+  pub const EXPLORERS: Self = Self::new("Explorers", CharacterAlignment::NeutralGood);
+  pub const NEUTRAL: Self = Self::new("Neutral", CharacterAlignment::Neutral);
+
+}
+impl Default for Faction{
+    fn default() -> Self {
+      Self::NEUTRAL
+    }
+}
 #[derive(Component, Clone)]
 struct MagicAbility;
 
@@ -1597,7 +1575,7 @@ struct NPCProps {
 impl Faction {
   fn is_good(&self) -> bool {
     matches!(self.alignment(),
-             Alignment::LawfulGood | Alignment::NeutralGood | Alignment::ChaoticGood)
+             CharacterAlignment::LawfulGood | CharacterAlignment::NeutralGood | CharacterAlignment::ChaoticGood)
   }
   fn is_bad(&self) -> bool { !self.is_good() }
   fn is_hostile(&self, target: Self) -> bool {
@@ -2279,14 +2257,14 @@ fn interact(mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory),
             mut c: Commands,
             keys: Res<ButtonInput<KeyCode>>,
             mut ui_data: ResMut<UIData>) {
-  ui_data.interact_message = None;
+  // ui_data.interact_message = None;
   let (player, player_transform, player_combat, player_inventory) = playerq.into_inner();
   let player_pos = player_transform.translation;
   let closest_interactable_thing = filter_least(|tup| {
-                                                  let dist =
-                                                    tup.1.translation.distance(player_pos);
-                                                  (dist < INTERACTION_RANGE).then_some(dist as u32)
-                                                },
+    let dist =
+      tup.1.translation.distance(player_pos);
+    (dist < INTERACTION_RANGE).then_some(dist as u32)
+  },
                                                 &mut interactable_q);
   if let Some((interact_entity, transform, mut interact, oname)) = closest_interactable_thing
   {
@@ -2295,22 +2273,23 @@ fn interact(mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory),
         let (message, command) =
           interact_single_option.clone()
                                 .interact(interact_entity, namefmt(oname), player_inventory);
-        ui_data.interact_message = Some(format!("[SPACE: {message}]"));
+        // ui_data.interact_message = Some(format!("[SPACE: {message}]"));
+
+        INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
         if keys.just_pressed(KeyCode::Space) {
           c.queue(command);
         }
       }
       Interact::MultipleOptions(interact_multiple_options) => {
         let (msg, options) = interact_multiple_options.clone().interact();
-        ui_data.interact_message =
-          Some(intersperse_newline([msg, default()].into_iter()
-                                                   .chain((&options).into_iter()
-                                                                    .enumerate()
-                                                                    .map(|(n, tup)| {
-                                                                      format!("{}: {}",
-                                                                              n + 1,
-                                                                              tup.0)
-                                                                    }))));
+        INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter()
+                                                      .chain((&options).into_iter()
+                                                             .enumerate()
+                                                             .map(|(n, tup)| {
+                                                               format!("{}: {}",
+                                                                       n + 1,
+                                                                       tup.0)
+                                                             })))));
         let number_picked =
           find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n),
                    [(0, KeyCode::Digit0),
@@ -2331,226 +2310,94 @@ fn interact(mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory),
         }
       }
     }
+  } else{
+    INTERACT_MESSAGE.set(None);
   }
 }
-fn namefmt(oname: Option<&Name>) -> String {
-  match oname {
-    Some(name) => name.to_string(),
-    None => "unnamed entity".to_string()
-  }
-}
-// fn lazy<T, F: FnOnce() -> T>(f: F) -> LazyCell<T, F> { LazyCell::new(f) }
 
-fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
-  scale.powi(2) / (player_pos.distance(pos)).powi(2)
-}
-const MESSAGE_SHOW_TIME_TICKS: u32 = 600;
-// fn ui(mut c: Commands,
-//       camq: Query<(Entity, &GlobalTransform), With<Camera3d>>,
-//       playerq: Query<(Entity, &Player, &GlobalTransform, &Combat, &Inventory)>,
-//       target_q: Query<(Entity,
-//              &Transform,
-//              &SpaceObject,
-//              Option<&Name>,
-//              Option<&Combat>,
-//              Option<&Planet>)>,
-//       mut ui_data: ResMut<UIData>,
-//       time: Res<TimeTicks>,
-//       view_root_q: Query<Entity, With<ViewRoot>>) {
-//   struct TargetData<'t> {
-//     entity: Entity,
-//     transform: &'t Transform,
-//     distance: f32,
-//     signal_strength: f32,
-//     spaceobject: &'t SpaceObject,
-//     oname: Option<&'t Name>,
-//     name: String,
-//     ocombat: Option<&'t Combat>,
-//     oplanet: Option<&'t Planet>
-//   }
-//   if let (Ok((_, player, player_globaltransform, player_combat, player_inventory)),
-//           Ok((camera, _))) = (playerq.get_single(), camq.get_single())
-//   {
-//     let player_pos = player_globaltransform.translation();
-//     let get_target_data = |e: Entity| {
-//       target_q.get(e)
-//               .map(|(entity, transform, spaceobject, oname, ocombat, oplanet)| {
-//                      let distance = player_pos.distance(transform.translation);
-//                      let name = namefmt(oname);
-//                      TargetData { entity,
-//                                   transform,
-//                                   spaceobject,
-//                                   oname,
-//                                   name,
-//                                   ocombat,
-//                                   oplanet,
-//                                   distance,
-//                                   signal_strength: 1000.0 * transform.scale.x.powi(2)
-//                                                    / distance.powi(2) }
-//                    })
-//               .ok()
-//     };
-//     let overview_data =
-//       mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
-//            sort_by_key(|(_, _, distance)| *distance as u32,
-//                        filter_map(|tup| match get_target_data(tup.0) {
-//                                     Some(TargetData { distance,
-//                                                       name,
-//                                                       ocombat:
-//                                                         Some(Combat { hp,
-//                                                                       is_hostile:
-//                                                                         true,
-//                                                                       .. }),
-//                                                       .. })
-//                                       if distance < COMBAT_RANGE =>
-//                                     {
-//                                       Some((name, hp, distance))
-//                                     }
-//                                     _ => None
-//                                   },
-//                                   &target_q)));
-//     let target_data = if let Some(player_target) = player.target()
-//                          && let Some(TargetData { distance,
-//                                                   name,
-//                                                   ocombat,
-//                                                   oplanet,
-//                                                   .. }) = get_target_data(player_target)
-//     {
-//       let somestring = |x| Some(string(x));
-//       [Some(format!("Target: {name}")),
-//        oplanet.map(rust_utils::prettyfmt),
-//        ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
-//        Some(format!("Distance: {:.1}", distance)),
-//        somestring("q: approach"),
-//        somestring("l: shoot laser"),
-//        somestring("r: toggle shoot"),
-//        somestring("x: untarget")].into_iter()
-//                                  .flatten()
-//                                  .collect()
-//     } else {
-//       default()
-//     };
-//     let player_inventory = player_inventory.clone();
-//     let infobox_data =
-//       map(ToString::to_string,
-//           [format!("{:.1}", player_pos).as_str(),
-//            format!("hp: {}", player_combat.hp).as_str(),
-//            format!("energy: {}", player_combat.energy).as_str(),
-//            "w,a,s,d,shift,ctrl: move",
-//            "z: spawn mushroom man",
-//            "q: toggle shield",
-//            "t: target nearest hostile",
-//            "g: warp",
-//            "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
-//                                    player_inventory.0.clone()))
-//                         .collect();
 
-//     let current_time = time.0;
-//     let current_time_ticks = current_time;
-//     let message_log = rust_utils::filterv(|Message { string, time }| {
-//                                             time + MESSAGE_SHOW_TIME_TICKS > current_time
-//                                           },
-//                                           ui_data.message_log.clone());
 
-//     let old_ui_data = ui_data.clone();
-//     let player_pos = player_globaltransform.translation();
-//     let overview_data =
-//       mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
-//            sort_by_key(|(_, _, distance)| *distance as u32,
-//                        filter_map(|tup| match get_target_data(tup.0) {
-//                                     Some(TargetData { distance,
-//                                                       name,
-//                                                       ocombat:
-//                                                         Some(Combat { hp,
-//                                                                       is_hostile:
-//                                                                         true,
-//                                                                       .. }),
-//                                                       .. })
-//                                       if distance < COMBAT_RANGE =>
-//                                     {
-//                                       Some((name, hp, distance))
-//                                     }
-//                                     _ => None
-//                                   },
-//                                   &target_q)));
-//     let target_data = if let Some(player_target) = player.target()
-//                          && let Some(TargetData { distance,
-//                                                   name,
-//                                                   ocombat,
-//                                                   oplanet,
-//                                                   .. }) = get_target_data(player_target)
-//     {
-//       let somestring = |x| Some(string(x));
-//       [Some(format!("Target: {name}")),
-//        oplanet.map(rust_utils::prettyfmt),
-//        ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
-//        Some(format!("Distance: {:.1}", distance)),
-//        somestring("q: approach"),
-//        somestring("l: shoot laser"),
-//        somestring("r: toggle shoot"),
-//        somestring("x: untarget")].into_iter()
-//                                  .flatten()
-//                                  .collect()
-//     } else {
-//       default()
-//     };
-//     let player_inventory = player_inventory.clone();
-//     let infobox_data =
-//       map(ToString::to_string,
-//           [format!("{:.1}", player_pos).as_str(),
-//            format!("hp: {}", player_combat.hp).as_str(),
-//            format!("energy: {}", player_combat.energy).as_str(),
-//            "w,a,s,d,shift,ctrl: move",
-//            "z: spawn mushroom man",
-//            "q: toggle shield",
-//            "t: target nearest hostile",
-//            "g: warp",
-//            "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
-//                                    player_inventory.0.clone()))
-//                         .collect();
-
-//     let current_time = time.0;
-//     let current_time_ticks = current_time;
-//     let message_log = rust_utils::filterv(|Message { string, time }| {
-//                                             time + MESSAGE_SHOW_TIME_TICKS > current_time
-//                                           },
-//                                           ui_data.message_log.clone());
-
-//     let old_ui_data = ui_data.clone();
-//     *ui_data = UIData { target_data,
-//                         overview_data,
-//                         current_time_ticks,
-//                         message_log,
-//                         infobox_data,
-//                         ..old_ui_data };
-//     // .as_mut().update(|old_ui_data| UIData { target_data,
-//     //                                              overview_data,
-//     //                                              current_time_ticks,
-//     //                                              message_log,
-//     //                                              infobox_data,
-//     //                                              ..old_ui_data });
-
-//     if view_root_q.is_empty() {
-//       ui_data.message_add("message1");
-//       ui_data.message_add("message2");
-//       ui_data.message_add("message3");
-//       c.spawn(UIMainView.to_root());
-
-//       c.spawn(ui_root_thing_in_the_world());
-//     }
-//   }
-// }
-
-const UI_BACKGROUND_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
-const UI_BORDER_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.7);
-const UI_FONT_COLOR: Color = Color::WHITE;
 pub const MESSAGE_LOG_MAX_LEN: usize = 5;
+const MESSAGE_SHOW_TIME_TICKS:u32 = 300;
 
-#[derive(Clone, PartialEq, PartialOrd, Eq, Hash, Ord)]
+#[derive(Clone, Debug)]
 pub struct Message {
   pub time: u32,
   pub string: String
 }
+
+impl From<Message> for String {
+    fn from(msg: Message) -> Self {
+      msg.string
+    }
+}
+impl From<String> for Message {
+    fn from(string: String) -> Self {
+      Message { time: MESSAGE_SHOW_TIME_TICKS, string  }
+    }
+}
+
+const UI_BACKGROUND_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
+const UI_BORDER_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.7);
+const UI_TEXT_COLOR: Color = Color::WHITE;
+const UI_FONT_SIZE: f32 = 22.0; // Adjusted font size slightly
+const UI_PADDING: Val = Val::Px(5.0);
+const UI_BORDER: Val = Val::Px(4.0);
+
+static MESSAGE_LOG: Lazy<Mutable<Vec<Message>>> = Lazy::new(default);
+static OVERVIEW_DATA: Lazy<Mutable<Vec<String>>> = Lazy::new(default);
+static INFOBOX_DATA: Lazy<Mutable<Vec<String>>> = Lazy::new(default);
+static TARGET_DATA: Lazy<Mutable<Vec<String>>> = Lazy::new(default);
+static INTERACT_MESSAGE: Lazy<Mutable<Option<String>>> = Lazy::new(default);
+
+
+comment!{
+  pub fn common_style(sb: &mut StyleBuilder) {
+    sb.font_size(32.0)
+      .display(Display::Block)
+      .border(3)
+      .border_color(UI_BORDER_COLOR)
+      .background_color(UI_BACKGROUND_COLOR)
+      .position(bevy::ui::PositionType::Absolute)
+      .color(UI_FONT_COLOR)
+      .pointer_events(false);
+  }
+}
+fn ui_box<T:Into<String>,C:IntoIterator<Item = T> + 'static,
+          S:Signal<Item = C> + Send + 'static>(align:Align,
+                                               signal: S,
+                                               font_handle: Handle<Font>) -> impl Element {
+  Column::<Text>::new()
+    .background_color(BackgroundColor(UI_BACKGROUND_COLOR))
+    .border_color(BorderColor(UI_BORDER_COLOR) )
+    .border_radius(BorderRadius::all(UI_BORDER))
+    .align(Some(align))
+    .width(Val::Auto)
+    .height(Val::Auto)
+    .text_signal(signal.map(|c:C| Text(intersperse_newline(c))))
+}
+// fn infobox(font_handle: Handle<Font>) -> impl Element {
+//   ui_box(Align::new().left().top(), INFOBOX_DATA.signal_cloned(), font_handle)
+// }
+
+fn root_ui(font_handle: Handle<Font>) -> impl Element {
+  Stack::<NodeBundle>::new() // Stack remains suitable for layering
+    .width(Val::Percent(100.0))
+    .height(Val::Percent(100.0))
+  // Layer the panels, using the simplified/generic functions
+  // message log
+    .layer(ui_box(Align::new().left().bottom(), MESSAGE_LOG.signal_cloned(), font_handle.clone()))
+  // infobox
+    .layer(ui_box(Align::new().left().top(), INFOBOX_DATA.signal_cloned(), font_handle.clone()))
+  // overview
+    .layer(ui_box(Align::new().right().top(), OVERVIEW_DATA.signal_cloned(), font_handle.clone()))
+  // target box
+    .layer(ui_box(Align::new().right().bottom(), TARGET_DATA.signal_cloned(), font_handle.clone()))
+  // interact message box
+    .layer(ui_box(Align::new().center_x().center_y(), INTERACT_MESSAGE.signal_cloned(), font_handle.clone()))
+}
+
+
 
 #[derive(Resource, Default, Clone)]
 pub struct UIData {
@@ -2568,114 +2415,63 @@ pub struct UIData {
                                 // pub space_cat_count: u32,
                                 // pub player_inventory: Inventory
 }
-pub fn intersperse_newline<T: ToString>(coll: impl IntoIterator<Item = T>) -> String {
+pub fn intersperse_newline<T: Into<String>>(coll: impl IntoIterator<Item = T>) -> String {
   concat_strings(coll.into_iter()
-                     .map(|v| v.to_string())
-                     .intersperse("\n".to_string()))
+                 .map(|v| v.into())
+                 .intersperse("\n".to_string()))
 }
 
 impl UIData {
   pub fn message_add(&mut self, message: impl ToString) {
     let time = self.current_time_ticks;
-    self.message_log.push(Message { string: message.to_string(),
+    self.message_log.push(Message { string: message.to_string().into(),
                                     time });
   }
 }
 
-comment! {
-  pub fn common_style(sb: &mut StyleBuilder) {
-    sb.font_size(32.0)
-      .display(Display::Block)
-      .border(3)
-      .border_color(UI_BORDER_COLOR)
-      .background_color(UI_BACKGROUND_COLOR)
-      .position(bevy::ui::PositionType::Absolute)
-      .color(UI_FONT_COLOR)
-      .pointer_events(false);
-  }
+fn setup_ui_system(world: &mut World) {
+  let asset_server = world.resource::<AssetServer>();
+  // <<< IMPORTANT: Make sure this path is correct for your project >>>
+  let font_handle: Handle<Font> = default();
+  root_ui(font_handle).spawn(world); // Spawn the UI root
+  // Add an initial message if desired
+  MESSAGE_LOG.lock_mut().push(Message::from("Welcome!".to_string()));
+}
 
-  // Main UIPopup struct
-  #[derive(Clone, PartialEq, new)]
-  pub struct UIPopup {
-    pub style: fn(&mut StyleBuilder),
-    pub display_text_fn: fn(&UIData) -> Vec<String>
+fn namefmt(oname: Option<&Name>) -> String {
+  match oname {
+    Some(name) => name.to_string(),
+    None => "unnamed entity".to_string()
   }
+}
+fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
+  scale.powi(2) / (player_pos.distance(pos)).powi(2)
+}
 
-  impl ViewTemplate for UIPopup {
-    type View = impl View;
-    fn create(&self, cx: &mut Cx) -> Self::View {
-      let &Self { display_text_fn,
-                  style } = self;
-      let uidata = cx.use_resource::<UIData>();
-      let display_text = display_text_fn(uidata);
-      Element::<NodeBundle>::new().style((common_style, style))
-                                  .children(intersperse_newline(display_text))
-    }
+// please finish rewriting the various local variables in fn ui by using TargetData and a lot of method chains and filter_map and such
+    #[derive(QueryData)]
+  struct TargetData<'t> {
+    entity: Entity,
+    transform: &'static Transform,
+    spaceobject: &'static SpaceObject,
+    oname: Option<&'static Name>,
+    ocombat: Option<&'t Combat>,
+    oplanet: Option<&'t Planet>
   }
-
+comment!{
   pub fn ui(mut c: Commands,
             camq: Single<(Entity, &GlobalTransform), With<Camera3d>>,
             playerq: Single<(Entity, &Player, &Transform, &Combat, &Inventory)>,
-            target_q: Query<(Entity,
-                             &Transform,
-                             &SpaceObject,
-                             Option<&Name>,
-                             Option<&Combat>,
-                             Option<&Planet>)>,
+            target_q: Query<TargetData>,
             mut ui_data: ResMut<UIData>,
-            time: Res<TimeTicks>,
-            view_root_query: Query<Entity, With<ViewRoot>>) {
-    if view_root_query.is_empty() {
-      let message_log = UIPopup::new(|sb| {
-        sb.flex_direction(FlexDirection::ColumnReverse)
-          .left(0)
-          .bottom(0);
-      },
-                                     |uidata| {
-                                       uidata.message_log
-                                             .clone()
-                                             .mutate(|v| v.sort())
-                                             .into_iter()
-                                             .map(|msg| msg.string)
-                                             .collect()
-                                     });
-
-      let interact_popup = UIPopup::new(|sb| {
-        sb.justify_self(JustifySelf::Center)
-          .top(Val::Percent(70.0));
-      },
-                                        |uidata| {
-                                          uidata.interact_message
-                                                .clone()
-                                                .map_or(vec![], |msg| vec![msg])
-                                        });
-
-      let info_box = UIPopup::new(|sb| {
-        sb.left(0).top(0);
-      },
-                                  |uidata| uidata.infobox_data.clone());
-
-      let target_popup = UIPopup::new(|sb| {
-        sb.bottom(0).right(0);
-      },
-                                      |uidata| uidata.target_data.clone());
-
-      let overview_popup = UIPopup::new(|sb| {
-        sb.top(0).right(0);
-      },
-                                        |uidata| uidata.overview_data.clone());
-
-      c.spawn(mapv(ViewChild::new, [message_log,
-                                    interact_popup,
-                                    info_box,
-                                    target_popup,
-                                    overview_popup]).to_root());
-    }
+            time: Res<TimeTicks>
+  ) {
 
     // if let Ok((player_entity, player, player_transform)) = player_query.get_single()
     let (_, player, player_transform, player_combat, player_inventory) = *playerq;
     let (camera_entity, camera_transform) = *camq;
 
+    let get_target_data = |e: Entity| {target_q.get(e).ok()};
     // let mut target_data = Vec::new();
     // for (_,target_transform, interaction_state, name) in &target_q {
     //   let distance = player_pos.distance(target_transform.translation);
@@ -2690,12 +2486,82 @@ comment! {
       format!("{:.1}", player_pos),
       // format!("Space Cats: {}", ui_data.space_cat_count),
     ].into_iter()
+
     // .chain(ui_data.player_inventory
     //               .0
     //               .clone()
     //               .into_iter()
     //               .map(|(item, n)| format!("{} {:?}s", n, item)))
      .collect();
+
+    let infobox_data =
+      map(ToString::to_string,
+          [format!("{:.1}", player_pos).as_str(),
+           format!("hp: {}", player_combat.hp).as_str(),
+           format!("energy: {}", player_combat.energy).as_str(),
+           "w,a,s,d,shift,ctrl: move",
+           "z: spawn mushroom man",
+           "q: toggle shield",
+           "t: target nearest hostile",
+           "g: warp",
+           "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
+                                   player_inventory.0.clone()))
+                        .collect();
+    let player_dist = |&t| player_pos.distance(t.translation);
+    let overview_data =
+      target_q.iter().sort_by_key(|k|).filter_map(||);
+    mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
+         sort_by_key(|(_, _, distance)| *distance as u32,
+                     filter_map(|tup| match get_target_data(tup.0) {
+                       Some(TargetData { distance,
+                                         name,
+                                         ocombat:
+                                         Some(Combat { hp,
+                                                       is_hostile:
+                                                       true,
+                                                       .. }),
+                                         .. })
+                         if distance < COMBAT_RANGE =>
+                       {
+                         Some((name, hp, distance))
+                       }
+                       _ => None
+                     },
+                                &target_q)));
+    let target_data = if let Some(player_target) = player.target()
+      && let Some(TargetData { distance,
+                               name,
+                               ocombat,
+                               oplanet,
+                               .. }) = get_target_data(player_target)
+    {
+      let somestring = |x| Some(string(x));
+      [Some(format!("Target: {name}")),
+       oplanet.map(rust_utils::prettyfmt),
+       ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
+       Some(format!("Distance: {:.1}", distance)),
+       somestring("q: approach"),
+       somestring("l: shoot laser"),
+       somestring("r: toggle shoot"),
+       somestring("x: untarget")].into_iter()
+                                 .flatten()
+                                 .collect()
+    } else {
+      default()
+    };
+    let infobox_data =
+      map(ToString::to_string,
+          [format!("{:.1}", player_pos).as_str(),
+           format!("hp: {}", player_combat.hp).as_str(),
+           format!("energy: {}", player_combat.energy).as_str(),
+           "w,a,s,d,shift,ctrl: move",
+           "z: spawn mushroom man",
+           "q: toggle shield",
+           "t: target nearest hostile",
+           "g: warp",
+           "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
+                                   player_inventory.0.clone()))
+                        .collect();
 
     // Update target data
 
@@ -2722,6 +2588,161 @@ comment! {
                         // space_cat_count: old_ui_data.space_cat_count,
                         ..old_ui_data.clone() };
   }
+}
+
+pub fn ui(
+    playerq: Query<(Entity, &Player, &Transform, &Combat, &Inventory)>, // Changed to Query
+    target_q: Query<TargetData>,
+    // mut ui_data: ResMut<UIData>,
+    time: Res<TimeTicks>,
+) {
+  // Use get_single for clarity, handling potential errors/no player
+  let Ok((_player_entity, player, player_transform, player_combat, player_inventory)) = playerq.get_single() else {
+    // Handle case where player doesn't exist yet or multiple exist
+    // *ui_data = UIData::default(); // Reset UI or show an error state
+    return;
+  };
+  let player_pos = player_transform.translation;
+
+  // --- Infobox Data ---
+  let infobox_data: Vec<String> = [
+    format!("Pos: {:.1}", player_pos),
+    format!("HP: {}", player_combat.hp),
+    format!("Energy: {}", player_combat.energy),
+    "Controls:".to_string(),
+    " w,a,s,d,shift,ctrl: move".to_string(),
+    " z: spawn mushroom man".to_string(),
+    " q: toggle shield".to_string(),
+    " t: target nearest hostile".to_string(),
+    " g: warp".to_string(),
+    " l: shoot laser".to_string(),
+    " r: toggle shoot".to_string(),
+    " x: untarget".to_string(),
+    "Inventory:".to_string(),
+  ]
+    .into_iter()
+    .chain(
+      player_inventory
+        .0
+        .iter()
+        .map(|(item, n)| format!(" - {}x {:?}", n, item)),
+    )
+    .collect();
+  INFOBOX_DATA.set(infobox_data);
+
+  // --- Target Data ---
+  let target_data: Vec<String> = player
+    .target()
+    .and_then(|target_entity| target_q.get(target_entity).ok())
+    .map(|target| {
+      let distance = player_pos.distance(target.transform.translation);
+      let name = target.oname.cloned().unwrap_or(Name::new("unknown"));
+
+      [
+        Some(format!("Target: {}", name)),
+        target.oplanet.map(|p| format!("Planet Info: {:?}", p)), // Uses Display impl
+        target.ocombat.map(|c| format!("HP: {}", c.hp)),
+        Some(format!("Distance: {:.1}", distance)),
+        // Add context-dependent actions if needed
+        // e.g., if target.oplanet.is_some() { Some("F: Land".to_string()) } else { None }
+      ]
+        .into_iter()
+        .flatten() // Remove None options
+        .collect()
+    })
+    .unwrap_or_default(); // Use empty Vec if no target or target data not found
+  TARGET_DATA.set(target_data);
+
+  // --- Overview Data (Hostiles in Combat Range) ---
+  let player_dist =|t:&TargetDataItem| player_pos.distance(t.transform.translation);
+  let overview_data: Vec<String> = target_q
+    .iter()
+  // .sort_by(|a, b| player_dist(*a).partial_cmp(&player_dist(*b)).unwrap_or(std::cmp::Ordering::Equal))
+    .filter_map(|target| {
+      // Calculate distance first
+      // Filter for hostiles within range that have combat stats and a name
+      let distance = player_dist(&target);
+      if let Some(name) = target.oname
+        && let Some(combat) = target.ocombat
+        && combat.is_hostile
+        && distance < COMBAT_RANGE {
+          Some(format!("{} (HP:{}) <-> {:.1}", name, combat.hp, distance))
+        } else {
+          None
+        }
+    })
+    .collect();
+  OVERVIEW_DATA.set(overview_data);
+
+  MESSAGE_LOG.update_mut(|v|{
+    *v = v.clone().into_iter().filter_map(|Message { time, string }| {
+      (time > 0).then(|| Message{time:time-1,string})
+    }
+    ).collect();
+  });
+}
+
+
+// **Key Changes:**
+
+// 1.  **`Query` for Player**: Changed `Single` to `Query` for the player and used `get_single()` which returns a `Result`. This is generally safer as it handles cases where the player might not exist yet or if there are multiple entities with the `Player` component. Added an early return if the player isn't found.
+// 2.  **`TargetData` Derives**: Added `#[derive(WorldQuery)]` to `TargetData` as required by Bevy 0.10+.
+// 3.  **`infobox_data`**: Simplified creation using an array literal `[...]`, `into_iter()`, `chain`, and `map` on the player's inventory.
+// 4.  **`target_data`**:
+//     *   Uses `player.target().and_then(|e| target_q.get(e).ok())` to safely get the target's `TargetData`.
+//     *   Uses `.map()` on the resulting `Option<TargetData>` to process it if it exists.
+//     *   Inside the map, it creates an array of `Option<String>`.
+//     *   Uses `flatten()` to filter out the `None` values and collect into the `Vec<String>`.
+//     *   Uses `.unwrap_or_default()` to provide an empty `Vec` if there was no target or the target data couldn't be fetched.
+// 5.  **`overview_data`**:
+//     *   Iterates directly over `target_q`.
+//     *   Uses `filter_map` to:
+//         *   Calculate distance.
+//         *   Check if the distance is within `COMBAT_RANGE`.
+//         *   Check if the target has a `Name` and `Combat` component *and* `is_hostile`.
+//         *   Returns `Some((name, hp, distance))` if all conditions met, `None` otherwise.
+//     *   Uses `itertools::sorted_by` (you'll need the `itertools` crate) to sort the filtered results by distance.
+//     *   Uses `map` to format the final string.
+//     *   Collects into the `Vec<String>`.
+// 6.  **`UIData` Update**: Directly assigns the newly created `Vec<String>`s to the respective fields in `ui_data`, avoiding a full clone and re-creation unless necessary. Other fields like `message_log` are preserved.
+// 7.  **Removed Unused Variables**: Commented out or removed `c`, `camq`, etc., as they weren't used in the logic shown.
+// 8.  **Assumptions**: Added placeholder definitions for components/resources used in the function signature and body. Added a `Display` impl for `Planet` as an example for `format!`. Added `COMBAT_RANGE` constant.
+
+  comment!{
+  fn setup_ui(world: &mut World) {
+    // Example: Spawn a root element holding different panels
+    Column::<Node>::new()
+      .node(node_option)
+      .width(Val::Percent(100.))
+      .height(Val::Percent(100.))
+      .child(message_log_panel()) // Function returning impl Element
+      .child(info_box_panel())    // Function returning impl Element
+    // ... other panels
+      .spawn(world);
+  }
+}
+// Main UIPopup struct
+comment!{
+  #[derive(Clone, PartialEq, new)]
+  pub struct UIPopup {
+    pub style: fn(&mut StyleBuilder),
+    pub display_text_fn: fn(&UIData) -> Vec<String>
+  }
+
+  impl ViewTemplate for UIPopup {
+    type View = impl View;
+    fn create(&self, cx: &mut Cx) -> Self::View {
+      let &Self { display_text_fn,
+                  style } = self;
+      let uidata = cx.use_resource::<UIData>();
+      let display_text = display_text_fn(uidata);
+      Element::<NodeBundle>::new().style((common_style, style))
+                                  .children(intersperse_newline(display_text))
+    }
+  }
+
+
+
 }
 
 pub fn string(t: impl ToString) -> String { t.to_string() }
@@ -2810,12 +2831,10 @@ impl PlanetType {
   pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
 }
 
-comment!{
-  #[derive(Clone, Component, Debug)]
-  struct Planet {
-    pub planet_type: PlanetType,
-    pub population: u32
-  }
+#[derive(Clone, Component, Debug)]
+struct Planet {
+  // pub planet_type: PlanetType,
+  pub population: u32
 }
 pub struct NamedNPC {
   name: &'static str,
@@ -2832,7 +2851,7 @@ enum Degree {
   Higher
 }
 #[derive(Clone,Copy, Debug)]
-enum SpawnableTemplate {
+enum Object {
   Empty,
   SpaceObject {
     // SpaceObjects have a sphere shaped collider where the scale is the radius. good to keep in mind when spawning large objects
@@ -2961,10 +2980,10 @@ enum SpawnableTemplate {
 //   StarforgeRemnant,
 //   TemporalLoop
 }
-impl SpawnableTemplate {
+impl Object {
   pub fn spawn_at(self, c:&mut Commands,pos:Vec3) -> Entity {
     let mut ec = c.spawn(Transform::from_translation(pos));
-    SpawnableTemplate::insert(&mut ec, self, ());
+    Object::insert(&mut ec, self, ());
     ec.id()
   }
   pub const fn space_object(scale: f32, can_move: bool, visuals: Visuals) -> Self {
@@ -3036,7 +3055,7 @@ Self::insert(m,
       Self::Enemy { name, hp, speed, sprite } =>
         Self::insert(m, Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)), (
           Name::new(name), Navigation::new(speed),
-          NPC { follow_target: None, faction: Faction::SpacePirates },
+          NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
           Combat { hp, is_hostile: true, ..default() },
         )),
       Self::LootObject { sprite, scale, name, item_type } =>
@@ -3048,45 +3067,45 @@ Self::insert(m,
         Self::insert(m, Self::NPC {
           name: "explorer", hp: 50, speed: NORMAL_NPC_SPEED,
           sprite: MySprite::GPT4O_WHITE_EXPLORATION_SHIP,
-          scale: NORMAL_NPC_SCALE, faction: Faction::Explorers,
+          scale: NORMAL_NPC_SCALE, faction: Faction::EXPLORERS,
         }, ()),
       Self::Trader =>
         Self::insert(m, Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE, name: "Trader", speed: NORMAL_NPC_SPEED,
-          faction: Faction::Traders, hp: 30, sprite: MySprite::SPACESHIPWHITE2,
+          faction: Faction::TRADERS, hp: 30, sprite: MySprite::SPACESHIPWHITE2,
         }, ()),
       Self::SpaceCop =>
         Self::insert(m, Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE, name: "space cop", speed: NORMAL_NPC_SPEED,
-          faction: Faction::SpacePolice, hp: 70, sprite: MySprite::GPT4O_POLICE_SPACE_SHIP,
+          faction: Faction::SPACE_POLICE, hp: 70, sprite: MySprite::GPT4O_POLICE_SPACE_SHIP,
         }, ()),
       Self::SpaceWizard =>
         Self::insert(m, Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE, name: "space wizard", speed: NORMAL_NPC_SPEED,
-          faction: Faction::SPACEWIZARDs,
+          faction: Faction::SPACEWIZARDS,
           hp: 40,
           sprite: MySprite::IMAGEN3WIZARDSPACESHIP,
         }, ()),
       Self::Miner =>
         Self::insert(m, Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE, name: "miner", speed: NORMAL_NPC_SPEED,
-          faction: Faction::Traders, hp: 35, sprite: MySprite::GPT4O_MINING_SHIP,
+          faction: Faction::TRADERS, hp: 35, sprite: MySprite::GPT4O_MINING_SHIP,
         }, ()),
       Self::AlienSoldier =>
         Self::insert(m, Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE, name: "alien soldier", speed: NORMAL_NPC_SPEED,
-          faction: Faction::Invaders, hp: 80, sprite: MySprite::PURPLEENEMYSHIP,
+          faction: Faction::INVADERS, hp: 80, sprite: MySprite::PURPLEENEMYSHIP,
         }, ()),
       Self::MinerNpc =>
         Self::insert(m, Self::NPC {
           name: "miner npc", hp: 45, speed: NORMAL_NPC_SPEED * 0.8,
           sprite: MySprite::GPT4O_MINING_SHIP, scale: NORMAL_NPC_SCALE,
-          faction: Faction::Traders,
+          faction: Faction::TRADERS,
         }, ()),
       Self::MushroomMan =>
         Self::insert(m, Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE, name: "mushroom man", speed: NORMAL_NPC_SPEED * 0.9,
-          faction: Faction::Traders, hp: 40, sprite: MySprite::MUSHROOMMAN,
+          faction: Faction::TRADERS, hp: 40, sprite: MySprite::MUSHROOMMAN,
         }, ()),
       Self::SpaceCowboy =>
         Self::insert(m,
@@ -3149,7 +3168,7 @@ Self::insert(m,
         Self::insert(m, Self::space_object(2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)), (
           Name::new("crystal monster"),
           Combat { hp: 100, is_hostile: true, ..default() },
-          NPC { faction: Faction::SpacePirates, ..default() },
+          NPC { faction: Faction::SPACE_PIRATES, ..default() },
           Navigation::speed(NORMAL_NPC_SPEED * 1.2),
         )),
       Self::CrystalMonster2 =>
@@ -3256,7 +3275,7 @@ Self::insert(m,
                        NORMAL_NPC_SCALE,
                        "nomad",
                        NORMAL_NPC_SPEED,
-                       Faction::Wanderers,
+                       Faction::WANDERERS,
                        35,
                        MySprite::GPT4O_GREEN_CAR_SHIP), ()),
     }
@@ -3264,10 +3283,10 @@ Self::insert(m,
 
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone,Copy, Debug)]
 pub struct Zone {
     pub name: &'static str,
-    pub objects: &'static [([f32; 3], SpawnableTemplate)],
+    pub objects: &'static [([f32; 3], Object)],
     pub faction_control: Option<Faction>,
 }
 comment! {
@@ -3361,39 +3380,6 @@ const MAX_ZONE_RANGE: f32 = 200.0;
 //   in_player_zone: bool // zone: Option<Entity>
 // }
 
-comment!{
-  fn update_in_zone(player_transform: Single<&Transform, With<Player>>,
-                    mut entity_query: Query<(Entity, &Transform, Option<&mut InZone>),
-                                            Without<Player>>,
-                    zone_query: Query<(Entity, &Zone, &Transform)>,
-                    mut c: Commands) {
-    let player_zone = find(|(zone_entity, zone, zone_transform)| {
-      player_transform.translation
-                      .distance(zone_transform.translation)
-        < MAX_ZONE_RANGE
-    },
-                           &zone_query);
-
-    for (entity, transform, mut in_zone) in entity_query.iter_mut() {
-      let new_in_zone =
-        InZone { in_player_zone:
-                 player_zone.map_or(false, |(zone_entity, zone, zone_transform)| {
-                   zone_transform.translation.distance(transform.translation)
-                     < MAX_ZONE_RANGE
-                 }) };
-      match in_zone {
-        Some(mut in_zone) => {
-          if *in_zone != new_in_zone {
-            *in_zone = new_in_zone;
-          }
-        }
-        None => {
-          c.entity(entity).insert(new_in_zone);
-        }
-      }
-    }
-  }
-}
 
 fn spawn_sprite(serv: Res<AssetServer>,
                 // assets: Res<Assets>,
@@ -3424,20 +3410,10 @@ pub fn setup(playerq: Query<&Transform, With<Player>>,
              mut materials: ResMut<Assets<StandardMaterial>>,
              mut c: Commands) {
   let sun_pos = Vec3::ZERO;
-  SpawnableTemplate::Player.spawn_at(&mut c, Vec3::Y * 1000.0);
-  // dbg!(SUN);
-  SpawnableTemplate::Sun.spawn_at(&mut c, sun_pos);
-  for (pos, zone) in [
-    ([-1000.0,200.0,0.0] ,INHABITED_FLOATING_ISLAND::INHABITED_FLOATING_ISLAND),
-    ([-1000.0,200.0,1000.0] ,SPACE_DAIRY_FARM::SPACE_DAIRY_FARM),
-    ([0.0,200.0,-1000.0] ,SPACE_PIRATE_ASTEROID_FIELD::SPACE_PIRATE_ASTEROID_FIELD),
-    ([0.0,-200.0,1000.0] ,SPACE_PRISON::SPACE_PRISON),
-    ([1000.0,-200.0,-1000.0] ,SS13_SCENE::SS13_SCENE),
-    ([1000.0,200.0,0.0] ,TREACHEROUS_ICE_FIELD),
-  ]{
-    zone.spawn_at(&mut c, Vec3::from_array(pos) );
-
-    
+  Object::Player.spawn_at(&mut c, Vec3::Y * 1000.0);
+  Object::Sun.spawn_at(&mut c, sun_pos);
+  for (pos, zone) in aigen::ZONES{
+    zone.spawn_at(&mut c, Vec3::from_array(*pos) );
   }
 
   let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
@@ -3609,13 +3585,13 @@ pub fn main() {
     .insert_resource(ClearColor(Color::BLACK))
     // .init_asset::<bevy_vox_scene::VoxelScene>()
     .insert_resource(AMBIENT_LIGHT)
-    .add_systems(Startup, (setup// ,add_global_highlight
+    .add_systems(Startup, (setup,setup_ui_system// ,add_global_highlight
                            ,// ui
     ).chain())
 
   // .add_systems(Startup, setup.run_if(in_state))
     .add_systems(Update,(
-      spawn_sprite,
+      // spawn_sprite,
       close_on_esc,
       // spawn_mushroom_man,
       set_space_object_scale,
@@ -3632,7 +3608,7 @@ pub fn main() {
       combat_system,
       warp,
 
-      // ui,
+      ui,
       // spawn_skybox,
       npc_movement,
       interact,
@@ -3704,3 +3680,37 @@ pub fn main() {
 
 
 
+
+comment!{
+  fn update_in_zone(player_transform: Single<&Transform, With<Player>>,
+                    mut entity_query: Query<(Entity, &Transform, Option<&mut InZone>),
+                                            Without<Player>>,
+                    zone_query: Query<(Entity, &Zone, &Transform)>,
+                    mut c: Commands) {
+    let player_zone = find(|(zone_entity, zone, zone_transform)| {
+      player_transform.translation
+                      .distance(zone_transform.translation)
+        < MAX_ZONE_RANGE
+    },
+                           &zone_query);
+
+    for (entity, transform, mut in_zone) in entity_query.iter_mut() {
+      let new_in_zone =
+        InZone { in_player_zone:
+                 player_zone.map_or(false, |(zone_entity, zone, zone_transform)| {
+                   zone_transform.translation.distance(transform.translation)
+                     < MAX_ZONE_RANGE
+                 }) };
+      match in_zone {
+        Some(mut in_zone) => {
+          if *in_zone != new_in_zone {
+            *in_zone = new_in_zone;
+          }
+        }
+        None => {
+          c.entity(entity).insert(new_in_zone);
+        }
+      }
+    }
+  }
+}

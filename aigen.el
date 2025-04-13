@@ -16,120 +16,146 @@ Example: \"my zone name\" -> \"MY_ZONE_NAME\""
       (upcase underscored))))
 
 
-;; --- Helper function to safely read file content ---
-(defun my/read-file-content-safely (filename)
-  "Read content of FILENAME relative to `default-directory`.
-Return file content as string or nil if error."
-  (let ((f (expand-file-name filename))) ; Ensure path is absolute for reading
-    (condition-case err
-        (when (file-readable-p f)
-          (with-temp-buffer
-            (insert-file-contents f)
-            (buffer-string)))
-      ;; If file error (e.g., not found, permissions), warn and return nil
-      (file-error
-       (message "Warning: Could not read context file '%s': %s" filename err)
-       nil))))
-
 ;; --- Helper function to build the context string for the prompt ---
 (defun my/build-context-code-section (context-files)
   "Build a formatted string containing code from CONTEXT-FILES for the prompt."
   (if (null context-files)
       "" ; Return empty string if no files provided
     (let ((context-string "\n\n--- START CONTEXT CODE ---\nContext files provide definitions relevant to the generation task:\n\n"))
-      (dolist (f context-files)
-        (let ((content (my/read-file-content-safely f)))
-          (when content
-            (setq context-string
-                  (concat context-string
-                          (format "**File: %s**\n```rust\n%s\n```\n\n"
-                                  f ; Show the relative path provided
-                                  content))))))
-      (concat context-string "-- END CONTEXT CODE --\n\n"))))
+      (progn
+        (dolist (f context-files)
+          (let ((content (doom-file-read f)))
+            (when content
+              (setq context-string
+                    (concat context-string
+                            (format "**File: %s**\n```rust\n%s\n```\n\n"
+                                    f ; Show the relative path provided
+                                    content))))))
+        (concat context-string "-- END CONTEXT CODE --\n\n")))))
 
-
-
-;; --- The Prompt Prefix ---
-;; Adjusted slightly to mention context comes first
+;; --- The Revised Prompt Prefix ---
 (defconst my/rust-zone-prompt-prefix
-  "Using the provided CONTEXT CODE from src/main.rs, generate a complete Rust code block defining a space game zone based on the specific description provided below.
+  "GENERATE RAW RUST CODE ONLY. Follow all rules precisely.
 
-**Output Requirements:**
+Using the provided CONTEXT CODE (core definitions from src/main.rs and a formatting example), generate a complete Rust code block defining a single space game zone based on the ZONE DESCRIPTION provided below.
 
-1.  **CODE:** Provide the raw Rust code block required. Start directly with `pub const` or necessary `pub static` definitions (like patrol routes or loot tables if needed). Do NOT include ```rust markdown, introductory text, explanations, or closing remarks.
-2.  **`use` Statements:** Start with necessary `use` statements to bring required types into scope. Infer paths from the CONTEXT CODE or assume common paths like `crate::game::objects::*`, `crate::types::*`, etc.
-3.  **`static` Definitions (If Needed):** Define `pub static` loot tables or patrol routes or dialogue trees or similar (if appropriate) before the main `Zone` const definition, referencing types from the context code.
-4.  **Main Definition:** Define a single `pub const ZONE_NAME: Zone = Zone { ... };` where `ZONE_NAME` is the SCREAMING_SNAKE_CASE version specified later.
-5.  **`Zone` Struct Fields:** Populate the `Zone` struct precisely, using types and helper functions defined in the CONTEXT CODE.
-    * `name: &'static str`: User-friendly string.
-    * `manual_objects: &'static [([f32; 3], SpawnableTemplate)]`: Use coordinates `[f32; 3]` and construct `SpawnableTemplate` using the helper `const fn`s or FRU or just write SpawnableTemplate::Asteroid.
-6.  **Validity & Style:** Ensure generated code is valid Rust, uses types/functions from context correctly, and follows standard formatting.
-7.  **Feedback:** if you have feedback or comments about this prompt, any further information you need or code that should be there, please let me know in a comment.
+**Output Requirements (Strictly Enforced):**
 
---- START ZONE DESCRIPTION ---
+1.  **CRITICAL: RAW CODE ONLY:** Your *entire* response MUST be ONLY the raw Rust code required, wrapped in ```rust markdown fences ```.
+    * The *only* non-code text allowed is Rust comments (`//` or `/* */`) *inside* the code block itself (see Rule 7).
+
+2.  **`use` Statements:** Start with` use crate::*;`. That's probably all you need. A common pattern might be `use crate::*; type Obj = Object;`.
+
+3.  **predefining data or functions (If Needed):** Before the main `ZONE` definition, you can define `static` or `const` data like loot tables, patrol routes, or dialogue trees (e.g., `const MY_DIALOGUE: DialogueTree = ...;`). Alternatively you can define such data in a let statement in a {...} block around the Zone definition. You should reference code from main.rs. It is the set of paintbrushes that you get to use to paint a picture of a location. You can ask for more paintbrushes in a comment but try to work with what you have. Use `let` bindings inside the main const block for complex intermediate values if helpful (like in the example).
+
+4.  **Main Definition:** The name shall be exactly `ZONE`. Define the zone as a single `pub const ZONE: Zone = ...`
+
+5.  **`Zone` Struct Fields:** Populate the `Zone` struct precisely, using types and helpers from the CONTEXT CODE and matching the example structure:
+    * `name: &'static str`: User-friendly name fitting the description (e.g., Arrakis Trade Hub).
+    * You *are* allowed to invent new factions with Faction::new or new item types with Item::new.
+    * It tends to be a good idea to have at least one talking npc to convey some information about the area to the player, unless the area is full of enemies.
+    * `objects: &'static [([f32; 3], Obj)]`: Define game objects at specific coordinates `[f32; 3]`.
+        * Use the `Obj` type (likely an alias for `Object`).
+        * Construct objects using variants defined in context (e.g., `Obj::Asteroid`, `Obj::TradingStation`, `Obj::Npc { ... }`, `Obj::SpaceObject { ... }`). Refer to the example for patterns.
+    * `faction_control: Option<Faction>`: Assign a controlling faction if appropriate (e.g., `Some(Faction::Guild)`), otherwise `None`. Infer from description or context.
+    * *(Include other relevant `Zone` fields if they exist, describing how to populate them)*
+
+6.  **Validity & Style:** Ensure generated code is valid Rust, uses types/functions/variants from context correctly, and follows standard Rust formatting.
+
+7.  **Prompt Feedback (As Rust Comment):** If you have feedback on this prompt, need more information, or identify missing context definitions, include these comments *inside* the generated Rust code block using `//` or `/* */`.
+
+--- START CONTEXT CODE ---
+Context files provide definitions (src/main.rs) and a structural example relevant to the generation task.
 "
-  "The detailed prompt prefix string explaining Rust zone code generation rules.")
+  "The detailed prompt prefix string explaining Rust zone code generation rules. Revised for clarity and ZONE const name.")
 
+
+(defun my/remove-first-and-last-line (str)
+  "Remove the first and last lines from the multi-line string STR."
+  (let* ((lines (split-string str "\n"))
+         (middle-lines (butlast (cdr lines)))) ;; remove first and last
+    (string-join middle-lines "\n")))
 
 (defun my/generate-rust-zone (zone-description-prompt zone-location-name)
-  "Generate Rust zone code via gptel, including src/main.rs as context.
+  "Generate Rust zone code via gptel, including context. Always names the const 'ZONE'.
+Attempts to strip Markdown fences from the response.
 
 Args:
   zone-description-prompt (String): Describes the specific zone content.
-  zone-location-name (String): Descriptive name, lowercase with spaces.
+  zone-location-name (String): Descriptive name, lowercase with spaces (used for FILENAME).
 
 Output file: 'src/aigen/ZONE_LOCATION_NAME_snake_case.rs' relative to project root.
-Writes the RAW response from the AI directly to the file. Errors signal directly."
+Writes the potentially cleaned RAW response from the AI directly to the file. Errors signal directly."
 
-  ;; --- Input Validation ---
+  ;; --- Input Validation (keep as is) ---
   (unless (and (stringp zone-description-prompt) (not (string-empty-p zone-description-prompt)))
     (error "Argument 'zone-description-prompt' must be a non-empty string"))
   (unless (and (stringp zone-location-name) (not (string-empty-p zone-location-name)))
     (error "Argument 'zone-location-name' must be a non-empty string"))
 
-  ;; --- Logic: Derive names, path, read context, build prompt ---
-  (let* ((const-name-snake-case (my/lowercase-spaces-to-screaming-snake-case zone-location-name))
-         (relative-output-file (format "src/aigen/%s.rs" const-name-snake-case))
-         ;; Directly read src/main.rs content
-         (main-rs-content (my/read-file-content-safely "src/main.rs"))
-         (example-rs-content (my/read-file-content-safely
-                              "src/aigen/SPACE_DAIRY_FARM.rs"))
-         ;; Format context string, handle potential read failure
+  ;; --- Logic: Derive names, path, read context, build prompt (keep as is) ---
+  (let* ((filename-snake-case (my/lowercase-spaces-to-screaming-snake-case zone-location-name))
+         (relative-output-file (format "src/aigen/%s.rs" filename-snake-case))
+         (main-rs-content (doom-file-read "src/main.rs"))
+         (example-rs-content (doom-file-read "src/aigen/SPACE_DAIRY_FARM.rs"))
          (context-code-section
-          (format "\n\n--- START CONTEXT CODE FROM src/main.rs ---\n```rust\n%s\n```\n--- \n\n--- START ZONE DEFINITON EXAMPLE CODE FROM src/aigen/TREACHEROUS_ICE_FIELD.rs ---\n```rust\n%s\n``` END CONTEXT CODE ---\n\n"
-                  main-rs-content example-rs-content))
-         ;; Construct the final prompt
-         (full-prompt (format "%s%s%s\n--- END ZONE DESCRIPTION ---\n\n**Required Const Name:** %s"
-                              context-code-section ; Context first
-                              my/rust-zone-prompt-prefix
+          (concat
+           (format "\n\n**File: src/main.rs (Core Definitions)**\n```rust\n%s\n```\n\n"
+                   (or main-rs-content "// Failed to read src/main.rs"))
+           (format "**Example File**\n```rust\n%s\n```\n\n--- END CONTEXT CODE ---\n\n--- START ZONE DESCRIPTION ---\n"
+                   (or example-rs-content "// Failed to read example file"))))
+         (full-prompt (concat my/rust-zone-prompt-prefix
+                              context-code-section
                               zone-description-prompt
-                              const-name-snake-case)))
+                              "\n--- END ZONE DESCRIPTION ---\n")))
+    (progn
 
-    ;; --- API Call ---
-    (message "Sending request to GPTel for zone '%s' -> %s (with src/main.rs context)..."
-             zone-location-name relative-output-file)
-    (gptel-request
-        full-prompt   ; Argument 1: The complete prompt string (positional)
-      :callback      ; Keyword argument :callback
-      ;; Value for :callback (accepts response and info)
-      (lambda (response info)
-        (if (stringp response)
-            ;; --- Write raw response directly ---
-            (progn
-              (make-directory (file-name-directory relative-output-file) :parents)
-              (with-temp-file relative-output-file
-                (insert response) ; Insert the response string
-                (unless (eq (char-before (point-max)) ?\n)
-                  (insert "\n"))) ; Ensure trailing newline
-              (message "Raw GPTel response for '%s' written successfully to %s"
-                       zone-location-name relative-output-file))
-          ;; Handle non-string responses
-          (message "GPTel callback for '%s' received non-string response: %S (Info: %S)"
-                   zone-location-name response info))) ; Log unexpected response/info
-      ) ; End lambda
-    ) ; End gptel-request call
+      ;; --- API Call ---
+      (message "Sending request to GPTel for zone '%s' -> %s (const ZONE)..."
+               zone-location-name relative-output-file)
+      (gptel-request
+          full-prompt
+        :callback
+        ;; --- Simpler Callback - One Regex Attempt + Fallback ---
+        (lambda (response info)
+          (if (stringp response)
+              (progn ;; Main progn for 'if true'
+                (message "GPTel Raw Response (%s):\n---\n%s\n---" zone-location-name response)
+                (let* ((final-code (my/remove-first-and-last-line response)))
 
-  (message "Request initiated for zone '%s'. Waiting for GPTel response..." zone-location-name))
+                  ;; Debug final code before writing
+                  (message "Final code to write:\n---\n%s\n---" final-code)
+
+                  ;; --- Write the final cleaned code --- Using doom-file-write ---
+                  ;; Assumes directory already exists and doom-file-write is available.
+                  (message "DEBUG: Preparing to write final code using doom-file-write to: %s" relative-output-file)
+                  (condition-case err
+                      ;; Call the Doom function directly with the calculated path and final code string
+                      (doom-file-write (concat (dir!) relative-output-file)  final-code)
+                    ;; Catch standard file errors if doom-file-write signals them
+                    (file-error (message "ERROR during doom-file-write operation: %s" err)))
+
+                  ;; Check file attributes AFTER write attempt
+                  (let ((file-size (nth 7 (file-attributes relative-output-file t))))
+                    (message "Processed GPTel response for '%s'. Attempted write via doom-file-write to %s (Reported Size: %s bytes)"
+                             zone-location-name relative-output-file (or file-size "N/A")))
+
+                  ))
+            ;; Handle non-string responses
+            (message "GPTel callback for '%s' received non-string response: %S (Info: %S)"
+                     zone-location-name response info)))
+        )
+      (message "Request initiated for zone '%s'. Waiting for GPTel response..." zone-location-name)
+      )
+    ))
+
+(my/generate-rust-zone
+ "An area near planet Arrakis. Stations store spice and The Guild is there and other references to Dune. preferably with some dialogue that references the setting and stuff. other relevant stuff that you think makes thematic sense"
+ "arrakis area")
+
+(my/generate-rust-zone
+ "An area near planet Mustafar. Star-Wars-y stuff. other relevant stuff that you think makes thematic sense"
+ "mustafar area")
 
 (my/generate-rust-zone
  "A floating island in space with a person living on it. get creative."
