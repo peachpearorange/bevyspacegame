@@ -3628,7 +3628,6 @@ impl Object {
         scale,
         can_move,
         visuals
-
       } => {
         let collider = Collider::sphere(1.0);
         Self::insert(
