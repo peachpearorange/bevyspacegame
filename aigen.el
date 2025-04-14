@@ -43,7 +43,7 @@ Using the provided CONTEXT CODE (core definitions from src/main.rs and a formatt
 
 1.  **CRITICAL: RAW CODE ONLY:** Your *entire* response MUST be ONLY the raw Rust code required, wrapped in ```rust markdown fences ```.
     * The *only* non-code text allowed is Rust comments (`//` or `/* */`) *inside* the code block itself (see Rule 7).
-
+    * Keep the line count under 300.
 2.  **`use` Statements:** Start with` use crate::*;`. That's probably all you need. A common pattern might be `use crate::*; type Obj = Object;`.
 
 3.  **predefining data or functions (If Needed):** Before the main `ZONE` definition, you can define `static` or `const` data like loot tables, patrol routes, or dialogue trees (e.g., `const MY_DIALOGUE: DialogueTree = ...;`). Alternatively you can define such data in a let statement in a {...} block around the Zone definition. You should reference code from main.rs. It is the set of paintbrushes that you get to use to paint a picture of a location. You can ask for more paintbrushes in a comment but try to work with what you have. Use `let` bindings inside the main const block for complex intermediate values if helpful (like in the example).
@@ -60,7 +60,7 @@ Using the provided CONTEXT CODE (core definitions from src/main.rs and a formatt
     * `faction_control: Option<Faction>`: Assign a controlling faction if appropriate (e.g., `Some(Faction::Guild)`), otherwise `None`. Infer from description or context.
     * *(Include other relevant `Zone` fields if they exist, describing how to populate them)*
 
-6.  **Validity & Style:** Ensure generated code is valid Rust, uses types/functions/variants from context correctly, and follows standard Rust formatting.
+6.  **Validity & Style:** Ensure generated code is valid Rust, uses types/functions/variants from context correctly, and follows standard Rust formatting. Don't write too much dialogue.
 
 7.  **Prompt Feedback (As Rust Comment):** If you have feedback on this prompt, need more information, or identify missing context definitions, include these comments *inside* the generated Rust code block using `//` or `/* */`.
 
@@ -185,8 +185,22 @@ Writes the potentially cleaned RAW response from the AI directly to the file. Er
  "A treacherous ice field with ice asteroids. place about 30 ice asteroids in a roughly disk shape with radius 100 . Manually place 3 static listening posts."
  "treacherous ice field")
 
+(my/generate-rust-zone
+ "A massive space junkyard managed by an AI that has developed a hoarding personality. The AI collects interesting debris and categorizes it meticulously. Include hidden treasures among the junk, drone npcs moving around and a talking AI NPC."
+ "ai junkyard")
 
-;; --- Example Programmatic Usage ---
-;; (my/generate-rust-zone
-;;  "A treacherous ice field with unstable, cracking ice asteroids (visual effect). Contains harvestable RareIsotopes within some asteroids. Procedurally generate ice asteroids in a ring shape. Manually place 1 static listening post (sprite: ListeningPost)."
-;;  "glacial drift sector")
+(my/generate-rust-zone
+ "A research station studying a black hole, with scientists who are making concerning discoveries. Strange phenomena occur near the event horizon, and some researchers appear to be mentally affected by proximity to it."
+ "black hole anomaly")
+
+(my/generate-rust-zone
+ "A space laboratory conducting questionable genetic experiments. Escaped specimens roam certain areas, and scientists are divided about whether to continue their work or destroy everything."
+ "questionable laboratory")
+
+(my/generate-rust-zone
+ "An abandoned mining facility in an asteroid field where something went wrong. Strange noises echo through the halls, and the few remaining automated systems give cryptic warnings. Include valuable ore deposits and signs of what happened."
+ "abandoned mining facility")
+
+(my/generate-rust-zone
+ "A research station studying a black hole(use the wormhole sprite), with scientists who are making concerning discoveries. Strange phenomena occur near the event horizon, and some researchers appear to be mentally affected by proximity to it."
+ "black hole research station")

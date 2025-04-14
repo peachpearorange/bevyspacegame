@@ -96,6 +96,8 @@ pub struct MySprite {
 impl MySprite {
   const fn new(path: &'static str) -> Self { Self { path } }
   fn embedded_path(&self) -> String { format!("embedded://{}", self.path) }
+
+  // to the ai making zones: if there is a GPT4O sprite for something, you should prefer to use that. Second best are the IMAGEN3 ones. Otherwise use one of the other ones.
   const GPT4O_GREEN_CAR_SHIP: Self = Self::new("4o green car ship.png");
   const GPT4O_MINING_SHIP: Self = Self::new("4o mining ship.png");
   const GPT4O_PIRATE_SHIP: Self = Self::new("4o pirate ship.png");
@@ -110,6 +112,13 @@ impl MySprite {
   const GPT4O_SPHERICAL_COW: Self = Self::new("gpt4o spherical cow.png");
   const GPT4O_PLANET_ARRAKIS: Self = Self::new("GPT4O Arrakis.png");
   const GPT4O_PLANET_MUSTAFAR: Self = Self::new("GPT4O Mustafar.png");
+  const GPT4O_PLANET_TRANTOR: Self = Self::new("GPT4O Trantor.png");
+  const GPT4O_CONTAINER: Self = Self::new("GPT4O Container.png");
+  const IMAGEN3GREENSPACESHIP: Self = Self::new("imagen3greenspaceship.png");
+  const IMAGEN3WIZARDSPACESHIP: Self = Self::new("imagen3wizardspaceship.png");
+  const IMAGEN3WHITESPACESHIP: Self = Self::new("imagen3whitespaceship.png");
+  const IMAGEN3SPACESTATION: Self = Self::new("imagen3spacestation.png");
+  const IMAGEN3FLOATINGISLAND: Self = Self::new("imagen3floatingisland.png");
   const ASTEROID: Self = Self::new("asteroid.png");
   const BLOCKTEXTURES: Self = Self::new("pixelc/block_textures.png");
   const BRICKS: Self = Self::new("pixelc/bricks.png");
@@ -132,11 +141,6 @@ impl MySprite {
   const ICEASTEROID: Self = Self::new("icesteroid.png");
   const ICEBERG: Self = Self::new("iceberg.png");
   const ICEPLANET: Self = Self::new("ice_planet.png");
-  const IMAGEN3GREENSPACESHIP: Self = Self::new("imagen3greenspaceship.png");
-  const IMAGEN3WIZARDSPACESHIP: Self = Self::new("imagen3wizardspaceship.png");
-  const IMAGEN3WHITESPACESHIP: Self = Self::new("imagen3whitespaceship.png");
-  const IMAGEN3SPACESTATION: Self = Self::new("imagen3spacestation.png");
-  const IMAGEN3FLOATINGISLAND: Self = Self::new("imagen3floatingisland.png");
   const LAVAPLANET: Self = Self::new("lava_planet.png");
   const MARSLIKEPLANET: Self = Self::new("pixelc/marslikeplanet.png");
   const MISSILE: Self = Self::new("pixelc/missile.png");
@@ -1296,28 +1300,7 @@ pub fn click_target(
     println!("Player target set to {root_entity}");
   }
 }
-// type ClickTargetChild = (PbrBundle,
-//                          NotShadowCaster,
-//                          NotShadowReceiver,
-//                          Highlight<StandardMaterial>,
-//                          PickableBundle);
-// #[derive(Bundle, Clone)]
-// pub struct SpaceObjectBundle((SpaceObject,
-//                                Visuals,
-//                                LockedAxes,
-//                                ColliderMassProperties,
-//                                Collider,
-//                                RigidBody,
-//                                LinearDamping,
-//                                AngularDamping,
-//                                LinearVelocity,
-//                                AngularVelocity,
-//                                ExternalForce,
-//                                ExternalImpulse,
-//                                Visibility));
-// fn sprite_space_object(scale: f32, can_move: bool, sprite: MySprite) -> impl Bundle {
-//   space_object(scale, can_move, Visuals::sprite(sprite))
-// }
+comment! {
 fn spawn_at_pos(mut c: &mut Commands, b: impl Bundle, pos: Vec3) {
   c.spawn(b).insert(Transform::from_translation(pos)).observe(
     |trigger: Trigger<Pointer<Click>>, mut playerq: Single<&mut Player>| {
@@ -1325,8 +1308,6 @@ fn spawn_at_pos(mut c: &mut Commands, b: impl Bundle, pos: Vec3) {
     }
   );
 }
-
-comment! {
   fn translated_space_object_with<B: Bundle + Clone>(
     scale: f32,
     can_move: bool,
@@ -1336,9 +1317,6 @@ comment! {
     move |translation| (b.clone(), space_object(translation, scale, can_move, visuals.clone()))
   }
 }
-// fn spawn_space_object(mut c: &mut Commands, scale: f32, can_move: bool, visuals: Visuals, pos: Vec3) {
-//   c.spawn(b).insert(Transform::from_translation(pos));
-// }
 
 pub fn set_space_object_scale(mut space_object_q: Query<(&mut Transform, &SpaceObject)>) {
   for (mut transform, space_object) in &mut space_object_q {
@@ -1507,11 +1485,11 @@ comment! {
 
 pub fn warp(
   mut player_transform: Single<&mut Transform, With<Player>>,
-  targetq: Populated<&GlobalTransform>,
+  targetq: Populated<&GlobalTransform, With<WarpGate>>,
   keyboard_input: Res<ButtonInput<KeyCode>>
 ) {
-  let target_globaltransform = pick(targetq.iter()).unwrap();
   if keyboard_input.just_pressed(KeyCode::KeyG) {
+  let target_globaltransform = pick(targetq.iter()).unwrap();
     player_transform.translation = target_globaltransform.translation();
   }
 }
@@ -2673,15 +2651,16 @@ const NORMAL_NPC_SPEED: f32 = 400.0;
 pub struct Item(pub &'static str);
 
 impl Item {
-  pub const SPACECAT: Self = Self("space cat");
-  pub const PERSON: Self = Self("person");
-  pub const SPICE: Self = Self("spice");
-  pub const COFFEE: Self = Self("coffee");
-  pub const SPACECOIN: Self = Self("spacecoin");
-  pub const CRYSTAL: Self = Self("crystal");
-  pub const DIHYDROGENMONOXIDE: Self = Self("dihydrogen monoxide");
-  pub const ROCK: Self = Self("rock");
-  pub const SPACEMINERALS: Self = Self("space minerals");
+  pub const fn new(name: &'static str) -> Self { Self(name) }
+  pub const SPACECAT: Self = Self::new("space cat");
+  pub const PERSON: Self = Self::new("person");
+  pub const SPICE: Self = Self::new("spice");
+  pub const COFFEE: Self = Self::new("coffee");
+  pub const SPACECOIN: Self = Self::new("spacecoin");
+  pub const CRYSTAL: Self = Self::new("crystal");
+  pub const DIHYDROGENMONOXIDE: Self = Self::new("dihydrogen monoxide");
+  pub const ROCK: Self = Self::new("rock");
+  pub const SPACEMINERALS: Self = Self::new("space minerals");
 }
 
 #[derive(Component, Clone, Debug, Default)]
@@ -2723,6 +2702,7 @@ pub fn one_d20() -> u32 { nd20(1) }
 #[derive(Clone)]
 enum InteractMultipleOptions {
   Salvage { how_much_loot: u8 },
+  WarpGate { name: &'static str },
   DialogueTREE(DialogueTree, &'static str),
   ASTEROIDMiningMinigame { resources_left: u8, tool_durability: u8 }
 }
@@ -2817,18 +2797,8 @@ impl InteractMultipleOptions {
         } else {
           (msg, default())
         }
-      } // InteractMultipleOptions::SPHERICALCOWDialogueTREE { node } => {
-        //   let msg = "It's a spherical cow in a vacuum".to_string();
-        //   let options = node.options()
-        //                     .into_iter()
-        //                     .map(|(node, playersay, cowsay)| {
-        //                       (playersay.to_string(),
-        //                        MyCommand::message_add(cowsay),
-        //                        InteractMultipleOptions::SPHERICALCOWDialogueTREE { node })
-        //                     })
-        //                     .collect();
-        //   (msg, options)
-        // }
+      }
+      InteractMultipleOptions::WarpGate { name } => todo!()
     }
   }
 }
@@ -2941,7 +2911,7 @@ fn interact(
     (Entity, &Transform, &mut Interact, Option<&Name>),
     Without<Player>
   >,
-  gate_q: Query<(&GlobalTransform, &Gate)>,
+  gate_q: Query<(&GlobalTransform, &WarpGate)>,
   mut c: Commands,
   keys: Res<ButtonInput<KeyCode>>,
   mut ui_data: ResMut<UIData>
@@ -3317,11 +3287,28 @@ enum Degree {
   High,
   Higher
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlanetType {
+  pub sprite: MySprite
+}
+impl PlanetType {
+  pub const fn new(sprite: MySprite) -> Self { Self { sprite } }
+  pub const fn sprite(&self) -> MySprite { self.sprite }
+  pub const MARSLIKEPLANET: Self = Self::new(MySprite::MARSLIKEPLANET);
+  pub const HABITABLEPLANET: Self = Self::new(MySprite::HABITABLEPLANET);
+  pub const SANDPLANET: Self = Self::new(MySprite::DESERT_PLANET_IMAGEN_3);
+  pub const ICEPLANET: Self = Self::new(MySprite::ICEPLANET);
+  pub const LAVAPLANET: Self = Self::new(MySprite::LAVAPLANET);
+  pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Object {
   Empty,
   SpaceObject {
     // SpaceObjects have a sphere shaped collider where the scale is the radius. good to keep in mind when spawning large objects
+    name: &'static str,
     scale: f32,
     can_move: bool,
     visuals: Visuals
@@ -3363,9 +3350,12 @@ enum Object {
   },
   Sun,
   Planet {
-    planet_type: PlanetType,
+    sprite: MySprite,
     radius: f32,
     population: u32,
+    name: &'static str
+  },
+  WarpGate {
     name: &'static str
   },
   AbandonedShip,
@@ -3382,7 +3372,9 @@ enum Object {
   MushroomMan,
   Nomad,
   Player,
-  Sign,
+  Sign {
+    text: &'static str
+  },
   SpaceCat,
   SpaceCoin,
   SpaceCop,
@@ -3396,80 +3388,70 @@ enum Object {
   TradeStation,
   Trader,
   TreasureContainer,
-  Wormhole //   BlackHole,
-           //   SpaceJellyfish,
-           //   WormholePortal,
-           //   SpaceWhale,
-           //   AlienArtifact,
-           //   SPACESTATION,
-           //   QuantumAnomaly,
-           //   SpaceMine,
-           //   NebulaCloud,
-           //   SolarFlare,
-           //   SpaceDebris,
-           //   CometCluster,
-           //   DysonSPHERE,
-           //   AncientRuins,
-           //   AlienOutpost,
-           //   RepairDrone,
-           //   SalvageYard,
-           //   FuelDepot,
-           //   SpaceCasino,
-           //   ResearchLab,
-           //   CloakedShip,
-           //   SpaceBarnacle,
-           //   CosmicSpore,
-           //   TimeDistortion,
-           //   GravityWell,
-           //   IonStorm,
-           //   PlasmaVortex,
-           //   SpaceHermit,
-           //   BountyHunter,
-           //   SpacePiranhas,
-           //   LivingCrystal,
-           //   VoidEchoes,
-           //   DimensionalRift,
-           //   HolographicDecoy,
-           //   SpaceGeyser,
-           //   MagneticAnomaly,
-           //   CrystallineEntity,
-           //   QuantumComputer,
-           //   NanoswarmCloud,
-           //   TachyonField,
-           //   PsiOrbNetwork,
-           //   SpaceMirage,
-           //   CosmicStringFragment,
-           //   DarkMatterNode,
-           //   ASTEROIDHatcher,
-           //   SpaceLeviathan,
-           //   VoidKraken,
-           //   StarforgeRemnant,
-           //   TemporalLoop
+  Wormhole //  BlackHole,
+           //  SpaceJellyfish,
+           //  WormholePortal,
+           //  SpaceWhale,
+           //  AlienArtifact,
+           //  SPACESTATION,
+           //  QuantumAnomaly,
+           //  SpaceMine,
+           //  NebulaCloud,
+           //  SolarFlare,
+           //  SpaceDebris,
+           //  CometCluster,
+           //  DysonSPHERE,
+           //  AncientRuins,
+           //  AlienOutpost,
+           //  RepairDrone,
+           //  SalvageYard,
+           //  FuelDepot,
+           //  SpaceCasino,
+           //  ResearchLab,
+           //  CloakedShip,
+           //  SpaceBarnacle,
+           //  CosmicSpore,
+           //  TimeDistortion,
+           //  GravityWell,
+           //  IonStorm,
+           //  PlasmaVortex,
+           //  SpaceHermit,
+           //  BountyHunter,
+           //  SpacePiranhas,
+           //  LivingCrystal,
+           //  VoidEchoes,
+           //  DimensionalRift,
+           //  HolographicDecoy,
+           //  SpaceGeyser,
+           //  MagneticAnomaly,
+           //  CrystallineEntity,
+           //  QuantumComputer,
+           //  NanoswarmCloud,
+           //  TachyonField,
+           //  PsiOrbNetwork,
+           //  SpaceMirage,
+           //  CosmicStringFragment,
+           //  DarkMatterNode,
+           //  ASTEROIDHatcher,
+           //  SpaceLeviathan,
+           //  VoidKraken,
+           //  StarforgeRemnant,
+           //  TemporalLoop
 }
-
-#[derive(Clone, Copy, Debug)]
-pub struct PlanetType {
-  pub sprite: MySprite
-}
-impl PlanetType {
-  pub const fn new(sprite: MySprite) -> Self { Self { sprite } }
-  pub const fn sprite(&self) -> MySprite { self.sprite }
-  pub const MARSLIKEPLANET: Self = Self::new(MySprite::MARSLIKEPLANET);
-  pub const HABITABLEPLANET: Self = Self::new(MySprite::HABITABLEPLANET);
-  pub const SANDPLANET: Self = Self::new(MySprite::DESERT_PLANET_IMAGEN_3);
-  pub const ICEPLANET: Self = Self::new(MySprite::ICEPLANET);
-  pub const LAVAPLANET: Self = Self::new(MySprite::LAVAPLANET);
-  pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
-}
-
 impl Object {
+  // pub const ARRAKIS:Self = Self::Planet { planet_type: (), radius: (), population: (), name: () }
   pub fn spawn_at(self, c: &mut Commands, pos: Vec3) -> Entity {
     let mut ec = c.spawn(Transform::from_translation(pos));
     Object::insert(&mut ec, self, ());
     ec.id()
   }
-  pub const fn space_object(scale: f32, can_move: bool, visuals: Visuals) -> Self {
-    Self::SpaceObject { scale, can_move, visuals }
+  pub const fn space_object(
+    scale: f32,
+    can_move: bool,
+    visuals: Visuals,
+    name: &'static str
+  ) -> Self {
+    Self::SpaceObject { scale, can_move, visuals, name }
   }
   pub const fn loot_object(
     scale: f32,
@@ -3490,12 +3472,11 @@ impl Object {
     Self::NPC { name, scale, faction, hp, speed, sprite }
   }
   pub fn insert(m: &mut EntityCommands, template: Self, extras: impl Bundle) {
-    // use SpawnableTemplate::*;
     m.insert(extras);
 
     match template {
       Self::Empty => (),
-      Self::SpaceObject { scale, can_move, visuals } => {
+      Self::SpaceObject { scale, can_move, visuals, name } => {
         let collider = Collider::sphere(1.0);
         Self::insert(
           m,
@@ -3518,41 +3499,34 @@ impl Object {
           )
         )
       }
-      Self::Planet { planet_type, radius, population, name } => Self::insert(
-        m,
-        Self::space_object(radius, false, Visuals::sprite(planet_type.sprite())),
-        (Name::new(name),)
-      ),
+      Self::Planet { sprite, radius, population, name } => {
+        Self::insert(m, Self::space_object(radius, false, Visuals::sprite(sprite), name), ())
+      }
       Self::TalkingPerson { name, sprite, dialogue_tree } => Self::insert(
         m,
-        Self::space_object(1.7, true, Visuals::sprite(sprite)),
-        (Name::new(name), Interact::dialogue_tree_default_state(dialogue_tree))
+        Self::space_object(1.7, true, Visuals::sprite(sprite), name),
+        (Interact::dialogue_tree_default_state(dialogue_tree),)
       ),
       Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => Self::insert(
         m,
-        Self::space_object(scale, true, Visuals::sprite(sprite)),
-        (
-          Name::new(name),
-          Navigation::speed(speed),
-          NPC { follow_target: None, faction },
-          Combat { hp, ..default() }
-        )
+        Self::space_object(scale, true, Visuals::sprite(sprite), name),
+        (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
+          hp,
+          ..default()
+        })
       ),
       Self::NPC { name, hp, speed, sprite, scale, faction } => Self::insert(
         m,
-        Self::space_object(scale, true, Visuals::sprite(sprite)),
-        (
-          Name::new(name),
-          Navigation::speed(speed),
-          NPC { follow_target: None, faction },
-          Combat { hp, ..default() }
-        )
+        Self::space_object(scale, true, Visuals::sprite(sprite), name),
+        (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
+          hp,
+          ..default()
+        })
       ),
       Self::Enemy { name, hp, speed, sprite } => Self::insert(
         m,
-        Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)),
+        Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite), name),
         (
-          Name::new(name),
           Navigation::new(speed),
           NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
           Combat { hp, is_hostile: true, ..default() }
@@ -3560,7 +3534,7 @@ impl Object {
       ),
       Self::LootObject { sprite, scale, name, item_type } => Self::insert(
         m,
-        Self::space_object(1.0, true, Visuals::sprite(sprite)),
+        Self::space_object(1.0, true, Visuals::sprite(sprite), name),
         (
           Name::new(format!("{:?}", item_type)),
           Interact::SingleOption(InteractSingleOption::Item(item_type))
@@ -3665,34 +3639,41 @@ impl Object {
       ),
       Self::SpaceCowboy => Self::insert(
         m,
-        Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(MySprite::SPACECOWBOY)),
-        (
-          Name::new("space cowboy"),
-          Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE)
-        )
+        Self::space_object(
+          NORMAL_NPC_SCALE,
+          true,
+          Visuals::sprite(MySprite::SPACECOWBOY),
+          "space cowboy"
+        ),
+        (Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE),)
       ),
-      Self::Sign => Self::insert(
+      Self::Sign { text } => Self::insert(
         m,
-        Self::space_object(1.5, false, Visuals::sprite(MySprite::SIGN)),
-        (Name::new("Sign"),
+        Self::space_object(
+          1.5,
+          false,
+          Visuals::sprite(MySprite::SIGN),
+          &format!("Sign: {text}")
+        ),
+        (
           Interact::SingleOption(InteractSingleOption::Describe),
           TextDisplay::from("cowboy")
         )
       ),
       Self::Wormhole => Self::insert(
         m,
-        Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE)),
-        (Name::new("wormhole"), Interact::SingleOption(InteractSingleOption::Describe))
+        Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE), "wormhole"),
+        (Interact::SingleOption(InteractSingleOption::Describe),)
       ),
       Self::Asteroid => Self::insert(
         m,
         Self::space_object(
           asteroid_scale(),
           false,
-          Visuals::sprite(MySprite::GPT4O_ASTEROID)
+          Visuals::sprite(MySprite::GPT4O_ASTEROID),
+          "Asteroid"
         ),
         (
-          Name::new("Asteroid"),
           Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame {
             resources_left: 5,
             tool_durability: 5
@@ -3737,9 +3718,13 @@ impl Object {
       ),
       Self::CrystalMonster => Self::insert(
         m,
-        Self::space_object(2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)),
+        Self::space_object(
+          2.1,
+          true,
+          Visuals::sprite(MySprite::CRYSTALMONSTER),
+          "crystal monster"
+        ),
         (
-          Name::new("crystal monster"),
           Combat { hp: 100, is_hostile: true, ..default() },
           NPC { faction: Faction::SPACE_PIRATES, ..default() },
           Navigation::speed(NORMAL_NPC_SPEED * 1.2)
@@ -3747,38 +3732,37 @@ impl Object {
       ),
       Self::CrystalMonster2 => Self::insert(
         m,
-        Self::space_object(1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)),
-        (
-          Name::new("lesser crystal monster"),
-          Interact::SingleOption(InteractSingleOption::Describe)
-        )
+        Self::space_object(
+          1.7,
+          true,
+          Visuals::sprite(MySprite::CRYSTALMONSTER),
+          "lesser crystal monster"
+        ),
+        (Interact::SingleOption(InteractSingleOption::Describe),)
       ),
       Self::HpBox => Self::insert(
         m,
-        Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX)),
-        (Name::new("hp box"), Interact::SingleOption(InteractSingleOption::HPBOX))
+        Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX), "hp box"),
+        (Interact::SingleOption(InteractSingleOption::HPBOX),)
       ),
       Self::TreasureContainer => Self::insert(
         m,
-        Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER)),
-        (
-          Name::new("container"),
-          Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
-            (Item::SPACECOIN, 4),
-            (Item::COFFEE, 1),
-          ]))
-        )
+        Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER), "container"),
+        (Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
+          (Item::SPACECOIN, 4),
+          (Item::COFFEE, 1),
+        ])),)
       ),
       Self::SphericalCow => Self::insert(
         m,
-        Self::space_object(1.7, true, Visuals::sprite(MySprite::GPT4O_SPHERICAL_COW)),
-        (
-          Name::new("spherical cow"),
-          Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE)
-        )
+        Self::space_object(
+          1.7,
+          true,
+          Visuals::sprite(MySprite::GPT4O_SPHERICAL_COW),
+          "spherical cow"
+        ),
+        (Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),)
       ),
-
-      // Note: The trade logic requires braces because it's not a single expression
       Self::TradeStation => {
         let (trade_interaction, text) = if prob(0.5) {
           let trade_buy =
@@ -3802,26 +3786,33 @@ impl Object {
         };
         Self::insert(
           m,
-          Self::space_object(3.0, false, Visuals::sprite(MySprite::IMAGEN3SPACESTATION)),
-          (
-            Name::new("space station"),
-            CanBeFollowedByNPC,
-            trade_interaction,
-            TextDisplay::from(text)
-          )
+          Self::space_object(
+            3.0,
+            false,
+            Visuals::sprite(MySprite::IMAGEN3SPACESTATION),
+            "space station"
+          ),
+          (CanBeFollowedByNPC, trade_interaction, TextDisplay::from(text))
         )
       }
       Self::FloatingIsland => Self::insert(
         m,
-        Self::space_object(3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)),
-        (
-          Name::new("floating island"),
-          Interact::SingleOption(InteractSingleOption::Describe)
-        )
+        Self::space_object(
+          3.4,
+          false,
+          Visuals::sprite(MySprite::FLOATINGISLAND),
+          "floating island"
+        ),
+        (Interact::SingleOption(InteractSingleOption::Describe),)
       ),
       Self::Sun => Self::insert(
         m,
-        Self::space_object(300.0, false, Visuals::material_sphere(MyMaterial::GLOWY_2)),
+        Self::space_object(
+          300.0,
+          false,
+          Visuals::material_sphere(MyMaterial::GLOWY_2),
+          "sun"
+        ),
         (CubemapVisibleEntities::default(), CubemapFrusta::default(), PointLight {
           intensity: 3_000_000.0,
           radius: 1.0,
@@ -3833,11 +3824,13 @@ impl Object {
       ),
       Self::AbandonedShip => Self::insert(
         m,
-        Self::space_object(2.0, false, Visuals::sprite(MySprite::SPACESHIPABANDONED)),
-        (
-          Name::new("abandoned ship"),
-          Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 })
-        )
+        Self::space_object(
+          2.0,
+          false,
+          Visuals::sprite(MySprite::SPACESHIPABANDONED),
+          "abandoned ship"
+        ),
+        (Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),)
       ),
       Self::Player => {
         Self::insert(
@@ -3845,18 +3838,18 @@ impl Object {
           Self::space_object(
             PLAYER_SCALE,
             true,
-            Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP)
+            Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP),
+            "You"
           ),
           (
             Player::default(),
-            Name::new("You"),
             Combat { hp: 400, ..default() },
             Inventory::default(),
             Navigation::new(PLAYER_FORCE),
             CanBeFollowedByNPC
           )
         );
-        println("player spawned");
+        println!("player spawned");
       }
       Self::SpacePirate => Self::insert(
         m,
@@ -3870,14 +3863,30 @@ impl Object {
       ),
       Self::SpacePirateBase => Self::insert(
         m,
-        Self::space_object(4.0, false, Visuals::sprite(MySprite::GPT4O_PIRATE_STATION)),
+        Self::space_object(
+          4.0,
+          false,
+          Visuals::sprite(MySprite::GPT4O_PIRATE_STATION),
+          "space pirate base"
+        ),
         (
           Combat { hp: 120, is_hostile: false, ..default() },
-          Interact::SingleOption(InteractSingleOption::Describe),
-          Name::new("space pirate base")
+          Interact::SingleOption(InteractSingleOption::Describe)
         )
       ),
-      Self::SpaceStation => {}
+      Self::SpaceStation => Self::insert(
+        m,
+        Self::space_object(
+          4.0,
+          false,
+          Visuals::sprite(MySprite::GPT4O_TRADING_STATION),
+          "space station"
+        ),
+        (
+          Combat { hp: 120, is_hostile: false, ..default() },
+          Interact::SingleOption(InteractSingleOption::Describe)
+        )
+      ),
       Self::Nomad => Self::insert(
         m,
         Self::npc(
@@ -3889,6 +3898,11 @@ impl Object {
           MySprite::GPT4O_GREEN_CAR_SHIP
         ),
         ()
+      ),
+      Self::WarpGate { name } => Self::insert(
+        m,
+        Self::space_object(3.0, false, Visuals::sprite(MySprite::GATE), name),
+        (Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }), WarpGate)
       )
     }
   }
@@ -3898,39 +3912,10 @@ impl Object {
 pub struct Zone {
   pub name: &'static str,
   pub objects: &'static [([f32; 3], Object)],
+  // each zone should has a warp gate at specified coords
+  pub warp_gate_coords: [f32; 3],
   pub faction_control: Option<Faction>
 }
-comment! {
-  static TIME_TRAVELERS: S = S(|mut c, pos| {
-    let randpos = || pos + random_normalized_vector() * 12.0;
-    let mut spawn_at_rand_pos = |b| {
-      spawn_at_pos(&mut c, b, randpos());
-    };
-    for (sprite, name, dialogue) in
-      [(MySprite::SPACEMAN, "Marie Curie", MARIE_CURIE_DIALOGUE),
-       (MySprite::SPACEWIZARD,
-        "Chronos, the Space Wizard of Time and Dimension",
-        CHRONOS_SPACE_WIZARD_DIALOGUE),
-       (MySprite::SPACEMAN, "Socrates", SOCRATES_DIALOGUE),
-       (MySprite::SPACEMAN, "Abraham Lincoln", ABRAHAM_LINCOLN_DIALOGUE),
-       (MySprite::SPACEMAN, "Cleopatra", CLEOPATRA_DIALOGUE),
-       (MySprite::SPACEMAN, "Leonardo Da Vinci", LEONARDO_DA_VINCI_DIALOGUE)]
-    {
-      spawn_at_rand_pos(talking_person_in_space(sprite, name, dialogue));
-    }
-  });
-}
-// const fn one(s: Spawnable) -> (f32, Spawnable) { (1.0, s) }
-// macro_rules! create_probs {
-//   ($(($name:ident, $body:expr)),* $(,)?) => {
-//     $(
-//       pub const $name: Spawnable = {
-//         let probs:&[(f32, Spawnable)] =&$body;
-//         Spawnable::Probs(probs)
-//       };
-//     )*
-//   }
-// }
 
 pub fn from<B, A: From<B>>(b: B) -> A { A::from(b) }
 
@@ -3940,32 +3925,13 @@ fn random_zone_name() -> String {
   // (0..4).map(|_| random::<char>()).collect()
 }
 #[derive(Component, Clone)]
-#[require(Gate)]
+#[require(WarpGate)]
 struct GatesConnected(Entity, Entity);
 #[derive(Component, Clone, Default)]
-struct Gate;
-fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
+struct WarpGate;
+fn asteroid_scale() -> f32 { rangerand(1.8, 5.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > random::<f32>() }
-
-comment! {
-  #[derive(Component, Debug, Clone)]
-  pub struct Zone {
-    pub faction_control: Option<Faction>,
-    pub zone_radius: f32,
-    // pub zone_type: ZoneType,
-    pub is_combat_zone: bool,
-    //pub number_of_things: u32,
-    pub planet_type: Option<PlanetType>
-  }
-
-
-fn create_the_world() {
-  // Image::new(size, dimension, data, format, asset_usage)
-  type Graph<T> = Vec<(T, Vec<usize>)>;
-  // let big_graph_of_connected_zones;
-}
-}
 
 #[derive(Component, Clone)]
 struct ZoneEntity {
@@ -3978,9 +3944,12 @@ impl Zone {
     mut c: &mut Commands,
     zone_pos: Vec3 // , zone_entity: Entity
   ) {
-    for (relpos, obj) in self.objects {
-      obj.spawn_at(&mut c, zone_pos + Vec3::from_array(*relpos));
+    let Self { name, objects, warp_gate_coords, faction_control } = self;
+    for &(relpos, obj) in objects {
+      obj.spawn_at(&mut c, zone_pos + Vec3::from_array(relpos));
     }
+    Object::WarpGate { name }
+      .spawn_at(&mut c, zone_pos + Vec3::from_array(warp_gate_coords));
   }
 }
 

@@ -80,7 +80,7 @@ haalka = "0.3.0"
 # opt-level = 3
 
 # [replace]
-bevy = { version = "0.15.2", default-features = false, features = [
+bevy = { version = "0.15.3", default-features = false, features = [
     "animation",
     "bevy_asset",
     "bevy_gilrs",
