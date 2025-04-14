@@ -75,17 +75,12 @@ pub const LASER_COLOR: Color = Color::hsv(60.0, 1.0, 4.0);
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
 pub const ENABLE_SHADOWS_OTHER_THAN_SUN: bool = false;
-pub const AMBIENT_LIGHT: AmbientLight = AmbientLight {
-  color: Color::WHITE,
-  brightness: 300.0
-};
+pub const AMBIENT_LIGHT: AmbientLight =
+  AmbientLight { color: Color::WHITE, brightness: 300.0 };
 pub const BLOOM: Bloom = Bloom {
   intensity: 0.5,
   low_frequency_boost: 0.0,
-  prefilter: BloomPrefilter {
-    threshold: 2.2,
-    threshold_softness: 0.0
-  },
+  prefilter: BloomPrefilter { threshold: 2.2, threshold_softness: 0.0 },
 
   composite_mode: BloomCompositeMode::Additive,
   ..Bloom::NATURAL
@@ -425,16 +420,10 @@ pub fn visuals(
   mut multi_visual_child_entities: Local<EntityHashMap<Entity>>
 ) {
   let mut get_material_handle = |material: MyMaterial| {
-    material_handles
-      .entry(material)
-      .or_insert_with(|| serv.add(material.val()))
-      .clone()
+    material_handles.entry(material).or_insert_with(|| serv.add(material.val())).clone()
   };
   let mut get_mesh_handle = |mesh: GenMesh| {
-    mesh_handles
-      .entry(mesh)
-      .or_insert_with(|| serv.add(mesh.generate()))
-      .clone()
+    mesh_handles.entry(mesh).or_insert_with(|| serv.add(mesh.generate())).clone()
   };
   // let mut get_sprite_handle = |sprite @ MySprite { path }| {
   //   println!("d");
@@ -478,11 +467,7 @@ pub fn visuals(
   }
 
   let text_color = TextColor::from(Color::WHITE);
-  let text_font = TextFont {
-    font: default(),
-    font_size: 30.0,
-    font_smoothing: default()
-  };
+  let text_font = TextFont { font: default(), font_size: 30.0, font_smoothing: default() };
 
   for (e, mut visuals, transform, omesh) in &mut visuals_q {
     let is_done = omesh.is_some();
@@ -516,8 +501,7 @@ pub fn visuals(
         Visuals::MaterialMesh { material, mesh } => {
           let material = get_material_handle(material);
           let mesh_handle = get_mesh_handle(mesh);
-          c.entity(e)
-            .insert((Mesh3d(mesh_handle), MeshMaterial3d(material)));
+          c.entity(e).insert((Mesh3d(mesh_handle), MeshMaterial3d(material)));
           // visuals.done = true;
           // println("created material mesh");
         }
@@ -615,10 +599,7 @@ pub fn mutate_component<C: Component>(
 }
 
 pub fn get_player(world: &mut World) -> Option<Entity> {
-  world
-    .query_filtered::<Entity, With<Player>>()
-    .iter(world)
-    .next()
+  world.query_filtered::<Entity, With<Player>>().iter(world).next()
 }
 
 // #[derive(Clone)]
@@ -1167,11 +1148,7 @@ fn filter_least_map<O: Ord + Clone, T, R>(
   f: impl Fn(T) -> Option<(R, O)>,
   coll: impl IntoIterator<Item = T>
 ) -> Option<R> {
-  coll
-    .into_iter()
-    .filter_map(f)
-    .min_by_key(|(_, o)| o.clone())
-    .map(|(r, _)| r)
+  coll.into_iter().filter_map(f).min_by_key(|(_, o)| o.clone()).map(|(r, _)| r)
 }
 
 fn filter_least<O: Ord + Clone, T>(
@@ -1184,11 +1161,7 @@ fn filter_most_map<O: Ord + Clone, T, R>(
   f: impl Fn(T) -> Option<(R, O)>,
   coll: impl IntoIterator<Item = T>
 ) -> Option<R> {
-  coll
-    .into_iter()
-    .filter_map(f)
-    .max_by_key(|(_, o)| o.clone())
-    .map(|(r, _)| r)
+  coll.into_iter().filter_map(f).max_by_key(|(_, o)| o.clone()).map(|(r, _)| r)
 }
 fn filter_most<O: Ord + Clone, T>(
   f: impl Fn(&T) -> Option<O>,
@@ -1210,10 +1183,7 @@ fn player_target_interaction(
   let (
     player_entity,
     mut player,
-    &player_transform @ Transform {
-      translation: player_pos,
-      ..
-    },
+    &player_transform @ Transform { translation: player_pos, .. },
     mut player_combat
   ) = playerq.into_inner();
   if keys.just_pressed(KeyCode::KeyQ) {
@@ -1226,9 +1196,7 @@ fn player_target_interaction(
     println("pressed t");
     if let Some((e, _, _)) = filter_least(
       |(e, hostile, transform)| {
-        hostile
-          .0
-          .then_some(transform.translation.distance(player_pos) as u32)
+        hostile.0.then_some(transform.translation.distance(player_pos) as u32)
       },
       &hostileq
     ) {
@@ -1403,10 +1371,7 @@ pub struct Navigation {
 }
 impl Navigation {
   fn speed(speed: f32) -> Self {
-    Self {
-      max_speed: speed,
-      navigation_kind: NavigationKind::None
-    }
+    Self { max_speed: speed, navigation_kind: NavigationKind::None }
   }
 }
 
@@ -1420,10 +1385,7 @@ fn navigation(
   chase_targets_q: Query<&GlobalTransform>
 ) {
   for (
-    &Navigation {
-      max_speed,
-      navigation_kind
-    },
+    &Navigation { max_speed, navigation_kind },
     &Transform { translation, .. },
     mut force,
     mut velocity
@@ -1502,37 +1464,29 @@ pub fn player_movement(
     mut player
   ) = playerq.into_inner();
   let up = Vec3::Y;
-  let forward = Vec3 {
-    y: 0.0,
-    ..cam_transform.forward().into()
-  }
-  .normalize_or_zero();
+  let forward = Vec3 { y: 0.0, ..cam_transform.forward().into() }.normalize_or_zero();
   let right = forward.cross(up);
 
-  let Vec3 { x, y, z } = sum(filter_map(
-    |(key, v)| keyboard_input.pressed(key).then_some(v),
-    [
+  let Vec3 { x, y, z } =
+    sum(filter_map(|(key, v)| keyboard_input.pressed(key).then_some(v), [
       (KeyCode::KeyA, Vec3::NEG_X),
       (KeyCode::KeyS, Vec3::NEG_Z),
       (KeyCode::KeyD, Vec3::X),
       (KeyCode::KeyW, Vec3::Z),
       (KeyCode::ControlLeft, Vec3::NEG_Y),
       (KeyCode::ShiftLeft, Vec3::Y)
-    ]
-  ))
-  .normalize_or_zero();
+    ]))
+    .normalize_or_zero();
   let keyb_dir = (x * right) + (z * forward) + (y * up);
-  player_navigation.navigation_kind = if let Some(PlayerTargetInteractionState {
-    target,
-    approaching,
-    ..
-  }) = player.target_interaction_state
-    && approaching
-  {
-    NavigationKind::Chase(target)
-  } else {
-    NavigationKind::Vec3(keyb_dir)
-  };
+  player_navigation.navigation_kind =
+    if let Some(PlayerTargetInteractionState { target, approaching, .. }) =
+      player.target_interaction_state
+      && approaching
+    {
+      NavigationKind::Chase(target)
+    } else {
+      NavigationKind::Vec3(keyb_dir)
+    };
 }
 comment! {
   #[derive(Bundle)]
@@ -1697,12 +1651,9 @@ fn colorful_texture() -> Image {
       depth_or_array_layers: 1
     },
     bevy::render::render_resource::TextureDimension::D2,
-    map(
-      |_| rand::random(),
-      0..((texture_size * texture_size * 4) as usize)
-    )
-    .collect::<Vec<u8>>()
-    .as_slice(),
+    map(|_| rand::random(), 0..((texture_size * texture_size * 4) as usize))
+      .collect::<Vec<u8>>()
+      .as_slice(),
     bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
     bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD
   )
@@ -1714,23 +1665,13 @@ pub struct Enemy;
 type DialogueEffect = fn() -> MyCommand;
 type DialogueTreeNode = (
   &'static str,
-  &'static [(
-    &'static str,
-    &'static str,
-    &'static str,
-    Option<DialogueEffect>
-  )]
+  &'static [(&'static str, &'static str, &'static str, Option<DialogueEffect>)]
 );
 const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
 type DialogueTree = &'static [DialogueTreeNode];
 
 pub const SPHERICAL_SPACE_COW_DIALOGUE: DialogueTree = &[
-  ("A", &[(
-    "B",
-    "Hello there, cow!",
-    "Cow: \"Moo-stronaut reporting for duty!\"",
-    None
-  )]),
+  ("A", &[("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None)]),
   ("B", &[
     (
       "C",
@@ -1744,12 +1685,7 @@ pub const SPHERICAL_SPACE_COW_DIALOGUE: DialogueTree = &[
       "Cow: \"It's an evolutionary adaptation for space travel.\"",
       None
     ),
-    (
-      "E",
-      "Are you lost?",
-      "Cow: \"No, space is my new pasture!\"",
-      None
-    )
+    ("E", "Are you lost?", "Cow: \"No, space is my new pasture!\"", None)
   ]),
   ("C", &[
     (
@@ -2786,14 +2722,9 @@ pub fn one_d20() -> u32 { nd20(1) }
 
 #[derive(Clone)]
 enum InteractMultipleOptions {
-  Salvage {
-    how_much_loot: u8
-  },
+  Salvage { how_much_loot: u8 },
   DialogueTREE(DialogueTree, &'static str),
-  ASTEROIDMiningMinigame {
-    resources_left: u8,
-    tool_durability: u8
-  }
+  ASTEROIDMiningMinigame { resources_left: u8, tool_durability: u8 }
 }
 impl InteractMultipleOptions {
   fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
@@ -2854,9 +2785,7 @@ impl InteractMultipleOptions {
                 MyCommand::message_add("You found loot"),
                 MyCommand::give_item_to_player(Item::SPACECOIN)
               ]),
-              Self::Salvage {
-                how_much_loot: how_much_loot - 1
-              }
+              Self::Salvage { how_much_loot: how_much_loot - 1 }
             ),
             ("don't take".to_string(), MyCommand::none(), self.clone()),
             (
@@ -2912,10 +2841,7 @@ enum InteractSingleOption {
   HPBOX,
   Describe,
   Item(Item),
-  Trade {
-    inputs: (Item, u32),
-    outputs: (Item, u32)
-  },
+  Trade { inputs: (Item, u32), outputs: (Item, u32) },
   GATE(Vec3),
   CONTAINER(Vec<(Item, u32)>)
 }
@@ -2929,10 +2855,9 @@ impl InteractSingleOption {
   ) -> (String, MyCommand) {
     match self {
       InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
-      InteractSingleOption::ASTEROID => (
-        format!("examine {self_name}"),
-        MyCommand::message_add("it's an asteroid")
-      ),
+      InteractSingleOption::ASTEROID => {
+        (format!("examine {self_name}"), MyCommand::message_add("it's an asteroid"))
+      }
       InteractSingleOption::HPBOX => (
         "take hp box".to_string(),
         MyCommand::multi([
@@ -2943,10 +2868,9 @@ impl InteractSingleOption {
           MyCommand::despawn(self_entity)
         ])
       ),
-      InteractSingleOption::Describe => (
-        format!("examine {self_name}"),
-        MyCommand::message_add(self_name)
-      ),
+      InteractSingleOption::Describe => {
+        (format!("examine {self_name}"), MyCommand::message_add(self_name))
+      }
       InteractSingleOption::Item(item) => (
         format!("take {self_name}"),
         MyCommand::multi([
@@ -3050,17 +2974,11 @@ fn interact(
       }
       Interact::MultipleOptions(interact_multiple_options) => {
         let (msg, options) = interact_multiple_options.clone().interact();
-        INTERACT_MESSAGE.set(Some(intersperse_newline(
-          [msg, default()].into_iter().chain(
-            (&options)
-              .into_iter()
-              .enumerate()
-              .map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
-          )
-        )));
-        let number_picked = find_map(
-          |(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n),
-          [
+        INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
+          (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
+        ))));
+        let number_picked =
+          find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n), [
             (0, KeyCode::Digit0),
             (1u8, KeyCode::Digit1),
             (2, KeyCode::Digit2),
@@ -3071,8 +2989,7 @@ fn interact(
             (7, KeyCode::Digit7),
             (8, KeyCode::Digit8),
             (9, KeyCode::Digit9)
-          ]
-        );
+          ]);
         for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
           if number_picked == Some(n as u8 + 1) {
             c.queue(command);
@@ -3099,12 +3016,7 @@ impl From<Message> for String {
   fn from(msg: Message) -> Self { msg.string }
 }
 impl From<String> for Message {
-  fn from(string: String) -> Self {
-    Message {
-      time: MESSAGE_SHOW_TIME_TICKS,
-      string
-    }
-  }
+  fn from(string: String) -> Self { Message { time: MESSAGE_SHOW_TIME_TICKS, string } }
 }
 
 const UI_BACKGROUND_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
@@ -3208,21 +3120,13 @@ pub struct UIData {
                                 // pub player_inventory: Inventory
 }
 pub fn intersperse_newline<T: Into<String>>(coll: impl IntoIterator<Item = T>) -> String {
-  concat_strings(
-    coll
-      .into_iter()
-      .map(|v| v.into())
-      .intersperse("\n".to_string())
-  )
+  concat_strings(coll.into_iter().map(|v| v.into()).intersperse("\n".to_string()))
 }
 
 impl UIData {
   pub fn message_add(&mut self, message: impl ToString) {
     let time = self.current_time_ticks;
-    self.message_log.push(Message {
-      string: message.to_string().into(),
-      time
-    });
+    self.message_log.push(Message { string: message.to_string().into(), time });
   }
 }
 
@@ -3232,9 +3136,7 @@ fn setup_ui_system(world: &mut World) {
   let font_handle: Handle<Font> = default();
   root_ui(font_handle).spawn(world); // Spawn the UI root
   // Add an initial message if desired
-  MESSAGE_LOG
-    .lock_mut()
-    .push(Message::from("Welcome!".to_string()));
+  MESSAGE_LOG.lock_mut().push(Message::from("Welcome!".to_string()));
 }
 
 fn namefmt(oname: Option<&Name>) -> String {
@@ -3249,13 +3151,13 @@ fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
 
 // please finish rewriting the various local variables in fn ui by using TargetData and a lot of method chains and filter_map and such
 #[derive(QueryData)]
-struct TargetData<'t> {
+struct TargetData {
   entity: Entity,
   transform: &'static Transform,
   spaceobject: &'static SpaceObject,
   oname: Option<&'static Name>,
-  ocombat: Option<&'t Combat>,
-  oplanet: Option<&'t Planet>
+  ocombat: Option<&'static Combat>,
+  oplanet: Option<&'static Planet>
 }
 
 pub fn ui(
@@ -3291,12 +3193,7 @@ pub fn ui(
     "Inventory:".to_string()
   ]
   .into_iter()
-  .chain(
-    player_inventory
-      .0
-      .iter()
-      .map(|(item, n)| format!(" - {}x {:?}", n, item))
-  )
+  .chain(player_inventory.0.iter().map(|(item, n)| format!(" - {}x {:?}", n, item)))
   .collect();
   INFOBOX_DATA.set(infobox_data);
 
@@ -3307,7 +3204,6 @@ pub fn ui(
     .map(|target| {
       let distance = player_pos.distance(target.transform.translation);
       let name = target.oname.cloned().unwrap_or(Name::new("unknown"));
-
       [
         Some(format!("Target: {}", name)),
         target.oplanet.map(|p| format!("Planet Info: {:?}", p)), // Uses Display impl
@@ -3352,10 +3248,7 @@ pub fn ui(
       .clone()
       .into_iter()
       .filter_map(|Message { time, string }| {
-        (time > 0).then(|| Message {
-          time: time - 1,
-          string
-        })
+        (time > 0).then(|| Message { time: time - 1, string })
       })
       .collect();
   });
@@ -3379,11 +3272,8 @@ fn npc_movement(
 ) {
   // TextureAtlas
   // Image
-  let get_target_pos = |e| {
-    follow_target_q
-      .get(e)
-      .ok()
-      .map(|(_, globaltransform)| globaltransform.translation())
+  let get_target_pos = |e| -> Option<Vec3> {
+    follow_target_q.get(e).ok().map(|(_, globaltransform)| globaltransform.translation())
   };
   for (mut npc, mut npc_navigation, npc_globaltransform) in &mut npc_q {
     let npc_pos = npc_globaltransform.translation();
@@ -3397,33 +3287,15 @@ fn npc_movement(
         dist > NPC_FOLLOW_RANGE_MIN && dist < NPC_FOLLOW_RANGE_MAX
       })
     };
-    // let spr = MySprite::try_from(PlanetType::MARSLIKEPLANET);
     if let Some(target_entity) = npc.follow_target
       && in_range(target_entity)
     {
       npc_navigation.navigation_kind = NavigationKind::ChaseAtRange(target_entity, 4.0);
     } else {
-      npc.follow_target = pick(filter_map(
-        |(e, _)| in_range(e).then_some(e),
-        &follow_target_q
-      ));
+      npc.follow_target =
+        pick(filter_map(|(e, _)| in_range(e).then_some(e), &follow_target_q));
     }
   }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct PlanetType {
-  pub sprite: MySprite
-}
-impl PlanetType {
-  pub const fn new(sprite: MySprite) -> Self { Self { sprite } }
-  pub const fn sprite(&self) -> MySprite { self.sprite }
-  pub const MARSLIKEPLANET: Self = Self::new(MySprite::MARSLIKEPLANET);
-  pub const HABITABLEPLANET: Self = Self::new(MySprite::HABITABLEPLANET);
-  pub const SANDPLANET: Self = Self::new(MySprite::DESERT_PLANET_IMAGEN_3);
-  pub const ICEPLANET: Self = Self::new(MySprite::ICEPLANET);
-  pub const LAVAPLANET: Self = Self::new(MySprite::LAVAPLANET);
-  pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
 }
 
 #[derive(Clone, Component, Debug)]
@@ -3574,6 +3446,22 @@ enum Object {
            //   StarforgeRemnant,
            //   TemporalLoop
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct PlanetType {
+  pub sprite: MySprite
+}
+impl PlanetType {
+  pub const fn new(sprite: MySprite) -> Self { Self { sprite } }
+  pub const fn sprite(&self) -> MySprite { self.sprite }
+  pub const MARSLIKEPLANET: Self = Self::new(MySprite::MARSLIKEPLANET);
+  pub const HABITABLEPLANET: Self = Self::new(MySprite::HABITABLEPLANET);
+  pub const SANDPLANET: Self = Self::new(MySprite::DESERT_PLANET_IMAGEN_3);
+  pub const ICEPLANET: Self = Self::new(MySprite::ICEPLANET);
+  pub const LAVAPLANET: Self = Self::new(MySprite::LAVAPLANET);
+  pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
+}
+
 impl Object {
   pub fn spawn_at(self, c: &mut Commands, pos: Vec3) -> Entity {
     let mut ec = c.spawn(Transform::from_translation(pos));
@@ -3581,11 +3469,7 @@ impl Object {
     ec.id()
   }
   pub const fn space_object(scale: f32, can_move: bool, visuals: Visuals) -> Self {
-    Self::SpaceObject {
-      scale,
-      can_move,
-      visuals
-    }
+    Self::SpaceObject { scale, can_move, visuals }
   }
   pub const fn loot_object(
     scale: f32,
@@ -3593,12 +3477,7 @@ impl Object {
     sprite: MySprite,
     item_type: Item
   ) -> Self {
-    Self::LootObject {
-      sprite,
-      scale,
-      name,
-      item_type
-    }
+    Self::LootObject { sprite, scale, name, item_type }
   }
   pub const fn npc(
     scale: f32,
@@ -3608,14 +3487,7 @@ impl Object {
     hp: u32,
     sprite: MySprite
   ) -> Self {
-    Self::NPC {
-      name,
-      scale,
-      faction,
-      hp,
-      speed,
-      sprite
-    }
+    Self::NPC { name, scale, faction, hp, speed, sprite }
   }
   pub fn insert(m: &mut EntityCommands, template: Self, extras: impl Bundle) {
     // use SpawnableTemplate::*;
@@ -3623,11 +3495,7 @@ impl Object {
 
     match template {
       Self::Empty => (),
-      Self::SpaceObject {
-        scale,
-        can_move,
-        visuals
-      } => {
+      Self::SpaceObject { scale, can_move, visuals } => {
         let collider = Collider::sphere(1.0);
         Self::insert(
           m,
@@ -3639,11 +3507,7 @@ impl Object {
             LockedAxes::ROTATION_LOCKED,
             ColliderMassProperties::from_shape(&collider, 1.0),
             collider,
-            if can_move {
-              RigidBody::Dynamic
-            } else {
-              RigidBody::Static
-            },
+            if can_move { RigidBody::Dynamic } else { RigidBody::Static },
             LinearDamping(1.6),
             AngularDamping(1.2),
             LinearVelocity::default(),
@@ -3654,96 +3518,47 @@ impl Object {
           )
         )
       }
-      Self::Planet {
-        planet_type,
-        radius,
-        population,
-        name
-      } => Self::insert(
+      Self::Planet { planet_type, radius, population, name } => Self::insert(
         m,
         Self::space_object(radius, false, Visuals::sprite(planet_type.sprite())),
         (Name::new(name),)
       ),
-      Self::TalkingPerson {
-        name,
-        sprite,
-        dialogue_tree
-      } => Self::insert(
+      Self::TalkingPerson { name, sprite, dialogue_tree } => Self::insert(
         m,
         Self::space_object(1.7, true, Visuals::sprite(sprite)),
-        (
-          Name::new(name),
-          Interact::dialogue_tree_default_state(dialogue_tree)
-        )
+        (Name::new(name), Interact::dialogue_tree_default_state(dialogue_tree))
       ),
-      Self::ScaledNPC {
-        scale,
-        name,
-        speed,
-        faction,
-        hp,
-        sprite
-      } => Self::insert(
+      Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => Self::insert(
         m,
         Self::space_object(scale, true, Visuals::sprite(sprite)),
         (
           Name::new(name),
           Navigation::speed(speed),
-          NPC {
-            follow_target: None,
-            faction
-          },
+          NPC { follow_target: None, faction },
           Combat { hp, ..default() }
         )
       ),
-      Self::NPC {
-        name,
-        hp,
-        speed,
-        sprite,
-        scale,
-        faction
-      } => Self::insert(
+      Self::NPC { name, hp, speed, sprite, scale, faction } => Self::insert(
         m,
         Self::space_object(scale, true, Visuals::sprite(sprite)),
         (
           Name::new(name),
           Navigation::speed(speed),
-          NPC {
-            follow_target: None,
-            faction
-          },
+          NPC { follow_target: None, faction },
           Combat { hp, ..default() }
         )
       ),
-      Self::Enemy {
-        name,
-        hp,
-        speed,
-        sprite
-      } => Self::insert(
+      Self::Enemy { name, hp, speed, sprite } => Self::insert(
         m,
         Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)),
         (
           Name::new(name),
           Navigation::new(speed),
-          NPC {
-            follow_target: None,
-            faction: Faction::SPACE_PIRATES
-          },
-          Combat {
-            hp,
-            is_hostile: true,
-            ..default()
-          }
+          NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
+          Combat { hp, is_hostile: true, ..default() }
         )
       ),
-      Self::LootObject {
-        sprite,
-        scale,
-        name,
-        item_type
-      } => Self::insert(
+      Self::LootObject { sprite, scale, name, item_type } => Self::insert(
         m,
         Self::space_object(1.0, true, Visuals::sprite(sprite)),
         (
@@ -3818,6 +3633,7 @@ impl Object {
           name: "alien soldier",
           speed: NORMAL_NPC_SPEED,
           faction: Faction::INVADERS,
+
           hp: 80,
           sprite: MySprite::PURPLEENEMYSHIP
         },
@@ -3849,11 +3665,7 @@ impl Object {
       ),
       Self::SpaceCowboy => Self::insert(
         m,
-        Self::space_object(
-          NORMAL_NPC_SCALE,
-          true,
-          Visuals::sprite(MySprite::SPACECOWBOY)
-        ),
+        Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(MySprite::SPACECOWBOY)),
         (
           Name::new("space cowboy"),
           Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE)
@@ -3862,8 +3674,7 @@ impl Object {
       Self::Sign => Self::insert(
         m,
         Self::space_object(1.5, false, Visuals::sprite(MySprite::SIGN)),
-        (
-          Name::new("Sign"),
+        (Name::new("Sign"),
           Interact::SingleOption(InteractSingleOption::Describe),
           TextDisplay::from("cowboy")
         )
@@ -3871,10 +3682,7 @@ impl Object {
       Self::Wormhole => Self::insert(
         m,
         Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE)),
-        (
-          Name::new("wormhole"),
-          Interact::SingleOption(InteractSingleOption::Describe)
-        )
+        (Name::new("wormhole"), Interact::SingleOption(InteractSingleOption::Describe))
       ),
       Self::Asteroid => Self::insert(
         m,
@@ -3932,15 +3740,8 @@ impl Object {
         Self::space_object(2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)),
         (
           Name::new("crystal monster"),
-          Combat {
-            hp: 100,
-            is_hostile: true,
-            ..default()
-          },
-          NPC {
-            faction: Faction::SPACE_PIRATES,
-            ..default()
-          },
+          Combat { hp: 100, is_hostile: true, ..default() },
+          NPC { faction: Faction::SPACE_PIRATES, ..default() },
           Navigation::speed(NORMAL_NPC_SPEED * 1.2)
         )
       ),
@@ -3955,10 +3756,7 @@ impl Object {
       Self::HpBox => Self::insert(
         m,
         Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX)),
-        (
-          Name::new("hp box"),
-          Interact::SingleOption(InteractSingleOption::HPBOX)
-        )
+        (Name::new("hp box"), Interact::SingleOption(InteractSingleOption::HPBOX))
       ),
       Self::TreasureContainer => Self::insert(
         m,
@@ -4024,18 +3822,14 @@ impl Object {
       Self::Sun => Self::insert(
         m,
         Self::space_object(300.0, false, Visuals::material_sphere(MyMaterial::GLOWY_2)),
-        (
-          CubemapVisibleEntities::default(),
-          CubemapFrusta::default(),
-          PointLight {
-            intensity: 3_000_000.0,
-            radius: 1.0,
-            range: 10000.0,
-            shadows_enabled: true,
-            color: Color::srgb(0.9, 0.8, 0.6),
-            ..default()
-          }
-        )
+        (CubemapVisibleEntities::default(), CubemapFrusta::default(), PointLight {
+          intensity: 3_000_000.0,
+          radius: 1.0,
+          range: 10000.0,
+          shadows_enabled: true,
+          color: Color::srgb(0.9, 0.8, 0.6),
+          ..default()
+        })
       ),
       Self::AbandonedShip => Self::insert(
         m,
@@ -4056,10 +3850,7 @@ impl Object {
           (
             Player::default(),
             Name::new("You"),
-            Combat {
-              hp: 400,
-              ..default()
-            },
+            Combat { hp: 400, ..default() },
             Inventory::default(),
             Navigation::new(PLAYER_FORCE),
             CanBeFollowedByNPC
@@ -4081,11 +3872,7 @@ impl Object {
         m,
         Self::space_object(4.0, false, Visuals::sprite(MySprite::GPT4O_PIRATE_STATION)),
         (
-          Combat {
-            hp: 120,
-            is_hostile: false,
-            ..default()
-          },
+          Combat { hp: 120, is_hostile: false, ..default() },
           Interact::SingleOption(InteractSingleOption::Describe),
           Name::new("space pirate base")
         )
@@ -4250,10 +4037,7 @@ pub fn setup(
 
   let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
   c.spawn((
-    PointLight {
-      shadows_enabled: true,
-      ..default()
-    },
+    PointLight { shadows_enabled: true, ..default() },
     Transform::from_xyz(4.0, 8.0, 4.0)
   ));
 
@@ -4273,11 +4057,7 @@ pub fn setup(
     // bevy::render::camera::Exposure { ev100: 10.0 },
     // Transform::default(),
     Camera3dBundle {
-      camera: Camera {
-        hdr: true,
-
-        ..default()
-      },
+      camera: Camera { hdr: true, ..default() },
       projection: Projection::Perspective(PerspectiveProjection { fov, ..default() }),
       exposure: bevy::render::camera::Exposure { ev100: 10.0 },
       // tonemapping:
@@ -4354,10 +4134,7 @@ fn spawn_skybox(
       });
       // *done = true;
     } else {
-      c.spawn(Skybox {
-        image: skybox_handle,
-        ..default()
-      });
+      c.spawn(Skybox { image: skybox_handle, ..default() });
     }
   }
 }
