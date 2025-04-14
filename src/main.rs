@@ -22,23 +22,20 @@
 pub mod bundletree;
 // pub mod ui;
 mod aigen;
-use std::{collections::VecDeque, ops::DerefMut};
-
-use aigen::*;
-
-use bevy::ecs::query::QueryData;
 pub use bevy::prelude::Name;
-use dynamics::integrator::IntegrationSet;
-use future::Map;
-use haalka::{align::Alignment, element::IntoElement};
-use rust_utils::mapv;
+use {aigen::*,
+     bevy::{asset::LoadState,
+            core_pipeline::Skybox,
+            ecs::query::QueryData,
+            render::render_resource::{Extent3d, TextureViewDescriptor}},
+     bevy_sprite3d::Sprite3dParams};
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
             core_pipeline::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
             ecs::{entity::EntityHashMap, world::Command},
             image::ImageFilterMode,
-            math::{primitives, vec3, Vec3},
+            math::{Vec3, primitives, vec3},
             pbr::{CubemapVisibleEntities, StandardMaterial},
             prelude::*,
             render::primitives::CubemapFrusta,
@@ -54,18 +51,12 @@ use {avian3d::prelude::*,
      // bevy_quill::{prelude::*, QuillPlugin, ViewChild},
      // bevy_quill_overlays::QuillOverlaysPlugin,
      dynamics::solver::SolverConfig,
-     enum_assoc::Assoc,
      fancy_constructor::new,
      haalka::prelude::*,
-     rand::{random, thread_rng, Rng},
-     rust_utils::{comment, concat_strings, debugfmt, filter_map, find, find_map, map,
-                  prettyfmt, println, sum, vec},
+     rand::{Rng, random, thread_rng},
+     rust_utils::{comment, concat_strings, debugfmt, filter_map, find_map, map, println,
+                  sum, vec},
      std::f32::consts::PI};
-use {bevy::{asset::{AssetPath, LoadState},
-            core_pipeline::Skybox,
-            ecs::bundle::DynamicBundle,
-            render::render_resource::{Extent3d, TextureViewDescriptor}},
-     bevy_sprite3d::{Sprite3d, Sprite3dParams}};
 
 comment! {
   // Voxel Scenes
@@ -84,15 +75,21 @@ pub const LASER_COLOR: Color = Color::hsv(60.0, 1.0, 4.0);
 pub const BILLBOARD_REL_SCALE: f32 = 2.0;
 pub const TEXT_SCALE: f32 = 0.013;
 pub const ENABLE_SHADOWS_OTHER_THAN_SUN: bool = false;
-pub const AMBIENT_LIGHT: AmbientLight = AmbientLight { color: Color::WHITE,
-                                                       brightness: 300.0 };
-pub const BLOOM: Bloom = Bloom { intensity: 0.5,
-                                 low_frequency_boost: 0.0,
-                                 prefilter: BloomPrefilter { threshold: 2.2,
-                                                             threshold_softness: 0.0 },
+pub const AMBIENT_LIGHT: AmbientLight = AmbientLight {
+  color: Color::WHITE,
+  brightness: 300.0
+};
+pub const BLOOM: Bloom = Bloom {
+  intensity: 0.5,
+  low_frequency_boost: 0.0,
+  prefilter: BloomPrefilter {
+    threshold: 2.2,
+    threshold_softness: 0.0
+  },
 
-                                 composite_mode: BloomCompositeMode::Additive,
-                                 ..Bloom::NATURAL };
+  composite_mode: BloomCompositeMode::Additive,
+  ..Bloom::NATURAL
+};
 
 const TONEMAPPING: bevy::core_pipeline::tonemapping::Tonemapping =
   bevy::core_pipeline::tonemapping::Tonemapping::Reinhard;
@@ -200,80 +197,116 @@ impl MyImageMaterial {
   }
   pub fn val(&self, h: Handle<Image>) -> StandardMaterial { (self.mat_fn)(h) }
   pub fn img(&self) -> MySprite { self.img }
-  const GROUND: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.8,
-                                                        metallic: 0.0,
-                                                        reflectance: 0.2,
-                                                        ..h.into() },
-                                 MySprite::GROUND);
-  const SNOW: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.4,
-                                                      metallic: 0.0,
-                                                      reflectance: 0.5,
-                                                      ior: 1.31,
-                                                      ..h.into() },
-                               MySprite::SNOW);
-  const WATER: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.3,
-                                                       metallic: 0.0,
-                                                       reflectance: 0.5,
-                                                       ..h.into() },
-                                MySprite::WATER);
-  const STONE: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.8,
-                                                       metallic: 0.0,
-                                                       reflectance: 0.3,
-                                                       ..h.into() },
-                                MySprite::STONE);
-  const BRICKS: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.95,
-                                                        metallic: 0.0,
-                                                        reflectance: 0.1,
-                                                        ..h.into() },
-                                 MySprite::BRICKS);
-  const GRASS: Self = Self::new(|h| StandardMaterial { perceptual_roughness: 0.8,
-                                                       metallic: 0.0,
-                                                       reflectance: 0.2,
-                                                       ..h.into() },
-                                MySprite::GRASS);
+  const GROUND: Self = Self::new(
+    |h| StandardMaterial {
+      perceptual_roughness: 0.8,
+      metallic: 0.0,
+      reflectance: 0.2,
+      ..h.into()
+    },
+    MySprite::GROUND
+  );
+  const SNOW: Self = Self::new(
+    |h| StandardMaterial {
+      perceptual_roughness: 0.4,
+      metallic: 0.0,
+      reflectance: 0.5,
+      ior: 1.31,
+      ..h.into()
+    },
+    MySprite::SNOW
+  );
+  const WATER: Self = Self::new(
+    |h| StandardMaterial {
+      perceptual_roughness: 0.3,
+      metallic: 0.0,
+      reflectance: 0.5,
+      ..h.into()
+    },
+    MySprite::WATER
+  );
+  const STONE: Self = Self::new(
+    |h| StandardMaterial {
+      perceptual_roughness: 0.8,
+      metallic: 0.0,
+      reflectance: 0.3,
+      ..h.into()
+    },
+    MySprite::STONE
+  );
+  const BRICKS: Self = Self::new(
+    |h| StandardMaterial {
+      perceptual_roughness: 0.95,
+      metallic: 0.0,
+      reflectance: 0.1,
+      ..h.into()
+    },
+    MySprite::BRICKS
+  );
+  const GRASS: Self = Self::new(
+    |h| StandardMaterial {
+      perceptual_roughness: 0.8,
+      metallic: 0.0,
+      reflectance: 0.2,
+      ..h.into()
+    },
+    MySprite::GRASS
+  );
   const PENGUIN: Self = Self::new(From::from, MySprite::PENGUIN);
 }
-#[derive(Copy, Clone, Hash, Eq, PartialEq,Debug)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub struct MyMaterial {
   mat_fn: fn() -> StandardMaterial
 }
 impl MyMaterial {
   const fn new(mat_fn: fn() -> StandardMaterial) -> Self { Self { mat_fn } }
   pub fn val(&self) -> StandardMaterial { (self.mat_fn)() }
-  const GLOWY: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                      alpha_mode: AlphaMode::Mask(0.0),
-                                                      ..GLOWY_COLOR.into() });
-  const GLOWY_2: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                        alpha_mode: AlphaMode::Mask(0.0),
-                                                        ..GLOWY_COLOR_2.into() });
-  const GLOWY_3: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                        alpha_mode: AlphaMode::Mask(0.0),
-                                                        ..GLOWY_COLOR_3.into() });
-  const EXPLOSION: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                          alpha_mode:
-                                                            AlphaMode::Mask(0.0001),
-                                                          ..EXPLOSION_COLOR.into() });
-  const LASER: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                      alpha_mode:
-                                                        AlphaMode::Mask(0.0001),
-                                                      ..LASER_COLOR.into() });
+  const GLOWY: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Mask(0.0),
+    ..GLOWY_COLOR.into()
+  });
+  const GLOWY_2: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Mask(0.0),
+    ..GLOWY_COLOR_2.into()
+  });
+  const GLOWY_3: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Mask(0.0),
+    ..GLOWY_COLOR_3.into()
+  });
+  const EXPLOSION: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Mask(0.0001),
+    ..EXPLOSION_COLOR.into()
+  });
+  const LASER: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Mask(0.0001),
+    ..LASER_COLOR.into()
+  });
   const PARTICLE: Self = Self::new(|| StandardMaterial::from(Color::srgb(0.2, 0.7, 0.9)));
-  const INVISIBLE: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                          alpha_mode: AlphaMode::Blend,
-                                                          ..Color::srgba(0.0, 0.0, 0.0,
-                                                                         0.0).into() });
-  const HOVERED: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                        alpha_mode: AlphaMode::Blend,
-                                                        ..Color::srgba(0.0, 0.3, 1.0,
-                                                                       0.1).into() });
-  const PRESSED: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                        alpha_mode: AlphaMode::Blend,
-                                                        ..Color::srgba(0.0, 0.3, 1.0,
-                                                                       0.3).into() });
-  const SELECTED: Self = Self::new(|| StandardMaterial { unlit: true,
-                                                         alpha_mode: AlphaMode::Blend,
-                                                         ..Color::srgba(0.0, 0.3, 1.0,
-                                                                        0.2).into() });
+  const INVISIBLE: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Blend,
+    ..Color::srgba(0.0, 0.0, 0.0, 0.0).into()
+  });
+  const HOVERED: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Blend,
+    ..Color::srgba(0.0, 0.3, 1.0, 0.1).into()
+  });
+  const PRESSED: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Blend,
+    ..Color::srgba(0.0, 0.3, 1.0, 0.3).into()
+  });
+  const SELECTED: Self = Self::new(|| StandardMaterial {
+    unlit: true,
+    alpha_mode: AlphaMode::Blend,
+    ..Color::srgba(0.0, 0.3, 1.0, 0.2).into()
+  });
 }
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
 pub struct MyScene {
@@ -298,13 +331,13 @@ impl MyScene {
   pub const TURTLE_LEVEL: Self = Self::new("turtle level.gltf", "Scene0");
   pub const WAT: Self = Self::new("wat.glb", "Scene0");
 }
-#[derive(Copy, Clone, Hash, Eq, PartialEq,Debug)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub struct GenMesh {
   gen_fn: fn() -> Mesh
 }
 impl GenMesh {
   const fn new(gen_fn: fn() -> Mesh) -> Self { Self { gen_fn } }
-  pub fn gen(&self) -> Mesh { (self.gen_fn)() }
+  pub fn generate(&self) -> Mesh { (self.gen_fn)() }
   pub const UNIT_CUBE: Self = Self::new(|| Cuboid::new(1.0, 1.0, 1.0).into());
   pub const UNIT_CYLINDER: Self = Self::new(|| primitives::Cylinder::new(1.0, 1.0).into());
   pub const CUBE: Self = Self::new(|| Cuboid::new(0.7, 0.7, 0.7).into());
@@ -327,7 +360,7 @@ impl<T: ToString> From<T> for TextDisplay {
   fn from(value: T) -> Self { Self(value.to_string()) }
 }
 
-#[derive(Component, Clone,Copy, PartialEq, Eq,Debug)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Visuals {
   Sprite(MySprite),
   MaterialMesh { material: MyMaterial, mesh: GenMesh } // None
@@ -372,32 +405,36 @@ comment! {
 }
 #[derive(Component, Clone)]
 pub struct VisualSprite;
-pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
-               serv: Res<AssetServer>,
-               mut c: Commands,
-               mut n: Local<u32>,
-               mut j: Local<u32>,
-               // images: Res<Assets<Image>>,
-               mut target_entity: Local<Option<Entity>>,
-               mut visuals_q: Query<(Entity, Mut<Visuals>, &Transform, Option<&Mesh3d>)>,
-               // mut visuals_sprites_q: Query<(&mut Transform, &GlobalTransform),
-               //       With<VisualSprite>>,
-               mut option_target_overlay_entity: Local<Option<Entity>>,
-               mut sprite_params: Sprite3dParams,
-               mut sprite_handles: Local<HashMap<MySprite, Handle<Image>>>,
-               mut mesh_handles: Local<HashMap<GenMesh, Handle<Mesh>>>,
-               mut material_handles: Local<HashMap<MyMaterial, Handle<StandardMaterial>>>,
-               mut visual_child_entities: Local<EntityHashMap<Entity>>,
-               mut multi_visual_child_entities: Local<EntityHashMap<Entity>>) {
+pub fn visuals(
+  camq: Single<&GlobalTransform, With<Camera3d>>,
+  serv: Res<AssetServer>,
+  mut c: Commands,
+  mut n: Local<u32>,
+  mut j: Local<u32>,
+  // images: Res<Assets<Image>>,
+  mut target_entity: Local<Option<Entity>>,
+  mut visuals_q: Query<(Entity, Mut<Visuals>, &Transform, Option<&Mesh3d>)>,
+  // mut visuals_sprites_q: Query<(&mut Transform, &GlobalTransform),
+  //       With<VisualSprite>>,
+  mut option_target_overlay_entity: Local<Option<Entity>>,
+  mut sprite_params: Sprite3dParams,
+  mut sprite_handles: Local<HashMap<MySprite, Handle<Image>>>,
+  mut mesh_handles: Local<HashMap<GenMesh, Handle<Mesh>>>,
+  mut material_handles: Local<HashMap<MyMaterial, Handle<StandardMaterial>>>,
+  mut visual_child_entities: Local<EntityHashMap<Entity>>,
+  mut multi_visual_child_entities: Local<EntityHashMap<Entity>>
+) {
   let mut get_material_handle = |material: MyMaterial| {
-    material_handles.entry(material)
-                    .or_insert_with(|| serv.add(material.val()))
-                    .clone()
+    material_handles
+      .entry(material)
+      .or_insert_with(|| serv.add(material.val()))
+      .clone()
   };
   let mut get_mesh_handle = |mesh: GenMesh| {
-    mesh_handles.entry(mesh)
-                .or_insert_with(|| serv.add(mesh.gen()))
-                .clone()
+    mesh_handles
+      .entry(mesh)
+      .or_insert_with(|| serv.add(mesh.generate()))
+      .clone()
   };
   // let mut get_sprite_handle = |sprite @ MySprite { path }| {
   //   println!("d");
@@ -441,9 +478,11 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
   }
 
   let text_color = TextColor::from(Color::WHITE);
-  let text_font = TextFont { font: default(),
-                             font_size: 30.0,
-                             font_smoothing: default() };
+  let text_font = TextFont {
+    font: default(),
+    font_size: 30.0,
+    font_smoothing: default()
+  };
 
   for (e, mut visuals, transform, omesh) in &mut visuals_q {
     let is_done = omesh.is_some();
@@ -458,12 +497,14 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
             let scale = transform.scale.x;
             let pixels_per_metre = height as f32 / 2.5;
             // let pixels_per_metre = 0.02;
-            let sprite_builder = Sprite3dBuilder { image: h,
-                                                   pixels_per_metre,
-                                                   alpha_mode: AlphaMode::Blend,
-                                                   unlit: true,
-                                                   double_sided: true,
-                                                   ..default() };
+            let sprite_builder = Sprite3dBuilder {
+              image: h,
+              pixels_per_metre,
+              alpha_mode: AlphaMode::Blend,
+              unlit: true,
+              double_sided: true,
+              ..default()
+            };
             let bundle = sprite_builder.bundle(&mut sprite_params);
             c.entity(e).insert(bundle);
             // visuals.done = true;
@@ -476,7 +517,7 @@ pub fn visuals(camq: Single<&GlobalTransform, With<Camera3d>>,
           let material = get_material_handle(material);
           let mesh_handle = get_mesh_handle(mesh);
           c.entity(e)
-           .insert((Mesh3d(mesh_handle), MeshMaterial3d(material)));
+            .insert((Mesh3d(mesh_handle), MeshMaterial3d(material)));
           // visuals.done = true;
           // println("created material mesh");
         }
@@ -492,11 +533,10 @@ pub enum FacingMode {
   Direction
 }
 
-pub fn face_camera_system(camera_q: Query<&Transform, With<Camera3d>>,
-                          mut facers_q: Query<(&mut Transform,
-                                 &GlobalTransform,
-                                 &FacingMode),
-                                Without<Camera3d>>) {
+pub fn face_camera_system(
+  camera_q: Query<&Transform, With<Camera3d>>,
+  mut facers_q: Query<(&mut Transform, &GlobalTransform, &FacingMode), Without<Camera3d>>
+) {
   if let Ok(cam_transform) = camera_q.get_single() {
     for (mut transform, global, mode) in &mut facers_q {
       let direction: Vec3 = match mode {
@@ -525,18 +565,20 @@ pub struct Player {
 
 impl Player {
   pub fn set_target(&mut self, target: Entity) {
-    self.target_interaction_state =
-      Some(PlayerTargetInteractionState { target,
-                                          shooting: false,
-                                          approaching: false,
-                                          in_dialogue: false });
+    self.target_interaction_state = Some(PlayerTargetInteractionState {
+      target,
+      shooting: false,
+      approaching: false,
+      in_dialogue: false
+    });
   }
   pub fn untarget(&mut self) { self.target_interaction_state = None; }
   pub fn target(&self) -> Option<Entity> {
-    self.target_interaction_state
-        .as_ref()
-        // .clone()
-        .map(|&PlayerTargetInteractionState { target, .. }| target)
+    self
+      .target_interaction_state
+      .as_ref()
+      // .clone()
+      .map(|&PlayerTargetInteractionState { target, .. }| target)
   }
 }
 
@@ -546,32 +588,37 @@ pub fn insert_component<C: Component>(world: &mut World, entity: Entity, compone
   }
 }
 
-pub fn update_component<C: Component + Clone>(world: &mut World,
-                                              entity: Entity,
-                                              f: impl FnOnce(C) -> C) {
+pub fn update_component<C: Component + Clone>(
+  world: &mut World,
+  entity: Entity,
+  f: impl FnOnce(C) -> C
+) {
   // Children
   if let Ok(mut entity_mut) = world.get_entity_mut(entity)
-     && let Some(mut component) = entity_mut.get_mut::<C>()
-     && let updated = f((*component).clone())
+    && let Some(mut component) = entity_mut.get_mut::<C>()
+    && let updated = f((*component).clone())
   {
     *component = updated;
   }
 }
 
-pub fn mutate_component<C: Component>(world: &mut World,
-                                      entity: Entity,
-                                      f: impl FnOnce(&mut C)) {
+pub fn mutate_component<C: Component>(
+  world: &mut World,
+  entity: Entity,
+  f: impl FnOnce(&mut C)
+) {
   if let Ok(mut entity_mut) = world.get_entity_mut(entity)
-     && let Some(mut component) = entity_mut.get_mut::<C>()
+    && let Some(mut component) = entity_mut.get_mut::<C>()
   {
     f(&mut component);
   }
 }
 
 pub fn get_player(world: &mut World) -> Option<Entity> {
-  world.query_filtered::<Entity, With<Player>>()
-       .iter(world)
-       .next()
+  world
+    .query_filtered::<Entity, With<Player>>()
+    .iter(world)
+    .next()
 }
 
 // #[derive(Clone)]
@@ -585,7 +632,10 @@ pub struct MyCommand(pub Box<dyn FnOnce(&mut World) + 'static + Send + Sync>);
 //   fn from(f: F) -> Self { MyCommand(Box::new(f)) }
 // }
 
-impl<F> From<F> for MyCommand where F: FnOnce(&mut World) + 'static + Send + Sync {
+impl<F> From<F> for MyCommand
+where
+  F: FnOnce(&mut World) + 'static + Send + Sync
+{
   fn from(f: F) -> Self { MyCommand(Box::new(f)) }
 }
 impl MyCommand {
@@ -597,7 +647,8 @@ impl MyCommand {
       for command in v {
         command.0(world);
       }
-    }).into()
+    })
+    .into()
   }
 
   // pub fn spawn(b: impl Bundle) -> Self {
@@ -615,13 +666,15 @@ impl MyCommand {
           inventory.add_contents([(item.clone(), 1)]);
         });
       }
-    }).into()
+    })
+    .into()
   }
 
   pub fn end_object_interaction_mini_game() -> Self {
     (|_world: &mut World| {
       // Implement mini-game ending logic here
-    }).into()
+    })
+    .into()
   }
 
   pub fn damage_entity(entity: Entity, amount: u32) -> Self {
@@ -629,49 +682,49 @@ impl MyCommand {
       if let Some(mut combat) = world.get_mut::<Combat>(entity) {
         combat.hp = combat.hp.saturating_sub(amount);
       }
-    }).into()
+    })
+    .into()
   }
 
   pub fn message_add(message: impl Into<String> + Send + Sync + 'static) -> Self {
     (move |world: &mut World| {
-      let s:String = message.into();
+      let s: String = message.into();
       MESSAGE_LOG.update_mut(|v| v.push(Message::from(s)));
       // if let Some(mut ui_data) = world.get_resource_mut::<UIData>() {
       //   ui_data.message_add(message.to_string().clone());
       // }
-    }).into()
+    })
+    .into()
   }
 
   pub fn despawn_entity(entity: Entity) -> Self {
     (move |world: &mut World| {
       world.commands().entity(entity).despawn_recursive();
-    }).into()
+    })
+    .into()
   }
   pub fn despawn(entity: Entity) -> Self {
     (move |world: &mut World| {
       world.commands().entity(entity).despawn_recursive();
-    }).into()
+    })
+    .into()
   }
 
   pub fn insert_component<C: Component + 'static>(entity: Entity, component: C) -> Self {
     (move |world: &mut World| insert_component(world, entity, component)).into()
   }
 
-  pub fn update_component<C: Component + Clone + 'static>(entity: Entity,
-                                                          f: impl FnOnce(C) -> C
-                                                            + 'static
-                                                            + Send
-                                                            + Sync)
-                                                          -> Self {
+  pub fn update_component<C: Component + Clone + 'static>(
+    entity: Entity,
+    f: impl FnOnce(C) -> C + 'static + Send + Sync
+  ) -> Self {
     (move |world: &mut World| update_component(world, entity, f)).into()
   }
 
-  pub fn mutate_component<C: Component + 'static>(entity: Entity,
-                                                  f: impl FnOnce(&mut C)
-                                                    + 'static
-                                                    + Send
-                                                    + Sync)
-                                                  -> Self {
+  pub fn mutate_component<C: Component + 'static>(
+    entity: Entity,
+    f: impl FnOnce(&mut C) + 'static + Send + Sync
+  ) -> Self {
     (move |world: &mut World| mutate_component(world, entity, f)).into()
   }
 
@@ -680,31 +733,30 @@ impl MyCommand {
       if let Some(player_entity) = get_player(world) {
         insert_component(world, player_entity, component);
       }
-    }).into()
+    })
+    .into()
   }
 
-  pub fn update_player_component<C: Component + Clone + 'static>(f: impl FnOnce(C) -> C
-                                                                   + 'static
-                                                                   + Send
-                                                                   + Sync)
-                                                                 -> Self {
+  pub fn update_player_component<C: Component + Clone + 'static>(
+    f: impl FnOnce(C) -> C + 'static + Send + Sync
+  ) -> Self {
     (move |world: &mut World| {
       if let Some(player_entity) = get_player(world) {
         update_component(world, player_entity, f);
       }
-    }).into()
+    })
+    .into()
   }
 
-  pub fn mutate_player_component<C: Component + Clone + 'static>(f: impl FnOnce(&mut C)
-                                                                   + 'static
-                                                                   + Send
-                                                                   + Sync)
-                                                                 -> Self {
+  pub fn mutate_player_component<C: Component + Clone + 'static>(
+    f: impl FnOnce(&mut C) + 'static + Send + Sync
+  ) -> Self {
     (move |world: &mut World| {
       if let Some(player_entity) = get_player(world) {
         mutate_component(world, player_entity, f);
       }
-    }).into()
+    })
+    .into()
   }
 }
 
@@ -725,10 +777,11 @@ const LASER_DURATION_TICKS: u32 = 78;
 const LASER_DAMAGE: u32 = 10;
 
 impl VisualEffect {
-  fn specify_transform(&self,
-                       query: &Query<&Transform, Without<VisualEffect>>,
-                       age: u32)
-                       -> Option<Transform> {
+  fn specify_transform(
+    &self,
+    query: &Query<&Transform, Without<VisualEffect>>,
+    age: u32
+  ) -> Option<Transform> {
     match *self {
       VisualEffect::Laser { target, shooter } => {
         let laser_age = age;
@@ -737,21 +790,21 @@ impl VisualEffect {
         // let Ok() = query.get(target)?;
         //   && time_left > 0
         if let Ok(shooter_transform) = query.get(shooter)
-           && let Ok(target_transform) = query.get(target)
-           && time_left > 0
-           && let start_pos = shooter_transform.translation
-           && let target_pos = target_transform.translation
-           && let distance = start_pos.distance(target_pos)
-           && let center_pos = (start_pos + target_pos) * 0.5
-           && let max_laser_radius = 0.18
-           && let laser_radius = max_laser_radius
-                                 * f32::sin(PI * time_left as f32
-                                            / LASER_DURATION_TICKS as f32).powf(0.4)
+          && let Ok(target_transform) = query.get(target)
+          && time_left > 0
+          && let start_pos = shooter_transform.translation
+          && let target_pos = target_transform.translation
+          && let distance = start_pos.distance(target_pos)
+          && let center_pos = (start_pos + target_pos) * 0.5
+          && let max_laser_radius = 0.18
+          && let laser_radius = max_laser_radius
+            * f32::sin(PI * time_left as f32 / LASER_DURATION_TICKS as f32).powf(0.4)
         {
-          Some(Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
-                                                      .with_scale(vec3(laser_radius,
-                                                                       laser_radius,
-                                                                       distance * 0.5)))
+          Some(
+            Transform::from_translation(center_pos)
+              .looking_at(target_pos, Vec3::Y)
+              .with_scale(vec3(laser_radius, laser_radius, distance * 0.5))
+          )
         } else {
           None
         }
@@ -761,7 +814,7 @@ impl VisualEffect {
         let missile_age = age;
         let frac = missile_age as f32 / missile_travel_time_ticks as f32;
         if let Ok(&target_transform) = query.get(target)
-           && frac < 1.0
+          && frac < 1.0
         {
           let target_pos = target_transform.translation;
           Some(Transform::from_translation(init_pos.lerp(target_pos, frac)))
@@ -780,76 +833,88 @@ impl VisualEffect {
   }
 }
 pub fn explosion_visual(pos: Vec3, scale: f32) -> impl Bundle {
-  (VisualEffect::Explosion { pos },
-   Visuals::material_sphere(MyMaterial::EXPLOSION),
-   Transform::default(),
-   Visibility::Visible)
+  (
+    VisualEffect::Explosion { pos },
+    Visuals::material_sphere(MyMaterial::EXPLOSION),
+    Transform::default(),
+    Visibility::Visible
+  )
 }
 
 #[derive(Component)]
-struct VisualEffectBox(Box<dyn Fn(&Query<&Transform, Without<VisualEffect>>,
-                                 u32) -> Option<Transform>
-                              + Send
-                              + Sync>);
+struct VisualEffectBox(
+  Box<
+    dyn Fn(&Query<&Transform, Without<VisualEffect>>, u32) -> Option<Transform>
+      + Send
+      + Sync
+  >
+);
 
 pub fn laser_visual_new(shooter: Entity, target: Entity) -> impl Bundle {
-  (Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
-   Transform::default(),
-   Visibility::Visible,
-   VisualEffectBox(Box::new(move |q, age| {
-     let laser_age = age;
-     let time_left = LASER_DURATION_TICKS - laser_age;
-     if let Ok(shooter_transform) = q.get(shooter)
+  (
+    Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
+    Transform::default(),
+    Visibility::Visible,
+    VisualEffectBox(Box::new(move |q, age| {
+      let laser_age = age;
+      let time_left = LASER_DURATION_TICKS - laser_age;
+      if let Ok(shooter_transform) = q.get(shooter)
         && let Ok(target_transform) = q.get(target)
         && time_left > 0
-     {
-       let start_pos = shooter_transform.translation;
-       let target_pos = target_transform.translation;
-       let distance = start_pos.distance(target_pos);
-       let center_pos = (start_pos + target_pos) * 0.5;
-       let max_laser_radius = 0.18;
-       let laser_radius =
-         max_laser_radius
-         * f32::sin(PI * time_left as f32 / LASER_DURATION_TICKS as f32).powf(0.4);
+      {
+        let start_pos = shooter_transform.translation;
+        let target_pos = target_transform.translation;
+        let distance = start_pos.distance(target_pos);
+        let center_pos = (start_pos + target_pos) * 0.5;
+        let max_laser_radius = 0.18;
+        let laser_radius = max_laser_radius
+          * f32::sin(PI * time_left as f32 / LASER_DURATION_TICKS as f32).powf(0.4);
 
-       Some(Transform::from_translation(center_pos).looking_at(target_pos, Vec3::Y)
-                                                   .with_scale(vec3(laser_radius,
-                                                                    laser_radius,
-                                                                    distance * 0.5)))
-     } else {
-       None
-     }
-   })))
+        Some(
+          Transform::from_translation(center_pos)
+            .looking_at(target_pos, Vec3::Y)
+            .with_scale(vec3(laser_radius, laser_radius, distance * 0.5))
+        )
+      } else {
+        None
+      }
+    }))
+  )
 }
 pub fn laser_visual(shooter: Entity, target: Entity) -> impl Bundle {
-  (VisualEffect::Laser { target, shooter },
-   Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
-   Transform::default(),
-   Visibility::Visible)
+  (
+    VisualEffect::Laser { target, shooter },
+    Visuals::material_mesh(MyMaterial::LASER, GenMesh::SPHERE),
+    Transform::default(),
+    Visibility::Visible
+  )
 }
 fn missile_visual(init_pos: Vec3, target: Entity) -> impl Bundle {
-  (VisualEffect::MISSILE { init_pos, target },
-   Visuals::material_sphere(MyMaterial::GLOWY_3),
-   Transform::default(),
-   Visibility::Visible)
+  (
+    VisualEffect::MISSILE { init_pos, target },
+    Visuals::material_sphere(MyMaterial::GLOWY_3),
+    Transform::default(),
+    Visibility::Visible
+  )
 }
 
 #[derive(Component)]
 struct OriginTime(u32);
-fn origin_time(q: Query<Entity, Without<OriginTime>>,
-               time_ticks: Res<TimeTicks>,
-               mut c: Commands) {
+fn origin_time(
+  q: Query<Entity, Without<OriginTime>>,
+  time_ticks: Res<TimeTicks>,
+  mut c: Commands
+) {
   for e in &q {
     c.entity(e).insert(OriginTime(time_ticks.0));
   }
 }
-fn combat_visual_effects(transformq: Query<&Transform, Without<VisualEffect>>,
-                         mut visualq: Query<(Entity,
-                                &mut Transform,
-                                &VisualEffect,
-                                &OriginTime)>,
-                         time_ticks: Res<TimeTicks>,
-                         mut c: Commands) {
+fn combat_visual_effects(
+  transformq: Query<&Transform, Without<VisualEffect>>,
+  mut visualq: Query<(Entity, &mut Transform, &VisualEffect, &OriginTime)>,
+  time_ticks: Res<TimeTicks>,
+  mut c: Commands
+) {
   for (entity, mut transform, visual_effect, origin_time) in &mut visualq {
     let visual_effect_age = time_ticks.0 - origin_time.0;
     match visual_effect.specify_transform(&transformq, visual_effect_age) {
@@ -911,7 +976,7 @@ impl Combat {
   fn decrease_hp(&mut self, n: u32) { self.hp = self.hp.saturating_sub(n); }
   fn increase_hp(&mut self, n: u32) { self.hp += n; }
 }
-comment!{
+comment! {
   pub fn combat_system(mut c: Commands,
                        time: Res<TimeTicks>,
                        mut combat_query: Query<(Entity,
@@ -1010,162 +1075,170 @@ comment!{
     }
   }
 }
-pub fn combat_system(mut c: Commands,
-                     time: Res<TimeTicks>,
-                     mut combat_query: Query<(Entity,
-                            &Transform,
-                            &mut Combat,
-                            Option<&IsHostile>
-                            )>,
-                     playerq: Single<(Entity, &Transform, &Player)>) {
-    // Define the proximity threshold for combat
-    const PROXIMITY_THRESHOLD: f32 = 120.0; // Adjust this value as needed
+pub fn combat_system(
+  mut c: Commands,
+  time: Res<TimeTicks>,
+  mut combat_query: Query<(Entity, &Transform, &mut Combat, Option<&IsHostile>)>,
+  playerq: Single<(Entity, &Transform, &Player)>
+) {
+  // Define the proximity threshold for combat
+  const PROXIMITY_THRESHOLD: f32 = 120.0; // Adjust this value as needed
 
-    let modval = time.0 % COMBAT_INTERVAL_TICKS;
-    if modval != 0 {
-        if modval >= (COMBAT_INTERVAL_TICKS / 3) {
-            for (entity, transform, mut combat, _) in &mut combat_query {
-                if combat.hp_depleted() {
-                    c.spawn(explosion_visual(transform.translation, 2.0));
-                    c.entity(entity).despawn_recursive();
-                }
-            }
+  let modval = time.0 % COMBAT_INTERVAL_TICKS;
+  if modval != 0 {
+    if modval >= (COMBAT_INTERVAL_TICKS / 3) {
+      for (entity, transform, mut combat, _) in &mut combat_query {
+        if combat.hp_depleted() {
+          c.spawn(explosion_visual(transform.translation, 2.0));
+          c.entity(entity).despawn_recursive();
         }
-        return;
+      }
     }
+    return;
+  }
 
-    let (player_entity, player_transform, player) = playerq.into_inner();
-    let player_pos = player_transform.translation;
-    let player_action = player.target()
-                              .map_or(CombatAction::None, |target| {
-                                CombatAction::Targeted(TargetedAbility::FIRELaser(10), target)
-                              });
+  let (player_entity, player_transform, player) = playerq.into_inner();
+  let player_pos = player_transform.translation;
+  let player_action = player.target().map_or(CombatAction::None, |target| {
+    CombatAction::Targeted(TargetedAbility::FIRELaser(10), target)
+  });
 
-    // Collect active combatants within proximity threshold
-    let active_combatants: Vec<_> =
-        combat_query.iter()
-                    .filter_map(|(entity, transform, _, _)| {
-                        let distance = (transform.translation - player_pos).length();
-                        (distance <= PROXIMITY_THRESHOLD).then_some((entity, transform.translation))
-                    })
-                    .collect();
+  // Collect active combatants within proximity threshold
+  let active_combatants: Vec<_> = combat_query
+    .iter()
+    .filter_map(|(entity, transform, _, _)| {
+      let distance = (transform.translation - player_pos).length();
+      (distance <= PROXIMITY_THRESHOLD).then_some((entity, transform.translation))
+    })
+    .collect();
 
-    let choose_action = |e: Entity, combat: &Combat| {
-        if e == player_entity {
-            player_action
-        } else if combat.is_hostile {
-            if prob(0.5) {
-                CombatAction::Targeted(TargetedAbility::FIRELaser(5), player_entity)
-            } else {
-                CombatAction::Targeted(TargetedAbility::FIREMISSILE(5), player_entity)
-            }
-        } else {
-            CombatAction::None
-        }
-    };
-
-    for (self_entity, self_pos) in active_combatants {
-        if let Ok((_, _, self_combat, _)) = combat_query.get(self_entity) {
-            let self_action = choose_action(self_entity, self_combat);
-            match self_action {
-                CombatAction::None => {}
-                CombatAction::Targeted(targeted_ability, target) => {
-                    if let Ok((_, _, mut target_combat, _)) = combat_query.get_mut(target) {
-                        match targeted_ability {
-                            TargetedAbility::FIRELaser(n) => {
-                                target_combat.decrease_hp(n);
-                                c.spawn(laser_visual(self_entity, target));
-                            }
-                            TargetedAbility::FIREMISSILE(n) => {
-                                target_combat.decrease_hp(n);
-                                c.spawn(missile_visual(self_pos, target));
-                                // c.spawn(missile(self_pos, target, n));
-                            }
-                            TargetedAbility::HealOther(n) => {
-                                target_combat.increase_hp(n);
-                            }
-                        }
-                    }
-                }
-                CombatAction::NonTargeted(non_targeted_ability) => {
-                    if let Ok((_, _, mut self_combat, _)) = combat_query.get_mut(self_entity) {
-                        match non_targeted_ability {
-                            NonTargetedAbility::HealSelf(n) => {
-                                self_combat.increase_hp(n);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+  let choose_action = |e: Entity, combat: &Combat| {
+    if e == player_entity {
+      player_action
+    } else if combat.is_hostile {
+      if prob(0.5) {
+        CombatAction::Targeted(TargetedAbility::FIRELaser(5), player_entity)
+      } else {
+        CombatAction::Targeted(TargetedAbility::FIREMISSILE(5), player_entity)
+      }
+    } else {
+      CombatAction::None
     }
+  };
+
+  for (self_entity, self_pos) in active_combatants {
+    if let Ok((_, _, self_combat, _)) = combat_query.get(self_entity) {
+      let self_action = choose_action(self_entity, self_combat);
+      match self_action {
+        CombatAction::None => {}
+        CombatAction::Targeted(targeted_ability, target) => {
+          if let Ok((_, _, mut target_combat, _)) = combat_query.get_mut(target) {
+            match targeted_ability {
+              TargetedAbility::FIRELaser(n) => {
+                target_combat.decrease_hp(n);
+                c.spawn(laser_visual(self_entity, target));
+              }
+              TargetedAbility::FIREMISSILE(n) => {
+                target_combat.decrease_hp(n);
+                c.spawn(missile_visual(self_pos, target));
+                // c.spawn(missile(self_pos, target, n));
+              }
+              TargetedAbility::HealOther(n) => {
+                target_combat.increase_hp(n);
+              }
+            }
+          }
+        }
+        CombatAction::NonTargeted(non_targeted_ability) => {
+          if let Ok((_, _, mut self_combat, _)) = combat_query.get_mut(self_entity) {
+            match non_targeted_ability {
+              NonTargetedAbility::HealSelf(n) => {
+                self_combat.increase_hp(n);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
-fn filter_least_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
-                                          coll: impl IntoIterator<Item = T>)
-                                          -> Option<R> {
-  coll.into_iter()
-      .filter_map(f)
-      .min_by_key(|(_, o)| o.clone())
-      .map(|(r, _)| r)
+fn filter_least_map<O: Ord + Clone, T, R>(
+  f: impl Fn(T) -> Option<(R, O)>,
+  coll: impl IntoIterator<Item = T>
+) -> Option<R> {
+  coll
+    .into_iter()
+    .filter_map(f)
+    .min_by_key(|(_, o)| o.clone())
+    .map(|(r, _)| r)
 }
 
-fn filter_least<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
-                                   coll: impl IntoIterator<Item = T>)
-                                   -> Option<T> {
+fn filter_least<O: Ord + Clone, T>(
+  f: impl Fn(&T) -> Option<O>,
+  coll: impl IntoIterator<Item = T>
+) -> Option<T> {
   filter_least_map(|t| f(&t).map(|v| (t, v)), coll)
 }
-fn filter_most_map<O: Ord + Clone, T, R>(f: impl Fn(T) -> Option<(R, O)>,
-                                         coll: impl IntoIterator<Item = T>)
-                                         -> Option<R> {
-  coll.into_iter()
-      .filter_map(f)
-      .max_by_key(|(_, o)| o.clone())
-      .map(|(r, _)| r)
+fn filter_most_map<O: Ord + Clone, T, R>(
+  f: impl Fn(T) -> Option<(R, O)>,
+  coll: impl IntoIterator<Item = T>
+) -> Option<R> {
+  coll
+    .into_iter()
+    .filter_map(f)
+    .max_by_key(|(_, o)| o.clone())
+    .map(|(r, _)| r)
 }
-fn filter_most<O: Ord + Clone, T>(f: impl Fn(&T) -> Option<O>,
-                                  coll: impl IntoIterator<Item = T>)
-                                  -> Option<T> {
+fn filter_most<O: Ord + Clone, T>(
+  f: impl Fn(&T) -> Option<O>,
+  coll: impl IntoIterator<Item = T>
+) -> Option<T> {
   filter_most_map(|t| f(&t).map(|v| (t, v)), coll)
 }
 const ENEMY_SEE_PLAYER_RANGE: f32 = 100.0;
-fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
-                             mut playerq: Single<(Entity,
-                                     &mut Player,
-                                     &Transform,
-                                     &mut Combat)>,
-                             mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
-                             mut c: Commands,
-                             time: Res<TimeTicks>,
-                             targetq: Query<(&Transform,)>) {
+fn player_target_interaction(
+  keys: Res<ButtonInput<KeyCode>>,
+  mut playerq: Single<(Entity, &mut Player, &Transform, &mut Combat)>,
+  mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
+  mut c: Commands,
+  time: Res<TimeTicks>,
+  targetq: Query<(&Transform,)>
+) {
   let shoot_time_between = 60;
   let can_see_target = |e| true;
-  let (player_entity,
-       mut player,
-       &player_transform @ Transform { translation: player_pos,
-                   .. },
-       mut player_combat) = playerq.into_inner();
+  let (
+    player_entity,
+    mut player,
+    &player_transform @ Transform {
+      translation: player_pos,
+      ..
+    },
+    mut player_combat
+  ) = playerq.into_inner();
   if keys.just_pressed(KeyCode::KeyQ) {
     player_combat.shield = !player_combat.shield;
   }
   if keys.just_pressed(KeyCode::KeyZ) {
-    Object::MushroomMan
-    .spawn_at(&mut c, player_pos);
+    Object::MushroomMan.spawn_at(&mut c, player_pos);
   }
   if keys.just_pressed(KeyCode::KeyT) {
-    if let Some((e, _, _)) =
-      filter_least(|(e, hostile, transform)| {
-                     hostile.0
-                            .then_some(transform.translation.distance(player_pos) as u32)
-                   },
-                   &hostileq)
-    {
+    println("pressed t");
+    if let Some((e, _, _)) = filter_least(
+      |(e, hostile, transform)| {
+        hostile
+          .0
+          .then_some(transform.translation.distance(player_pos) as u32)
+      },
+      &hostileq
+    ) {
+      println("set target to {e}");
       player.set_target(e);
     }
   }
   if let Some(state) = player.target_interaction_state.as_mut()
-     && let Ok(target_transform) = targetq.get(state.target)
-     && can_see_target(state.target)
+    && let Ok(target_transform) = targetq.get(state.target)
+    && can_see_target(state.target)
   {
     if keys.just_pressed(KeyCode::KeyR) {
       // shooting = !shooting;
@@ -1191,13 +1264,15 @@ fn player_target_interaction(keys: Res<ButtonInput<KeyCode>>,
   }
 }
 
-fn debug_input(keys: Res<ButtonInput<KeyCode>>,
-               mut playerq: Single<(Entity, &mut Player, &Transform, &mut Combat)>,
-               mut camq: Single<(Entity, &Transform, &Camera)>,
-               mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
-               mut c: Commands,
-               time: Res<TimeTicks>,
-               targetq: Query<(&Transform,)>) {
+fn debug_input(
+  keys: Res<ButtonInput<KeyCode>>,
+  mut playerq: Single<(Entity, &mut Player, &Transform, &mut Combat)>,
+  mut camq: Single<(Entity, &Transform, &Camera)>,
+  mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
+  mut c: Commands,
+  time: Res<TimeTicks>,
+  targetq: Query<(&Transform,)>
+) {
   let campos = camq.1.translation;
   if keys.just_pressed(KeyCode::KeyP) {
     dbg!(campos);
@@ -1220,8 +1295,9 @@ pub struct PlayerFollower;
 pub fn pick<T>(coll: impl IntoIterator<Item = T>) -> Option<T> {
   rand::seq::IteratorRandom::choose(coll.into_iter(), &mut thread_rng())
 }
-fn avg<T: std::iter::Sum + std::ops::Div<f32, Output = T>>(coll: impl IntoIterator<Item = T>)
-                                                           -> Option<T> {
+fn avg<T: std::iter::Sum + std::ops::Div<f32, Output = T>>(
+  coll: impl IntoIterator<Item = T>
+) -> Option<T> {
   let v = vec(coll);
   let n = v.len();
   let s = v.into_iter().sum::<T>();
@@ -1237,9 +1313,11 @@ pub struct SpaceObject {
 }
 #[derive(Component, Clone)]
 pub struct ClickTarget;
-pub fn click_target(mut parent_q: Query<&Parent>,
-                    mut click_events: EventReader<Pointer<Click>>,
-                    mut player: Single<&mut Player>) {
+pub fn click_target(
+  mut parent_q: Query<&Parent>,
+  mut click_events: EventReader<Pointer<Click>>,
+  mut player: Single<&mut Player>
+) {
   for event in click_events.read() {
     println(debugfmt(event));
     let mut root_entity = event.target;
@@ -1273,11 +1351,11 @@ pub fn click_target(mut parent_q: Query<&Parent>,
 //   space_object(scale, can_move, Visuals::sprite(sprite))
 // }
 fn spawn_at_pos(mut c: &mut Commands, b: impl Bundle, pos: Vec3) {
-  c.spawn(b)
-   .insert(Transform::from_translation(pos))
-   .observe(|trigger: Trigger<Pointer<Click>>, mut playerq: Single<&mut Player>| {
-              playerq.set_target(trigger.entity());
-            });
+  c.spawn(b).insert(Transform::from_translation(pos)).observe(
+    |trigger: Trigger<Pointer<Click>>, mut playerq: Single<&mut Player>| {
+      playerq.set_target(trigger.entity());
+    }
+  );
 }
 
 comment! {
@@ -1300,8 +1378,10 @@ pub fn set_space_object_scale(mut space_object_q: Query<(&mut Transform, &SpaceO
   }
 }
 
-fn camera_follow_player(mut cam: Single<&mut PanOrbitCamera>,
-                        player_transform: Single<&Transform, With<Player>>) {
+fn camera_follow_player(
+  mut cam: Single<&mut PanOrbitCamera>,
+  player_transform: Single<&Transform, With<Player>>
+) {
   cam.target_focus = player_transform.translation;
 }
 #[derive(Default, Debug, Clone, Copy)]
@@ -1323,26 +1403,36 @@ pub struct Navigation {
 }
 impl Navigation {
   fn speed(speed: f32) -> Self {
-    Self { max_speed: speed,
-           navigation_kind: NavigationKind::None }
+    Self {
+      max_speed: speed,
+      navigation_kind: NavigationKind::None
+    }
   }
 }
 
-fn navigation(mut navigators_q: Query<(&Navigation,
-                     &Transform,
-                     &mut ExternalForce,
-                     &mut LinearVelocity)>,
-              chase_targets_q: Query<&GlobalTransform>) {
-  for (&Navigation { max_speed,
-                     navigation_kind },
-       &Transform { translation, .. },
-       mut force,
-       mut velocity) in &mut navigators_q
+fn navigation(
+  mut navigators_q: Query<(
+    &Navigation,
+    &Transform,
+    &mut ExternalForce,
+    &mut LinearVelocity
+  )>,
+  chase_targets_q: Query<&GlobalTransform>
+) {
+  for (
+    &Navigation {
+      max_speed,
+      navigation_kind
+    },
+    &Transform { translation, .. },
+    mut force,
+    mut velocity
+  ) in &mut navigators_q
   {
-    let mut accelerate = |v:Vec3|{
-        velocity.0 += v.normalize_or_zero() * 0.6;
-        velocity.0 = velocity.0.clamp_length_max(max_speed);
-};
+    let mut accelerate = |v: Vec3| {
+      velocity.0 += v.normalize_or_zero() * 0.6;
+      velocity.0 = velocity.0.clamp_length_max(max_speed);
+    };
     match navigation_kind {
       NavigationKind::None => {}
       NavigationKind::Dir3(dir) => {
@@ -1376,9 +1466,9 @@ fn navigation(mut navigators_q: Query<(&Navigation,
           let entity_pos = entity_globaltransform.translation();
           let rel = entity_pos - translation;
           let within_range = rel.length() < range;
-          force.apply_force(rel.normalize_or_zero()
-                            * max_speed
-                            * if within_range { -1.0 } else { 1.0 });
+          force.apply_force(
+            rel.normalize_or_zero() * max_speed * if within_range { -1.0 } else { 1.0 }
+          );
         };
       }
     }
@@ -1386,43 +1476,58 @@ fn navigation(mut navigators_q: Query<(&Navigation,
 }
 const PLAYER_FORCE: f32 = 170.0;
 const PLAYER_SCALE: f32 = 1.2;
-pub fn player_movement(keyboard_input: Res<ButtonInput<KeyCode>>,
-                       cam_transform: Single<&Transform, With<Camera3d>>,
-                       mut globaltransform_q: Query<&GlobalTransform>,
-                       mut playerq: Single<(Entity,
-                               &SpaceObject,
-                               &mut Navigation,
-                               &mut ExternalForce,
-                               &mut ExternalImpulse,
-                               &mut LinearVelocity,
-                               &Transform,
-                               &mut Player)>) {
-  let (player_entity,
-       player_space_object,
-       mut player_navigation,
-       mut player_force,
-       mut player_impulse,
-       mut player_vel,
-       player_transform,
-       mut player) = playerq.into_inner();
+pub fn player_movement(
+  keyboard_input: Res<ButtonInput<KeyCode>>,
+  cam_transform: Single<&Transform, With<Camera3d>>,
+  mut globaltransform_q: Query<&GlobalTransform>,
+  mut playerq: Single<(
+    Entity,
+    &SpaceObject,
+    &mut Navigation,
+    &mut ExternalForce,
+    &mut ExternalImpulse,
+    &mut LinearVelocity,
+    &Transform,
+    &mut Player
+  )>
+) {
+  let (
+    player_entity,
+    player_space_object,
+    mut player_navigation,
+    mut player_force,
+    mut player_impulse,
+    mut player_vel,
+    player_transform,
+    mut player
+  ) = playerq.into_inner();
   let up = Vec3::Y;
-  let forward = Vec3 { y: 0.0,
-                       ..cam_transform.forward().into() }.normalize_or_zero();
+  let forward = Vec3 {
+    y: 0.0,
+    ..cam_transform.forward().into()
+  }
+  .normalize_or_zero();
   let right = forward.cross(up);
 
-  let Vec3 { x, y, z } =
-    sum(filter_map(|(key, v)| keyboard_input.pressed(key).then_some(v),
-                   [(KeyCode::KeyA, Vec3::NEG_X),
-                    (KeyCode::KeyS, Vec3::NEG_Z),
-                    (KeyCode::KeyD, Vec3::X),
-                    (KeyCode::KeyW, Vec3::Z),
-                    (KeyCode::ControlLeft, Vec3::NEG_Y),
-                    (KeyCode::ShiftLeft, Vec3::Y)])).normalize_or_zero();
+  let Vec3 { x, y, z } = sum(filter_map(
+    |(key, v)| keyboard_input.pressed(key).then_some(v),
+    [
+      (KeyCode::KeyA, Vec3::NEG_X),
+      (KeyCode::KeyS, Vec3::NEG_Z),
+      (KeyCode::KeyD, Vec3::X),
+      (KeyCode::KeyW, Vec3::Z),
+      (KeyCode::ControlLeft, Vec3::NEG_Y),
+      (KeyCode::ShiftLeft, Vec3::Y)
+    ]
+  ))
+  .normalize_or_zero();
   let keyb_dir = (x * right) + (z * forward) + (y * up);
-  player_navigation.navigation_kind = if let Some(PlayerTargetInteractionState { target,
-                                                                                 approaching,
-                                                                                 .. }) =
-    player.target_interaction_state && approaching
+  player_navigation.navigation_kind = if let Some(PlayerTargetInteractionState {
+    target,
+    approaching,
+    ..
+  }) = player.target_interaction_state
+    && approaching
   {
     NavigationKind::Chase(target)
   } else {
@@ -1446,9 +1551,11 @@ comment! {
 //                         scaled_shape_subdivision: todo!(),
 //                         force_update_from_transform_changes: todo!() };
 
-pub fn warp(mut player_transform: Single<&mut Transform, With<Player>>,
-            targetq: Populated<&GlobalTransform>,
-            keyboard_input: Res<ButtonInput<KeyCode>>) {
+pub fn warp(
+  mut player_transform: Single<&mut Transform, With<Player>>,
+  targetq: Populated<&GlobalTransform>,
+  keyboard_input: Res<ButtonInput<KeyCode>>
+) {
   let target_globaltransform = pick(targetq.iter()).unwrap();
   if keyboard_input.just_pressed(KeyCode::KeyG) {
     player_transform.translation = target_globaltransform.translation();
@@ -1519,8 +1626,7 @@ fn close_on_esc(mut exit: EventWriter<AppExit>, keyboard_input: Res<ButtonInput<
 //   Neutral,
 // }
 
-
-#[derive(Eq, PartialEq,Clone,Copy, Debug)]
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
 enum CharacterAlignment {
   LawfulGood,
   LawfulNeutral,
@@ -1534,32 +1640,28 @@ enum CharacterAlignment {
 }
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 pub struct Faction {
-    pub name: &'static str,
-    pub alignment: CharacterAlignment,
+  pub name: &'static str,
+  pub alignment: CharacterAlignment
 }
 // finish writing these to use the new function
 impl Faction {
   pub const fn new(name: &'static str, alignment: CharacterAlignment) -> Self {
     Self { name, alignment }
   }
-  pub const fn alignment(&self) -> CharacterAlignment {
-    self.alignment
-  }
+  pub const fn alignment(&self) -> CharacterAlignment { self.alignment }
 
   pub const WANDERERS: Self = Self::new("Wanderers", CharacterAlignment::Neutral);
   pub const SPACE_POLICE: Self = Self::new("SpacePolice", CharacterAlignment::LawfulGood);
   pub const SPACE_PIRATES: Self = Self::new("SpacePirates", CharacterAlignment::ChaoticEvil);
-  pub const SPACEWIZARDS: Self = Self::new("SPACEWIZARDs", CharacterAlignment::ChaoticNeutral);
+  pub const SPACEWIZARDS: Self =
+    Self::new("SPACEWIZARDs", CharacterAlignment::ChaoticNeutral);
   pub const TRADERS: Self = Self::new("Traders", CharacterAlignment::Neutral);
   pub const INVADERS: Self = Self::new("Invaders", CharacterAlignment::LawfulEvil);
   pub const EXPLORERS: Self = Self::new("Explorers", CharacterAlignment::NeutralGood);
   pub const NEUTRAL: Self = Self::new("Neutral", CharacterAlignment::Neutral);
-
 }
-impl Default for Faction{
-    fn default() -> Self {
-      Self::NEUTRAL
-    }
+impl Default for Faction {
+  fn default() -> Self { Self::NEUTRAL }
 }
 #[derive(Component, Clone)]
 struct MagicAbility;
@@ -1574,8 +1676,12 @@ struct NPCProps {
 }
 impl Faction {
   fn is_good(&self) -> bool {
-    matches!(self.alignment(),
-             CharacterAlignment::LawfulGood | CharacterAlignment::NeutralGood | CharacterAlignment::ChaoticGood)
+    matches!(
+      self.alignment(),
+      CharacterAlignment::LawfulGood
+        | CharacterAlignment::NeutralGood
+        | CharacterAlignment::ChaoticGood
+    )
   }
   fn is_bad(&self) -> bool { !self.is_good() }
   fn is_hostile(&self, target: Self) -> bool {
@@ -1584,430 +1690,1048 @@ impl Faction {
 }
 fn colorful_texture() -> Image {
   let texture_size = 8;
-  Image::new_fill(bevy::render::render_resource::Extent3d { width: texture_size,
-                                                            height: texture_size,
-                                                            depth_or_array_layers: 1 },
-                  bevy::render::render_resource::TextureDimension::D2,
-                  map(|_| rand::random(),
-                      0..((texture_size * texture_size * 4) as usize)).collect::<Vec<u8>>()
-                                                                      .as_slice(),
-                  bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-                  bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD)
+  Image::new_fill(
+    bevy::render::render_resource::Extent3d {
+      width: texture_size,
+      height: texture_size,
+      depth_or_array_layers: 1
+    },
+    bevy::render::render_resource::TextureDimension::D2,
+    map(
+      |_| rand::random(),
+      0..((texture_size * texture_size * 4) as usize)
+    )
+    .collect::<Vec<u8>>()
+    .as_slice(),
+    bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+    bevy::render::render_asset::RenderAssetUsages::RENDER_WORLD
+  )
 }
 
 #[derive(Component, Clone)]
 pub struct Enemy;
 
 type DialogueEffect = fn() -> MyCommand;
-type DialogueTreeNode =
-  (&'static str,
-   &'static [(&'static str, &'static str, &'static str, Option<DialogueEffect>)]);
+type DialogueTreeNode = (
+  &'static str,
+  &'static [(
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<DialogueEffect>
+  )]
+);
 const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
 type DialogueTree = &'static [DialogueTreeNode];
 
-pub const SPHERICAL_SPACE_COW_DIALOGUE:DialogueTree = &[
-  ("A", &[
-    ("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None),
-  ]),
+pub const SPHERICAL_SPACE_COW_DIALOGUE: DialogueTree = &[
+  ("A", &[(
+    "B",
+    "Hello there, cow!",
+    "Cow: \"Moo-stronaut reporting for duty!\"",
+    None
+  )]),
   ("B", &[
-    ("C", "Why are you in space?", "Cow: \"I'm here to study zero-gravity milk production!\"", None),
-    ("D", "How did you become spherical?", "Cow: \"It's an evolutionary adaptation for space travel.\"", None),
-    ("E", "Are you lost?", "Cow: \"No, space is my new pasture!\"", None),
+    (
+      "C",
+      "Why are you in space?",
+      "Cow: \"I'm here to study zero-gravity milk production!\"",
+      None
+    ),
+    (
+      "D",
+      "How did you become spherical?",
+      "Cow: \"It's an evolutionary adaptation for space travel.\"",
+      None
+    ),
+    (
+      "E",
+      "Are you lost?",
+      "Cow: \"No, space is my new pasture!\"",
+      None
+    )
   ]),
   ("C", &[
-    ("F", "How's the milk production going?", "Cow: \"It's out of this world! Want to try some Moon Moo?\"", None),
-    ("G", "Isn't it dangerous up here?", "Cow: \"No need to cow-er in fear, I've got my space suit!\"", None),
-    ("H", "Who sent you here?", "Cow: \"Dr. Bovine von Lactose, the mad dairy scientist!\"", None),
+    (
+      "F",
+      "How's the milk production going?",
+      "Cow: \"It's out of this world! Want to try some Moon Moo?\"",
+      None
+    ),
+    (
+      "G",
+      "Isn't it dangerous up here?",
+      "Cow: \"No need to cow-er in fear, I've got my space suit!\"",
+      None
+    ),
+    (
+      "H",
+      "Who sent you here?",
+      "Cow: \"Dr. Bovine von Lactose, the mad dairy scientist!\"",
+      None
+    )
   ]),
   ("D", &[
-    ("I", "What are the advantages of being spherical?", "Cow: \"I can roll in any direction, and there are no corners to bump into!\"", None),
-    ("J", "Are there other spherical animals in space?", "Cow: \"I've heard rumors of a cubical chicken, but that's just absurd.\"", None),
-    ("K", "Can you change back to normal?", "Cow: \"Why would I? Being spherical is utterly amazing!\"", None),
+    (
+      "I",
+      "What are the advantages of being spherical?",
+      "Cow: \"I can roll in any direction, and there are no corners to bump into!\"",
+      None
+    ),
+    (
+      "J",
+      "Are there other spherical animals in space?",
+      "Cow: \"I've heard rumors of a cubical chicken, but that's just absurd.\"",
+      None
+    ),
+    (
+      "K",
+      "Can you change back to normal?",
+      "Cow: \"Why would I? Being spherical is utterly amazing!\"",
+      None
+    )
   ]),
   ("E", &[
-    ("L", "Don't you miss Earth?", "Cow: \"Sometimes, but the view up here is spe-cow-tacular!\"", None),
-    ("M", "What do you eat in space?", "Cow: \"Cosmic ray grass and star dust. It's quite moo-tritious!\"", None),
-    ("N", "How do you moo-ve around?", "Cow: \"I just roll with it! Newton's laws are my best friends.\"", None),
+    (
+      "L",
+      "Don't you miss Earth?",
+      "Cow: \"Sometimes, but the view up here is spe-cow-tacular!\"",
+      None
+    ),
+    (
+      "M",
+      "What do you eat in space?",
+      "Cow: \"Cosmic ray grass and star dust. It's quite moo-tritious!\"",
+      None
+    ),
+    (
+      "N",
+      "How do you moo-ve around?",
+      "Cow: \"I just roll with it! Newton's laws are my best friends.\"",
+      None
+    )
   ]),
-  ("F", &[
-    ("O", "Yes, I'd love to try some!", "Cow: \"Here's a glass of Moon Moo. It's extra frothy in zero-G!\"", None),
-  ]),
-  ("G", &[
-    ("P", "What's the biggest danger you've faced?", "Cow: \"I once got caught in Saturn's rings. Talk about a tight spot!\"", None),
-  ]),
-  ("H", &[
-    ("Q", "Can I meet this scientist?", "Cow: \"He's on the dark side of the moon. It's a bit of a trek!\"", None),
-  ]),
-  ("I", &[
-    ("R", "Can you demonstrate your rolling?", "Cow: \"Sure! WATch me do a barrel roll!\"", None),
-  ]),
-  ("J", &[
-    ("S", "A cubical chicken? That's crazy!", "Cow: \"I know, right? Geometry in space gets wild!\"", None),
-  ]),
-  ("K", &[
-    ("T", "Do you ever get dizzy from being round?", "Cow: \"Nope, I'm always well-balanced!\"", None),
-  ]),
-  ("L", &[
-    ("U", "What's your favorite view from space?", "Cow: \"The Milky Way, of course! It reminds me of home.\"", None),
-  ]),
-  ("M", &[
-    ("V", "Does star dust taste good?", "Cow: \"It's a bit dry, but it makes my milk sparkle!\"", None),
-  ]),
-  ("N", &[
-    ("W", "Can you explain the physics of your movement?", "Cow: \"It's all about conservation of moo-mentum!\"", None),
-  ]),
-  ("O", &[
-    ("X", "Wow, it's delicious! Can I have the recipe?", "Cow: \"Sorry, it's a closely guarded secret of the cosmos.\"", None),
-  ]),
-  ("P", &[
-    ("Y", "That sounds terrifying! How did you escape?", "Cow: \"I used my quick re-flex-es and dairy-ing escape plan!\"", None),
-  ]),
-  ("Q", &[
-    ("Z", "Is he planning to send more animals to space?", "Cow: \"He's working on a flock of zero-gravity sheep as we speak!\"", None),
-  ]),
-  ("R", &[
-    ("AA", "Impressive! Do you ever get motion sick?", "Cow: \"Nah, I've got a stomach of steel... er, four of them actually!\"", None),
-  ]),
-  ("S", &[
-    ("AB", "Are there any other strange space animals?", "Cow: \"I've heard whispers of a dodecahedron dolphin, but that's just silly.\"", None),
-  ]),
-  ("T", &[
-    ("AC", "You're full of jokes! Are all space cows this funny?", "Cow: \"Of course! Humor helps us cope with the uni-verse-al challenges.\"", None),
-  ]),
-  ("U", &[
-    ("AD", "That's beautiful. Do you ever feel lonely up here?", "Cow: \"Sometimes, but then I remember I'm surrounded by stars... and star-struck fans like you!\"", None),
-  ]),
-  ("V", &[
-    ("AE", "Sparkly milk sounds amazing! Can it grant superpowers?", "Cow: \"Only the power of good bone density and a happy tummy!\"", None),
-  ]),
-  ("W", &[
-    ("AF", "You're quite the physicist! Ever thought of teaching?", "Cow: \"I've been thinking of starting a 'Moo-niversity' actually!\"", None),
-  ]),
-  ("X", &[
-    ("END", "I understand. Thanks for sharing it with me!", "Cow: \"You're welcome! Remember, what happens in space, stays in space!\"", None),
-  ]),
-  ("Y", &[
-    ("END", "You're quite the adventurer! Any other close calls?", "Cow: \"Well, there was this one time with a black hole... but that's a story for another day!\"", None),
-  ]),
-  ("Z", &[
-    ("END", "Wow! What's next, pigs in orbit?", "Cow: \"Don't be silly! Everyone knows pigs can't fly... yet.\"", None),
-  ]),
-  ("AA", &[
-    ("END", "You're amazing! Can I take a selfie with you?", "Cow: \"Of course! Let's make it a 'span-selfie' - spanning the cosmos!\"", None),
-  ]),
-  ("AB", &[
-    ("END", "This is getting too weird. I think I need to go.", "Cow: \"Aw, don't have a cow, man! Stay a while and listen to more space tales!\"", None),
-  ]),
-  ("AC", &[
-    ("END", "You're out of this world! Thanks for the chat!", "Cow: \"My pleasure! Remember, in space, everyone can hear you cream... your coffee!\"", None),
-  ]),
-  ("AD", &[
-    ("END", "You're never alone with that attitude! Goodbye, space cow!", "Cow: \"Goodbye, Earth friend! May your dreams be as boundless as the universe!\"", None),
-  ]),
-  ("AE", &[
-    ("END", "I'll take a gallon! This was fun, thanks!", "Cow: \"Come back anytime! The Milky Way's always open!\"", None),
-  ]),
-  ("AF", &[
-    ("END", "SIGN me up for Astro-nomoo-my 101! Farewell!", "Cow: \"So long, and thanks for all the laughs! Keep reaching for the stars!\"", None),
-  ]),
-  DIALOGUE_END,
+  ("F", &[(
+    "O",
+    "Yes, I'd love to try some!",
+    "Cow: \"Here's a glass of Moon Moo. It's extra frothy in zero-G!\"",
+    None
+  )]),
+  ("G", &[(
+    "P",
+    "What's the biggest danger you've faced?",
+    "Cow: \"I once got caught in Saturn's rings. Talk about a tight spot!\"",
+    None
+  )]),
+  ("H", &[(
+    "Q",
+    "Can I meet this scientist?",
+    "Cow: \"He's on the dark side of the moon. It's a bit of a trek!\"",
+    None
+  )]),
+  ("I", &[(
+    "R",
+    "Can you demonstrate your rolling?",
+    "Cow: \"Sure! WATch me do a barrel roll!\"",
+    None
+  )]),
+  ("J", &[(
+    "S",
+    "A cubical chicken? That's crazy!",
+    "Cow: \"I know, right? Geometry in space gets wild!\"",
+    None
+  )]),
+  ("K", &[(
+    "T",
+    "Do you ever get dizzy from being round?",
+    "Cow: \"Nope, I'm always well-balanced!\"",
+    None
+  )]),
+  ("L", &[(
+    "U",
+    "What's your favorite view from space?",
+    "Cow: \"The Milky Way, of course! It reminds me of home.\"",
+    None
+  )]),
+  ("M", &[(
+    "V",
+    "Does star dust taste good?",
+    "Cow: \"It's a bit dry, but it makes my milk sparkle!\"",
+    None
+  )]),
+  ("N", &[(
+    "W",
+    "Can you explain the physics of your movement?",
+    "Cow: \"It's all about conservation of moo-mentum!\"",
+    None
+  )]),
+  ("O", &[(
+    "X",
+    "Wow, it's delicious! Can I have the recipe?",
+    "Cow: \"Sorry, it's a closely guarded secret of the cosmos.\"",
+    None
+  )]),
+  ("P", &[(
+    "Y",
+    "That sounds terrifying! How did you escape?",
+    "Cow: \"I used my quick re-flex-es and dairy-ing escape plan!\"",
+    None
+  )]),
+  ("Q", &[(
+    "Z",
+    "Is he planning to send more animals to space?",
+    "Cow: \"He's working on a flock of zero-gravity sheep as we speak!\"",
+    None
+  )]),
+  ("R", &[(
+    "AA",
+    "Impressive! Do you ever get motion sick?",
+    "Cow: \"Nah, I've got a stomach of steel... er, four of them actually!\"",
+    None
+  )]),
+  ("S", &[(
+    "AB",
+    "Are there any other strange space animals?",
+    "Cow: \"I've heard whispers of a dodecahedron dolphin, but that's just silly.\"",
+    None
+  )]),
+  ("T", &[(
+    "AC",
+    "You're full of jokes! Are all space cows this funny?",
+    "Cow: \"Of course! Humor helps us cope with the uni-verse-al challenges.\"",
+    None
+  )]),
+  ("U", &[(
+    "AD",
+    "That's beautiful. Do you ever feel lonely up here?",
+    "Cow: \"Sometimes, but then I remember I'm surrounded by stars... and star-struck fans like you!\"",
+    None
+  )]),
+  ("V", &[(
+    "AE",
+    "Sparkly milk sounds amazing! Can it grant superpowers?",
+    "Cow: \"Only the power of good bone density and a happy tummy!\"",
+    None
+  )]),
+  ("W", &[(
+    "AF",
+    "You're quite the physicist! Ever thought of teaching?",
+    "Cow: \"I've been thinking of starting a 'Moo-niversity' actually!\"",
+    None
+  )]),
+  ("X", &[(
+    "END",
+    "I understand. Thanks for sharing it with me!",
+    "Cow: \"You're welcome! Remember, what happens in space, stays in space!\"",
+    None
+  )]),
+  ("Y", &[(
+    "END",
+    "You're quite the adventurer! Any other close calls?",
+    "Cow: \"Well, there was this one time with a black hole... but that's a story for another day!\"",
+    None
+  )]),
+  ("Z", &[(
+    "END",
+    "Wow! What's next, pigs in orbit?",
+    "Cow: \"Don't be silly! Everyone knows pigs can't fly... yet.\"",
+    None
+  )]),
+  ("AA", &[(
+    "END",
+    "You're amazing! Can I take a selfie with you?",
+    "Cow: \"Of course! Let's make it a 'span-selfie' - spanning the cosmos!\"",
+    None
+  )]),
+  ("AB", &[(
+    "END",
+    "This is getting too weird. I think I need to go.",
+    "Cow: \"Aw, don't have a cow, man! Stay a while and listen to more space tales!\"",
+    None
+  )]),
+  ("AC", &[(
+    "END",
+    "You're out of this world! Thanks for the chat!",
+    "Cow: \"My pleasure! Remember, in space, everyone can hear you cream... your coffee!\"",
+    None
+  )]),
+  ("AD", &[(
+    "END",
+    "You're never alone with that attitude! Goodbye, space cow!",
+    "Cow: \"Goodbye, Earth friend! May your dreams be as boundless as the universe!\"",
+    None
+  )]),
+  ("AE", &[(
+    "END",
+    "I'll take a gallon! This was fun, thanks!",
+    "Cow: \"Come back anytime! The Milky Way's always open!\"",
+    None
+  )]),
+  ("AF", &[(
+    "END",
+    "SIGN me up for Astro-nomoo-my 101! Farewell!",
+    "Cow: \"So long, and thanks for all the laughs! Keep reaching for the stars!\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 
 pub const SPACE_COWBOY_DIALOGUE: DialogueTree = &[
-    ("A", &[
-        ("B", "Howdy, partner!", "Space Cowboy: \"Well, howdy there, space traveler! Welcome to the cosmic corral!\"", None),
-    ]),
-    ("B", &[
-        ("C", "What's a cowboy doing in space?", "Space Cowboy: \"Roundin' up asteroids and headin' off comet stampedes, of course!\"", None),
-        ("D", "Nice space suit! Is that leather?", "Space Cowboy: \"Sure is! Genuine Martian leather, tougher than a solar flare!\"", None),
-        ("E", "Have you seen any aliens?", "Space Cowboy: \"Aliens? Why, I've shared a campfire with beings from more galaxies than you can count!\"", None),
-    ]),
-    ("C", &[
-        ("F", "ASTEROID roundup? How does that work?", "Space Cowboy: \"With a quantum lasso and a whole lotta patience, partner!\"", None),
-        ("G", "Comet stampedes sound dangerous!", "Space Cowboy: \"You bet your stars they are! But nothin' my trusty rocket horse can't handle.\"", None),
-    ]),
-    ("D", &[
-        ("H", "Martian leather? Is that ethical?", "Space Cowboy: \"Now, don't you worry. It's all synthetic, made from Mars dust. No space cows harmed!\"", None),
-        ("I", "How does it protect you from space?", "Space Cowboy: \"It's lined with nanotech fibers. Keeps out cosmic rays better than a fort keeps out rustlers!\"", None),
-    ]),
-    ("E", &[
-        ("J", "Tell me about these aliens!", "Space Cowboy: \"Met a cloud being from Nebula Nine once. Makes a mean vapor coffee!\"", None),
-        ("K", "A cosmic campfire? How?", "Space Cowboy: \"With a contained plasma flame, 'course! Roasts space marshmallows like you wouldn't believe.\"", None),
-    ]),
-    ("F", &[
-        ("END", "That sounds amazing! Can you teach me?", "Space Cowboy: \"Sure thing, greenhorn! First lesson: always approach an asteroid from downwind.\"", None),
-    ]),
-    ("G", &[
-        ("END", "A rocket horse? Now I've heard everything!", "Space Cowboy: \"Ol' Supernova here's been my loyal steed for light-years! Ain't ya, girl?\" *pats invisible horse*", None),
-    ]),
-    ("H", &[
-        ("END", "That's a relief! It looks so realistic.", "Space Cowboy: \"Yep, fools even the keenest eye. Now, if you'll excuse me, I've got some solar wind to wrangle!\"", None),
-    ]),
-    ("I", &[
-        ("END", "Incredible! Where can I get one?", "Space Cowboy: \"These suits are rarer than a quiet night in a neutron star saloon. But if you prove yourself, I might know a fella...\"", None),
-    ]),
-    ("J", &[
-        ("END", "Vapor coffee? That's wild!", "Space Cowboy: \"Puts hair on your chest and a twinkle in your eye! Now, if you'll pardon me, I've got a date with the Milky Way.\"", None),
-    ]),
-    ("K", &[
-        ("END", "Space marshmallows? Now I'm hungry!", "Space Cowboy: \"Tell ya what, next time you're in the Andromeda arm, look me up. We'll have ourselves a good ol' space hoedown!\"", None),
-    ]),
-  DIALOGUE_END,
+  ("A", &[(
+    "B",
+    "Howdy, partner!",
+    "Space Cowboy: \"Well, howdy there, space traveler! Welcome to the cosmic corral!\"",
+    None
+  )]),
+  ("B", &[
+    (
+      "C",
+      "What's a cowboy doing in space?",
+      "Space Cowboy: \"Roundin' up asteroids and headin' off comet stampedes, of course!\"",
+      None
+    ),
+    (
+      "D",
+      "Nice space suit! Is that leather?",
+      "Space Cowboy: \"Sure is! Genuine Martian leather, tougher than a solar flare!\"",
+      None
+    ),
+    (
+      "E",
+      "Have you seen any aliens?",
+      "Space Cowboy: \"Aliens? Why, I've shared a campfire with beings from more galaxies than you can count!\"",
+      None
+    )
+  ]),
+  ("C", &[
+    (
+      "F",
+      "ASTEROID roundup? How does that work?",
+      "Space Cowboy: \"With a quantum lasso and a whole lotta patience, partner!\"",
+      None
+    ),
+    (
+      "G",
+      "Comet stampedes sound dangerous!",
+      "Space Cowboy: \"You bet your stars they are! But nothin' my trusty rocket horse can't handle.\"",
+      None
+    )
+  ]),
+  ("D", &[
+    (
+      "H",
+      "Martian leather? Is that ethical?",
+      "Space Cowboy: \"Now, don't you worry. It's all synthetic, made from Mars dust. No space cows harmed!\"",
+      None
+    ),
+    (
+      "I",
+      "How does it protect you from space?",
+      "Space Cowboy: \"It's lined with nanotech fibers. Keeps out cosmic rays better than a fort keeps out rustlers!\"",
+      None
+    )
+  ]),
+  ("E", &[
+    (
+      "J",
+      "Tell me about these aliens!",
+      "Space Cowboy: \"Met a cloud being from Nebula Nine once. Makes a mean vapor coffee!\"",
+      None
+    ),
+    (
+      "K",
+      "A cosmic campfire? How?",
+      "Space Cowboy: \"With a contained plasma flame, 'course! Roasts space marshmallows like you wouldn't believe.\"",
+      None
+    )
+  ]),
+  ("F", &[(
+    "END",
+    "That sounds amazing! Can you teach me?",
+    "Space Cowboy: \"Sure thing, greenhorn! First lesson: always approach an asteroid from downwind.\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "A rocket horse? Now I've heard everything!",
+    "Space Cowboy: \"Ol' Supernova here's been my loyal steed for light-years! Ain't ya, girl?\" *pats invisible horse*",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "That's a relief! It looks so realistic.",
+    "Space Cowboy: \"Yep, fools even the keenest eye. Now, if you'll excuse me, I've got some solar wind to wrangle!\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "Incredible! Where can I get one?",
+    "Space Cowboy: \"These suits are rarer than a quiet night in a neutron star saloon. But if you prove yourself, I might know a fella...\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "Vapor coffee? That's wild!",
+    "Space Cowboy: \"Puts hair on your chest and a twinkle in your eye! Now, if you'll pardon me, I've got a date with the Milky Way.\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Space marshmallows? Now I'm hungry!",
+    "Space Cowboy: \"Tell ya what, next time you're in the Andromeda arm, look me up. We'll have ourselves a good ol' space hoedown!\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 
 pub const SOCRATES_DIALOGUE: DialogueTree = &[
-    ("A", &[
-        ("B", "Greetings, Socrates! How are you finding space?", "Socrates: \"Ah, greetings, young seeker of knowledge! Space, like wisdom, is vast and full of wonder.\"", None),
-    ]),
-    ("B", &[
-        ("C", "What do you think about this future world?", "Socrates: \"I know that I know nothing of this world, which makes it all the more fascinating to question and explore.\"", None),
-        ("D", "Can you tell me about your philosophical method?", "Socrates: \"Even here, amidst the stars, we must question everything. Shall we examine the nature of this cosmic realm?\"", None),
-        ("E", "How does space travel relate to your ideas of the soul?", "Socrates: \"Perhaps our souls, like these celestial bodies, are on an eternal journey through the universe of ideas.\"", None),
-    ]),
-    ("C", &[
-        ("F", "Does this advanced technology change your views on knowledge?", "Socrates: \"Technology may advance, but the pursuit of wisdom remains unchanged. We must still question and reflect.\"", None),
-        ("G", "What would you ask the aliens if we meet them?", "Socrates: \"I would ask them about their concept of virtue, and whether it's universal across the cosmos.\"", None),
-    ]),
-    ("D", &[
-        ("H", "How would you apply the Socratic method to space exploration?", "Socrates: \"We must question our assumptions about the universe, just as we question our beliefs about ourselves.\"", None),
-        ("I", "Can your ideas of ethics apply to alien civilizations?", "Socrates: \"The search for universal truths should extend beyond Earth. Perhaps aliens too seek the good life.\"", None),
-    ]),
-    ("E", &[
-        ("J", "Do you think space travel could be a form of seeking truth?", "Socrates: \"Indeed! As we journey through space, are we not also journeying through the realm of ideas?\"", None),
-        ("K", "How does floating in space compare to your concept of the Forms?", "Socrates: \"This weightlessness reminds me of how the soul must feel when contemplating the Forms. Utterly free!\"", None),
-    ]),
-    ("F", &[
-        ("END", "That's profound. Thank you for your wisdom, Socrates.", "Socrates: \"Remember, the unexamined space life is not worth living! Now, shall we ponder the ethics of faster-than-light travel?\"", None),
-    ]),
-    ("G", &[
-        ("END", "Alien virtue? That's a mind-bending concept!", "Socrates: \"Indeed! And in questioning them, we may learn more about ourselves. Now, I wonder if there's a cosmic equivalent of hemlock...\"", None),
-    ]),
-    ("H", &[
-        ("END", "I see. Question everything, even in space!", "Socrates: \"Precisely! Now, let us question the very nature of these asteroid fields. What is their essence?\"", None),
-    ]),
-    ("I", &[
-        ("END", "Universal ethics across species... fascinating!", "Socrates: \"A worthy pursuit indeed! Now, if you'll excuse me, I must go contemplate the allegory of the black hole.\"", None),
-    ]),
-    ("J", &[
-        ("END", "Space travel as a metaphor for seeking truth. Brilliant!", "Socrates: \"You show wisdom, young space traveler. Now, shall we examine the true form of these twinkling stars?\"", None),
-    ]),
-    ("K", &[
-        ("END", "Your ideas truly transcend time and space, Socrates.", "Socrates: \"As do all ideas, my friend. Now, I must float away and dialectically analyze this cosmic dust.\"", None),
-    ]),
-  DIALOGUE_END,
+  ("A", &[(
+    "B",
+    "Greetings, Socrates! How are you finding space?",
+    "Socrates: \"Ah, greetings, young seeker of knowledge! Space, like wisdom, is vast and full of wonder.\"",
+    None
+  )]),
+  ("B", &[
+    (
+      "C",
+      "What do you think about this future world?",
+      "Socrates: \"I know that I know nothing of this world, which makes it all the more fascinating to question and explore.\"",
+      None
+    ),
+    (
+      "D",
+      "Can you tell me about your philosophical method?",
+      "Socrates: \"Even here, amidst the stars, we must question everything. Shall we examine the nature of this cosmic realm?\"",
+      None
+    ),
+    (
+      "E",
+      "How does space travel relate to your ideas of the soul?",
+      "Socrates: \"Perhaps our souls, like these celestial bodies, are on an eternal journey through the universe of ideas.\"",
+      None
+    )
+  ]),
+  ("C", &[
+    (
+      "F",
+      "Does this advanced technology change your views on knowledge?",
+      "Socrates: \"Technology may advance, but the pursuit of wisdom remains unchanged. We must still question and reflect.\"",
+      None
+    ),
+    (
+      "G",
+      "What would you ask the aliens if we meet them?",
+      "Socrates: \"I would ask them about their concept of virtue, and whether it's universal across the cosmos.\"",
+      None
+    )
+  ]),
+  ("D", &[
+    (
+      "H",
+      "How would you apply the Socratic method to space exploration?",
+      "Socrates: \"We must question our assumptions about the universe, just as we question our beliefs about ourselves.\"",
+      None
+    ),
+    (
+      "I",
+      "Can your ideas of ethics apply to alien civilizations?",
+      "Socrates: \"The search for universal truths should extend beyond Earth. Perhaps aliens too seek the good life.\"",
+      None
+    )
+  ]),
+  ("E", &[
+    (
+      "J",
+      "Do you think space travel could be a form of seeking truth?",
+      "Socrates: \"Indeed! As we journey through space, are we not also journeying through the realm of ideas?\"",
+      None
+    ),
+    (
+      "K",
+      "How does floating in space compare to your concept of the Forms?",
+      "Socrates: \"This weightlessness reminds me of how the soul must feel when contemplating the Forms. Utterly free!\"",
+      None
+    )
+  ]),
+  ("F", &[(
+    "END",
+    "That's profound. Thank you for your wisdom, Socrates.",
+    "Socrates: \"Remember, the unexamined space life is not worth living! Now, shall we ponder the ethics of faster-than-light travel?\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "Alien virtue? That's a mind-bending concept!",
+    "Socrates: \"Indeed! And in questioning them, we may learn more about ourselves. Now, I wonder if there's a cosmic equivalent of hemlock...\"",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "I see. Question everything, even in space!",
+    "Socrates: \"Precisely! Now, let us question the very nature of these asteroid fields. What is their essence?\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "Universal ethics across species... fascinating!",
+    "Socrates: \"A worthy pursuit indeed! Now, if you'll excuse me, I must go contemplate the allegory of the black hole.\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "Space travel as a metaphor for seeking truth. Brilliant!",
+    "Socrates: \"You show wisdom, young space traveler. Now, shall we examine the true form of these twinkling stars?\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Your ideas truly transcend time and space, Socrates.",
+    "Socrates: \"As do all ideas, my friend. Now, I must float away and dialectically analyze this cosmic dust.\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 
 pub const MARIE_CURIE_DIALOGUE: DialogueTree = &[
-    ("A", &[
-        ("B", "Madame Curie! It's an honor. How are you adapting to space?", "Marie Curie: \"Bonjour! The universe is full of natural marvels. I'm detecting fascinating radiation patterns!\"", None),
-    ]),
-    ("B", &[
-        ("C", "What do you think about modern space technology?", "Marie Curie: \"C'est incroyable! The advances in physics and chemistry have led to marvels beyond my wildest dreams.\"", None),
-        ("D", "How does your work on radioactivity apply here?", "Marie Curie: \"The principles remain the same, but the scale is enormous! Cosmic rays, solar radiation... so much to study!\"", None),
-        ("E", "What would you like to research in space?", "Marie Curie: \"I'm fascinated by the potential for new elements in these asteroids. Shall we start collecting samples?\"", None),
-    ]),
-    ("C", &[
-        ("F", "Do you think space travel would have changed your research?", "Marie Curie: \"Undoubtedly! The absence of gravity opens up new possibilities for experiments in radioactivity.\"", None),
-        ("G", "What advice would you give to future scientists?", "Marie Curie: \"Never fear the unknown. In science and in space, curiosity is our greatest asset.\"", None),
-    ]),
-    ("D", &[
-        ("H", "How would you protect astronauts from cosmic radiation?", "Marie Curie: \"We must study it first! Understanding radiation is key to protection. Perhaps a new element could help...\"", None),
-        ("I", "Could your work on X-rays be applied to space medicine?", "Marie Curie: \"Absolutely! Imagine a portable X-ray device for diagnosing injuries on long space voyages.\"", None),
-    ]),
-    ("E", &[
-        ("J", "What kind of lab equipment would you need for space research?", "Marie Curie: \"A spectrometer would be essential. And perhaps we could design a microgravity centrifuge for separation!\"", None),
-        ("K", "Do you think we might find radioactive alien life?", "Marie Curie: \"An intriguing hypothesis! We must approach it with rigorous scientific method and an open mind.\"", None),
-    ]),
-    ("F", &[
-        ("END", "Your passion for science is truly inspiring, Madame Curie.", "Marie Curie: \"Merci! Remember, in science as in space exploration, we must have perseverance and faith in the unknown.\"", None),
-    ]),
-    ("G", &[
-        ("END", "Great advice! Science and exploration go hand in hand.", "Marie Curie: \"Indeed! Now, shall we analyze the spectral lines of that nearby star? For science!\"", None),
-    ]),
-    ("H", &[
-        ("END", "A new element for radiation shielding? Brilliant idea!", "Marie Curie: \"Every discovery opens new doors. Now, let's calibrate this space-suited Geiger counter!\"", None),
-    ]),
-    ("I", &[
-        ("END", "Space X-rays... that could revolutionize long-distance space travel!", "Marie Curie: \"Exactement! Science knows no borders, not even in the vastness of space. Now, where did I put my radium samples...\"", None),
-    ]),
-    ("J", &[
-        ("END", "A space lab sounds amazing. You're already adapting to the future!", "Marie Curie: \"Science evolves, but the spirit of inquiry remains. Now, let's see what secrets these cosmic rays hold!\"", None),
-    ]),
-    ("K", &[
-        ("END", "Radioactive aliens? Now that's a sci-fi concept!", "Marie Curie: \"Science often surpasses fiction! Now, help me set up this zero-gravity polonium experiment, s'il vous plaît.\"", None),
-    ]),
-  DIALOGUE_END,
+  ("A", &[(
+    "B",
+    "Madame Curie! It's an honor. How are you adapting to space?",
+    "Marie Curie: \"Bonjour! The universe is full of natural marvels. I'm detecting fascinating radiation patterns!\"",
+    None
+  )]),
+  ("B", &[
+    (
+      "C",
+      "What do you think about modern space technology?",
+      "Marie Curie: \"C'est incroyable! The advances in physics and chemistry have led to marvels beyond my wildest dreams.\"",
+      None
+    ),
+    (
+      "D",
+      "How does your work on radioactivity apply here?",
+      "Marie Curie: \"The principles remain the same, but the scale is enormous! Cosmic rays, solar radiation... so much to study!\"",
+      None
+    ),
+    (
+      "E",
+      "What would you like to research in space?",
+      "Marie Curie: \"I'm fascinated by the potential for new elements in these asteroids. Shall we start collecting samples?\"",
+      None
+    )
+  ]),
+  ("C", &[
+    (
+      "F",
+      "Do you think space travel would have changed your research?",
+      "Marie Curie: \"Undoubtedly! The absence of gravity opens up new possibilities for experiments in radioactivity.\"",
+      None
+    ),
+    (
+      "G",
+      "What advice would you give to future scientists?",
+      "Marie Curie: \"Never fear the unknown. In science and in space, curiosity is our greatest asset.\"",
+      None
+    )
+  ]),
+  ("D", &[
+    (
+      "H",
+      "How would you protect astronauts from cosmic radiation?",
+      "Marie Curie: \"We must study it first! Understanding radiation is key to protection. Perhaps a new element could help...\"",
+      None
+    ),
+    (
+      "I",
+      "Could your work on X-rays be applied to space medicine?",
+      "Marie Curie: \"Absolutely! Imagine a portable X-ray device for diagnosing injuries on long space voyages.\"",
+      None
+    )
+  ]),
+  ("E", &[
+    (
+      "J",
+      "What kind of lab equipment would you need for space research?",
+      "Marie Curie: \"A spectrometer would be essential. And perhaps we could design a microgravity centrifuge for separation!\"",
+      None
+    ),
+    (
+      "K",
+      "Do you think we might find radioactive alien life?",
+      "Marie Curie: \"An intriguing hypothesis! We must approach it with rigorous scientific method and an open mind.\"",
+      None
+    )
+  ]),
+  ("F", &[(
+    "END",
+    "Your passion for science is truly inspiring, Madame Curie.",
+    "Marie Curie: \"Merci! Remember, in science as in space exploration, we must have perseverance and faith in the unknown.\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "Great advice! Science and exploration go hand in hand.",
+    "Marie Curie: \"Indeed! Now, shall we analyze the spectral lines of that nearby star? For science!\"",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "A new element for radiation shielding? Brilliant idea!",
+    "Marie Curie: \"Every discovery opens new doors. Now, let's calibrate this space-suited Geiger counter!\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "Space X-rays... that could revolutionize long-distance space travel!",
+    "Marie Curie: \"Exactement! Science knows no borders, not even in the vastness of space. Now, where did I put my radium samples...\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "A space lab sounds amazing. You're already adapting to the future!",
+    "Marie Curie: \"Science evolves, but the spirit of inquiry remains. Now, let's see what secrets these cosmic rays hold!\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Radioactive aliens? Now that's a sci-fi concept!",
+    "Marie Curie: \"Science often surpasses fiction! Now, help me set up this zero-gravity polonium experiment, s'il vous plaît.\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 
 pub const ABRAHAM_LINCOLN_DIALOGUE: DialogueTree = &[
-    ("A", &[
-        ("B", "President Lincoln! How are you finding the space age?", "Lincoln: \"Four score and seven light-years ago... I jest. This future is both terrifying and awe-inspiring.\"", None),
-    ]),
-    ("B", &[
-        ("C", "How do your ideas of democracy apply to space colonization?", "Lincoln: \"A government of the planets, by the planets, for the planets, shall not perish from this universe.\"", None),
-        ("D", "What do you think about the current state of equality?", "Lincoln: \"Progress has been made, but our journey continues. We must ensure liberty and justice for all sentient beings.\"", None),
-        ("E", "How would you handle diplomacy with alien races?", "Lincoln: \"With malice toward none, with charity for all... even those with tentacles or exoskeletons.\"", None),
-    ]),
-    ("C", &[
-        ("F", "Should every planet have equal representation?", "Lincoln: \"A house divided against itself cannot stand, even if that house spans galaxies. We must find a way to unite.\"", None),
-        ("G", "What about AI rights in this futuristic society?", "Lincoln: \"The notion that all intelligences are created equal must extend to artificial ones too. It's the next frontier of rights.\"", None),
-    ]),
-    ("D", &[
-        ("H", "Have we achieved your vision of equality?", "Lincoln: \"Progress is evident, but the work is never finished. We must strive to extend equality across the cosmos.\"", None),
-        ("I", "How can we apply your principles to alien civilizations?", "Lincoln: \"The better angels of our nature must guide us in treating all sentient life with respect and dignity.\"", None),
-    ]),
-    ("E", &[
-        ("J", "Would you still believe in preserving the Union on a galactic scale?", "Lincoln: \"The principles remain sound. We must work to form a more perfect Union, even among the stars.\"", None),
-        ("K", "How would you address conflicts between human colonies and alien worlds?", "Lincoln: \"Let us strive on to finish the work we are in, to achieve and cherish a just and lasting peace among ourselves and all sentient beings.\"", None),
-    ]),
-    ("F", &[
-        ("END", "A galactic democracy... that's a big idea, Mr. President!", "Lincoln: \"Indeed it is! Now, if you'll excuse me, I need to draft the Emancipation Proclamation for the robots of Neptune...\"", None),
-    ]),
-    ("G", &[
-        ("END", "AI rights? You're adapting quickly to future issues!", "Lincoln: \"The principles of liberty are timeless, my friend. Now, shall we discuss the ethics of faster-than-light travel?\"", None),
-    ]),
-    ("H", &[
-        ("END", "Your vision continues to inspire us, even in space.", "Lincoln: \"Remember, the struggle for equality is as vast as space itself. Now, I must contemplate the Gettysburg Address for Martians.\"", None),
-    ]),
-    ("I", &[
-        ("END", "Respecting all sentient life... a noble goal for the future.", "Lincoln: \"Indeed. The task remaining before us is as great as the cosmos itself. Now, where can a man get a stovepipe helmet for his spacesuit?\"", None),
-    ]),
-    ("J", &[
-        ("END", "A galactic Union... that's an incredible concept!", "Lincoln: \"The work of unity never ceases, my friend. Now, I believe I have a speech to give at the Andromeda Lincoln Memorial.\"", None),
-    ]),
-    ("K", &[
-        ("END", "Your words of peace resonate even in the space age, sir.", "Lincoln: \"May they echo across the stars. Now, I must attend to pressing matters. I hear there's a vampire problem on the dark side of the moon...\"", None),
-    ]),
-  DIALOGUE_END,
+  ("A", &[(
+    "B",
+    "President Lincoln! How are you finding the space age?",
+    "Lincoln: \"Four score and seven light-years ago... I jest. This future is both terrifying and awe-inspiring.\"",
+    None
+  )]),
+  ("B", &[
+    (
+      "C",
+      "How do your ideas of democracy apply to space colonization?",
+      "Lincoln: \"A government of the planets, by the planets, for the planets, shall not perish from this universe.\"",
+      None
+    ),
+    (
+      "D",
+      "What do you think about the current state of equality?",
+      "Lincoln: \"Progress has been made, but our journey continues. We must ensure liberty and justice for all sentient beings.\"",
+      None
+    ),
+    (
+      "E",
+      "How would you handle diplomacy with alien races?",
+      "Lincoln: \"With malice toward none, with charity for all... even those with tentacles or exoskeletons.\"",
+      None
+    )
+  ]),
+  ("C", &[
+    (
+      "F",
+      "Should every planet have equal representation?",
+      "Lincoln: \"A house divided against itself cannot stand, even if that house spans galaxies. We must find a way to unite.\"",
+      None
+    ),
+    (
+      "G",
+      "What about AI rights in this futuristic society?",
+      "Lincoln: \"The notion that all intelligences are created equal must extend to artificial ones too. It's the next frontier of rights.\"",
+      None
+    )
+  ]),
+  ("D", &[
+    (
+      "H",
+      "Have we achieved your vision of equality?",
+      "Lincoln: \"Progress is evident, but the work is never finished. We must strive to extend equality across the cosmos.\"",
+      None
+    ),
+    (
+      "I",
+      "How can we apply your principles to alien civilizations?",
+      "Lincoln: \"The better angels of our nature must guide us in treating all sentient life with respect and dignity.\"",
+      None
+    )
+  ]),
+  ("E", &[
+    (
+      "J",
+      "Would you still believe in preserving the Union on a galactic scale?",
+      "Lincoln: \"The principles remain sound. We must work to form a more perfect Union, even among the stars.\"",
+      None
+    ),
+    (
+      "K",
+      "How would you address conflicts between human colonies and alien worlds?",
+      "Lincoln: \"Let us strive on to finish the work we are in, to achieve and cherish a just and lasting peace among ourselves and all sentient beings.\"",
+      None
+    )
+  ]),
+  ("F", &[(
+    "END",
+    "A galactic democracy... that's a big idea, Mr. President!",
+    "Lincoln: \"Indeed it is! Now, if you'll excuse me, I need to draft the Emancipation Proclamation for the robots of Neptune...\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "AI rights? You're adapting quickly to future issues!",
+    "Lincoln: \"The principles of liberty are timeless, my friend. Now, shall we discuss the ethics of faster-than-light travel?\"",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "Your vision continues to inspire us, even in space.",
+    "Lincoln: \"Remember, the struggle for equality is as vast as space itself. Now, I must contemplate the Gettysburg Address for Martians.\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "Respecting all sentient life... a noble goal for the future.",
+    "Lincoln: \"Indeed. The task remaining before us is as great as the cosmos itself. Now, where can a man get a stovepipe helmet for his spacesuit?\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "A galactic Union... that's an incredible concept!",
+    "Lincoln: \"The work of unity never ceases, my friend. Now, I believe I have a speech to give at the Andromeda Lincoln Memorial.\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Your words of peace resonate even in the space age, sir.",
+    "Lincoln: \"May they echo across the stars. Now, I must attend to pressing matters. I hear there's a vampire problem on the dark side of the moon...\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 
 pub const CHRONOS_SPACE_WIZARD_DIALOGUE: DialogueTree = &[
-  ("A", &[
-    ("B", "Who are you, and why have you brought these historical figures to space?", "Space Wizard: \"Greetings, cosmic traveler! I am Chronos, the Space Wizard of Time and Dimension. I have assembled these great minds for a grand purpose!\"", None),
-  ]),
+  ("A", &[(
+    "B",
+    "Who are you, and why have you brought these historical figures to space?",
+    "Space Wizard: \"Greetings, cosmic traveler! I am Chronos, the Space Wizard of Time and Dimension. I have assembled these great minds for a grand purpose!\"",
+    None
+  )]),
   ("B", &[
-    ("C", "What is this grand purpose?", "Chronos: \"To solve the greatest challenges of the universe! These brilliant minds, combined with futuristic knowledge, might save reality itself!\"", None),
-    ("D", "How did you bring them here?", "Chronos: \"With my Chrono-Spatial Translocator, of course! It plucks beings from their timestreams and deposits them here, fully adapted to space travel.\"", None),
-    ("E", "Won't this disrupt the timeline?", "Chronos: \"Fear not! Once our task is complete, I shall return them to their exact moments in history, memories intact but disguised as vivid dreams.\"", None),
+    (
+      "C",
+      "What is this grand purpose?",
+      "Chronos: \"To solve the greatest challenges of the universe! These brilliant minds, combined with futuristic knowledge, might save reality itself!\"",
+      None
+    ),
+    (
+      "D",
+      "How did you bring them here?",
+      "Chronos: \"With my Chrono-Spatial Translocator, of course! It plucks beings from their timestreams and deposits them here, fully adapted to space travel.\"",
+      None
+    ),
+    (
+      "E",
+      "Won't this disrupt the timeline?",
+      "Chronos: \"Fear not! Once our task is complete, I shall return them to their exact moments in history, memories intact but disguised as vivid dreams.\"",
+      None
+    )
   ]),
   ("C", &[
-    ("F", "What are these universal challenges?", "Chronos: \"The heat death of the universe, the reconciliation of quantum mechanics and general relativity, and the correct way to eat a cosmic sandwich in zero gravity!\"", None),
-    ("G", "How can historical figures help with future problems?", "Chronos: \"Fresh perspectives, my friend! Sometimes the wisdom of the past is key to unlocking the mysteries of the future.\"", None),
+    (
+      "F",
+      "What are these universal challenges?",
+      "Chronos: \"The heat death of the universe, the reconciliation of quantum mechanics and general relativity, and the correct way to eat a cosmic sandwich in zero gravity!\"",
+      None
+    ),
+    (
+      "G",
+      "How can historical figures help with future problems?",
+      "Chronos: \"Fresh perspectives, my friend! Sometimes the wisdom of the past is key to unlocking the mysteries of the future.\"",
+      None
+    )
   ]),
   ("D", &[
-    ("H", "Is the Chrono-Spatial Translocator safe?", "Chronos: \"Mostly! There was that one incident with Cleopatra and the black hole, but we don't talk about that...\"", None),
-    ("I", "Can anyone use this device?", "Chronos: \"Goodness, no! It requires a degree in Temporal Physics and a license from the Intergalactic Time Authority. Plus, really good spatial awareness.\"", None),
+    (
+      "H",
+      "Is the Chrono-Spatial Translocator safe?",
+      "Chronos: \"Mostly! There was that one incident with Cleopatra and the black hole, but we don't talk about that...\"",
+      None
+    ),
+    (
+      "I",
+      "Can anyone use this device?",
+      "Chronos: \"Goodness, no! It requires a degree in Temporal Physics and a license from the Intergalactic Time Authority. Plus, really good spatial awareness.\"",
+      None
+    )
   ]),
   ("E", &[
-    ("J", "What if they want to stay in the future?", "Chronos: \"An excellent question! But history must run its course. Their contributions in their own times are crucial to the development of humanity.\"", None),
-    ("K", "Could their future knowledge change history?", "Chronos: \"Their memories of this adventure will fade upon return, leaving only subconscious inspiration. Clever, eh?\"", None),
+    (
+      "J",
+      "What if they want to stay in the future?",
+      "Chronos: \"An excellent question! But history must run its course. Their contributions in their own times are crucial to the development of humanity.\"",
+      None
+    ),
+    (
+      "K",
+      "Could their future knowledge change history?",
+      "Chronos: \"Their memories of this adventure will fade upon return, leaving only subconscious inspiration. Clever, eh?\"",
+      None
+    )
   ]),
-  ("F", &[
-    ("END", "Those are... interesting challenges. Especially the sandwich one.", "Chronos: \"Never underestimate the importance of proper space cuisine! Now, excuse me while I explain quantum entanglement to Socrates.\"", None),
-  ]),
-  ("G", &[
-    ("END", "I see. It's like a cosmic think tank!", "Chronos: \"Precisely! Now, if you'll pardon me, I need to stop Marie Curie from trying to split atoms on the ship.\"", None),
-  ]),
-  ("H", &[
-    ("END", "Mostly safe? That's... reassuring.", "Chronos: \"Don't worry! The chances of accidental dinosaur materialization are very low this time. Now, where did I put that temporal stabilizer...\"", None),
-  ]),
-  ("I", &[
-    ("END", "I see. So no borrowing it for weekend trips to the Renaissance.", "Chronos: \"I'm afraid not. Last time someone did that, we ended up with pizza in ancient Egypt. Now, I must calibrate the quantum flux capacitor!\"", None),
-  ]),
-  ("J", &[
-    ("END", "That makes sense. It's a big responsibility.", "Chronos: \"Indeed it is! The burden of knowledge is heavy, but the fate of the cosmos is heavier. Now, I need to explain internet memes to Abe Lincoln.\"", None),
-  ]),
-  ("K", &[
-    ("END", "Subconscious inspiration... very clever indeed!", "Chronos: \"Thank you! Now, if you'll excuse me, I need to prevent Nikola Tesla from rewiring our ship's power grid. Again.\"", None),
-  ]),
-  DIALOGUE_END,
+  ("F", &[(
+    "END",
+    "Those are... interesting challenges. Especially the sandwich one.",
+    "Chronos: \"Never underestimate the importance of proper space cuisine! Now, excuse me while I explain quantum entanglement to Socrates.\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "I see. It's like a cosmic think tank!",
+    "Chronos: \"Precisely! Now, if you'll pardon me, I need to stop Marie Curie from trying to split atoms on the ship.\"",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "Mostly safe? That's... reassuring.",
+    "Chronos: \"Don't worry! The chances of accidental dinosaur materialization are very low this time. Now, where did I put that temporal stabilizer...\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "I see. So no borrowing it for weekend trips to the Renaissance.",
+    "Chronos: \"I'm afraid not. Last time someone did that, we ended up with pizza in ancient Egypt. Now, I must calibrate the quantum flux capacitor!\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "That makes sense. It's a big responsibility.",
+    "Chronos: \"Indeed it is! The burden of knowledge is heavy, but the fate of the cosmos is heavier. Now, I need to explain internet memes to Abe Lincoln.\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Subconscious inspiration... very clever indeed!",
+    "Chronos: \"Thank you! Now, if you'll excuse me, I need to prevent Nikola Tesla from rewiring our ship's power grid. Again.\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
-pub const LEONARDO_DA_VINCI_DIALOGUE:DialogueTree  = &[
-  ("A", &[
-    ("B", "Leonardo da Vinci! How are you finding the future?", "Leonardo: \"Ah, the marvels of this age! My mind overflows with new inventions and artworks inspired by the cosmos!\"", None),
-  ]),
+pub const LEONARDO_DA_VINCI_DIALOGUE: DialogueTree = &[
+  ("A", &[(
+    "B",
+    "Leonardo da Vinci! How are you finding the future?",
+    "Leonardo: \"Ah, the marvels of this age! My mind overflows with new inventions and artworks inspired by the cosmos!\"",
+    None
+  )]),
   ("B", &[
-    ("C", "What do you think of modern technology?", "Leonardo: \"Magnifico! Though I must say, I had already envisioned many of these contraptions. See this spacesuit? I'm improving its design as we speak!\"", None),
-    ("D", "How does space travel compare to your flying machine concepts?", "Leonardo: \"It's beyond my wildest dreams! Yet, the principles of flight I studied apply even here. Observe how we maneuver through this asteroid field!\"", None),
-    ("E", "Would you like to paint this cosmic scenery?", "Leonardo: \"Oh, if only I had my easel! The play of light on these celestial bodies... it's the ultimate study of chiaroscuro!\"", None),
+    (
+      "C",
+      "What do you think of modern technology?",
+      "Leonardo: \"Magnifico! Though I must say, I had already envisioned many of these contraptions. See this spacesuit? I'm improving its design as we speak!\"",
+      None
+    ),
+    (
+      "D",
+      "How does space travel compare to your flying machine concepts?",
+      "Leonardo: \"It's beyond my wildest dreams! Yet, the principles of flight I studied apply even here. Observe how we maneuver through this asteroid field!\"",
+      None
+    ),
+    (
+      "E",
+      "Would you like to paint this cosmic scenery?",
+      "Leonardo: \"Oh, if only I had my easel! The play of light on these celestial bodies... it's the ultimate study of chiaroscuro!\"",
+      None
+    )
   ]),
   ("C", &[
-    ("F", "What improvements would you make to our technology?", "Leonardo: \"I've been sketching designs for more efficient solar sails and a da Vinci-style space station. Care to take a look?\"", None),
-    ("G", "How does this era inspire your creativity?", "Leonardo: \"The blend of art and science here is exquisite! I'm particularly intrigued by your holographic displays. An art form in itself!\"", None),
+    (
+      "F",
+      "What improvements would you make to our technology?",
+      "Leonardo: \"I've been sketching designs for more efficient solar sails and a da Vinci-style space station. Care to take a look?\"",
+      None
+    ),
+    (
+      "G",
+      "How does this era inspire your creativity?",
+      "Leonardo: \"The blend of art and science here is exquisite! I'm particularly intrigued by your holographic displays. An art form in itself!\"",
+      None
+    )
   ]),
   ("D", &[
-    ("H", "Could your studies on bird flight help with space maneuvering?", "Leonardo: \"Indubitably! The grace of a bird and the dance of a spacecraft are not so different. It's all about understanding flow and resistance.\"", None),
-    ("I", "What do you think of modern aviation?", "Leonardo: \"It's a dream realized! Though I must say, these rockets seem a bit inelegant. Perhaps we could design something more... artistic?\"", None),
+    (
+      "H",
+      "Could your studies on bird flight help with space maneuvering?",
+      "Leonardo: \"Indubitably! The grace of a bird and the dance of a spacecraft are not so different. It's all about understanding flow and resistance.\"",
+      None
+    ),
+    (
+      "I",
+      "What do you think of modern aviation?",
+      "Leonardo: \"It's a dream realized! Though I must say, these rockets seem a bit inelegant. Perhaps we could design something more... artistic?\"",
+      None
+    )
   ]),
   ("E", &[
-    ("J", "How would you capture the essence of space in art?", "Leonardo: \"I would blend the mathematical precision of star charts with the fluid beauty of nebulae. A fusion of the scientific and the divine!\"", None),
-    ("K", "Would you be interested in creating art with our future tools?", "Leonardo: \"Absolutely! Imagine the possibilities of sculpting with zero-gravity 3D printers or painting with light itself!\"", None),
+    (
+      "J",
+      "How would you capture the essence of space in art?",
+      "Leonardo: \"I would blend the mathematical precision of star charts with the fluid beauty of nebulae. A fusion of the scientific and the divine!\"",
+      None
+    ),
+    (
+      "K",
+      "Would you be interested in creating art with our future tools?",
+      "Leonardo: \"Absolutely! Imagine the possibilities of sculpting with zero-gravity 3D printers or painting with light itself!\"",
+      None
+    )
   ]),
-  ("F", &[
-    ("END", "Your ideas could revolutionize space travel, even now!", "Leonardo: \"Grazie mille! Now, if you'll excuse me, I must discuss the golden ratio with that charming nebula over there.\"", None),
-  ]),
-  ("G", &[
-    ("END", "Your excitement for blending art and science is contagious!", "Leonardo: \"Art, science, technology - they are all one in the pursuit of knowledge and beauty! Now, where did I leave my anti-gravity sketchbook?\"", None),
-  ]),
-  ("H", &[
-    ("END", "Birds and spaceships... I never thought of it that way!", "Leonardo: \"Nature is the greatest teacher, even among the stars! Now, I must continue my studies on the aerodynamics of space debris.\"", None),
-  ]),
-  ("I", &[
-    ("END", "An artistic rocket? That's an intriguing concept!", "Leonardo: \"Form and function in perfect harmony! Now, let me show you my preliminary sketches for a Vitruvian Spaceman...\"", None),
-  ]),
-  ("J", &[
-    ("END", "Your cosmic art sounds breathtaking. I can't wait to see it!", "Leonardo: \"The universe itself is the ultimate masterpiece! Now, if you'll pardon me, I need to recalibrate the golden ratio for non-Euclidean space.\"", None),
-  ]),
-  ("K", &[
-    ("END", "Sculpting in zero-g... Now that would be something to see!", "Leonardo: \"Indeed! The possibilities are as endless as space itself. Now, I must go - I have an appointment to exchange ideas with a sentient gas cloud!\"", None),
-  ]),
-  DIALOGUE_END,
+  ("F", &[(
+    "END",
+    "Your ideas could revolutionize space travel, even now!",
+    "Leonardo: \"Grazie mille! Now, if you'll excuse me, I must discuss the golden ratio with that charming nebula over there.\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "Your excitement for blending art and science is contagious!",
+    "Leonardo: \"Art, science, technology - they are all one in the pursuit of knowledge and beauty! Now, where did I leave my anti-gravity sketchbook?\"",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "Birds and spaceships... I never thought of it that way!",
+    "Leonardo: \"Nature is the greatest teacher, even among the stars! Now, I must continue my studies on the aerodynamics of space debris.\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "An artistic rocket? That's an intriguing concept!",
+    "Leonardo: \"Form and function in perfect harmony! Now, let me show you my preliminary sketches for a Vitruvian Spaceman...\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "Your cosmic art sounds breathtaking. I can't wait to see it!",
+    "Leonardo: \"The universe itself is the ultimate masterpiece! Now, if you'll pardon me, I need to recalibrate the golden ratio for non-Euclidean space.\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Sculpting in zero-g... Now that would be something to see!",
+    "Leonardo: \"Indeed! The possibilities are as endless as space itself. Now, I must go - I have an appointment to exchange ideas with a sentient gas cloud!\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 
-pub const CLEOPATRA_DIALOGUE:DialogueTree = &[
-  ("A", &[
-    ("B", "Queen Cleopatra! How are you adapting to the space age?", "Cleopatra: \"Greetings, cosmic traveler. I must say, ruling a galactic empire would have been... intriguing.\"", None),
-  ]),
+pub const CLEOPATRA_DIALOGUE: DialogueTree = &[
+  ("A", &[(
+    "B",
+    "Queen Cleopatra! How are you adapting to the space age?",
+    "Cleopatra: \"Greetings, cosmic traveler. I must say, ruling a galactic empire would have been... intriguing.\"",
+    None
+  )]),
   ("B", &[
-    ("C", "How does space travel compare to sailing the Nile?", "Cleopatra: \"The Nile was but a stream compared to this river of stars. Though I do miss the crocodiles... perhaps we could find some space equivalents?\"", None),
-    ("D", "What do you think about modern politics and diplomacy?", "Cleopatra: \"Politics, like the cosmos, is vast and complex. But whether on Earth or among the stars, alliances and strategy remain key.\"", None),
-    ("E", "How would you apply your leadership skills in this era?", "Cleopatra: \"An empire among the stars... now that's an ambition worthy of a pharaoh! I would unite planets as I united Egypt and Rome.\"", None),
+    (
+      "C",
+      "How does space travel compare to sailing the Nile?",
+      "Cleopatra: \"The Nile was but a stream compared to this river of stars. Though I do miss the crocodiles... perhaps we could find some space equivalents?\"",
+      None
+    ),
+    (
+      "D",
+      "What do you think about modern politics and diplomacy?",
+      "Cleopatra: \"Politics, like the cosmos, is vast and complex. But whether on Earth or among the stars, alliances and strategy remain key.\"",
+      None
+    ),
+    (
+      "E",
+      "How would you apply your leadership skills in this era?",
+      "Cleopatra: \"An empire among the stars... now that's an ambition worthy of a pharaoh! I would unite planets as I united Egypt and Rome.\"",
+      None
+    )
   ]),
   ("C", &[
-    ("F", "Space crocodiles? That's an interesting idea!", "Cleopatra: \"Indeed! Every queen needs her guardians. Besides, I'm sure there are plenty of cosmic treasures to protect in this vast universe.\"", None),
-    ("G", "What aspects of space exploration fascinate you most?", "Cleopatra: \"The diversity of worlds reminds me of the cultures along the Mediterranean. Each unique, yet connected by the cosmic seas.\"", None),
+    (
+      "F",
+      "Space crocodiles? That's an interesting idea!",
+      "Cleopatra: \"Indeed! Every queen needs her guardians. Besides, I'm sure there are plenty of cosmic treasures to protect in this vast universe.\"",
+      None
+    ),
+    (
+      "G",
+      "What aspects of space exploration fascinate you most?",
+      "Cleopatra: \"The diversity of worlds reminds me of the cultures along the Mediterranean. Each unique, yet connected by the cosmic seas.\"",
+      None
+    )
   ]),
   ("D", &[
-    ("H", "How would you handle diplomacy with alien races?", "Cleopatra: \"With grace, wisdom, and a hint of mystery. Whether dealing with Romans or Reptilians, a grand entrance is essential.\"", None),
-    ("I", "What lessons from your era apply to galactic politics?", "Cleopatra: \"Power is about perception and alliances. Even in space, one must know when to be the asp and when to be the charm.\"", None),
+    (
+      "H",
+      "How would you handle diplomacy with alien races?",
+      "Cleopatra: \"With grace, wisdom, and a hint of mystery. Whether dealing with Romans or Reptilians, a grand entrance is essential.\"",
+      None
+    ),
+    (
+      "I",
+      "What lessons from your era apply to galactic politics?",
+      "Cleopatra: \"Power is about perception and alliances. Even in space, one must know when to be the asp and when to be the charm.\"",
+      None
+    )
   ]),
   ("E", &[
-    ("J", "A galactic empire? That's quite ambitious!", "Cleopatra: \"Go big or go home, as they say. Though in space, I suppose everywhere is home. First, we'll need a cosmic Alexandria...\"", None),
-    ("K", "How would you structure a government across planets?", "Cleopatra: \"A pharaoh for each world, united under a galactic regent. Myself, naturally. With faster-than-light communication, governance should be a breeze.\"", None),
+    (
+      "J",
+      "A galactic empire? That's quite ambitious!",
+      "Cleopatra: \"Go big or go home, as they say. Though in space, I suppose everywhere is home. First, we'll need a cosmic Alexandria...\"",
+      None
+    ),
+    (
+      "K",
+      "How would you structure a government across planets?",
+      "Cleopatra: \"A pharaoh for each world, united under a galactic regent. Myself, naturally. With faster-than-light communication, governance should be a breeze.\"",
+      None
+    )
   ]),
-  ("F", &[
-    ("END", "I'll keep an eye out for space crocodiles, Your Majesty.", "Cleopatra: \"Do that, dear friend. Now, if you'll excuse me, I must review the blueprints for my orbital pyramid.\"", None),
-  ]),
-  ("G", &[
-    ("END", "Your insight draws beautiful parallels, Your Highness.", "Cleopatra: \"Thank you. The universe, like Egypt, is full of hidden treasures. Now, I'm off to negotiate mining rights with the asteroid belt pharaohs.\"", None),
-  ]),
-  ("H", &[
-    ("END", "Diplomacy through mystery and grandeur. Classic Cleopatra!", "Cleopatra: \"One must keep the mystique alive, even in a spacesuit. Now, be a dear and help me plan my zero-gravity barge procession.\"", None),
-  ]),
-  ("I", &[
-    ("END", "The asp and the charm... a timeless strategy, it seems.", "Cleopatra: \"In politics, some things never change. Now, I must go charm the Arcturian ambassador. Or was it the Betelgeusian regent?\"", None),
-  ]),
-  ("J", &[
-    ("END", "A cosmic Alexandria sounds magnificent!", "Cleopatra: \"Doesn't it? With a library containing the knowledge of a million worlds! Now, if you'll excuse me, I need to discuss funding with the Galactic Senate.\"", None),
-  ]),
-  ("K", &[
-    ("END", "Your administrative skills are truly universal, Your Highness.", "Cleopatra: \"Naturally. Now, I must go. These star charts won't decipher themselves, and I have a galaxy to unite!\"", None),
-  ]),
-  DIALOGUE_END,
+  ("F", &[(
+    "END",
+    "I'll keep an eye out for space crocodiles, Your Majesty.",
+    "Cleopatra: \"Do that, dear friend. Now, if you'll excuse me, I must review the blueprints for my orbital pyramid.\"",
+    None
+  )]),
+  ("G", &[(
+    "END",
+    "Your insight draws beautiful parallels, Your Highness.",
+    "Cleopatra: \"Thank you. The universe, like Egypt, is full of hidden treasures. Now, I'm off to negotiate mining rights with the asteroid belt pharaohs.\"",
+    None
+  )]),
+  ("H", &[(
+    "END",
+    "Diplomacy through mystery and grandeur. Classic Cleopatra!",
+    "Cleopatra: \"One must keep the mystique alive, even in a spacesuit. Now, be a dear and help me plan my zero-gravity barge procession.\"",
+    None
+  )]),
+  ("I", &[(
+    "END",
+    "The asp and the charm... a timeless strategy, it seems.",
+    "Cleopatra: \"In politics, some things never change. Now, I must go charm the Arcturian ambassador. Or was it the Betelgeusian regent?\"",
+    None
+  )]),
+  ("J", &[(
+    "END",
+    "A cosmic Alexandria sounds magnificent!",
+    "Cleopatra: \"Doesn't it? With a library containing the knowledge of a million worlds! Now, if you'll excuse me, I need to discuss funding with the Galactic Senate.\"",
+    None
+  )]),
+  ("K", &[(
+    "END",
+    "Your administrative skills are truly universal, Your Highness.",
+    "Cleopatra: \"Naturally. Now, I must go. These star charts won't decipher themselves, and I have a galaxy to unite!\"",
+    None
+  )]),
+  DIALOGUE_END
 ];
 const NORMAL_NPC_SCALE: f32 = 1.9;
 const NORMAL_NPC_SPEED: f32 = 400.0;
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Item(pub &'static str);
@@ -2033,9 +2757,11 @@ impl Inventory {
       *(self.0.entry(item).or_default()) += n;
     }
   }
-  fn trade(&mut self,
-           inputs: impl IntoIterator<Item = (Item, u32)>,
-           outputs: impl IntoIterator<Item = (Item, u32)>) {
+  fn trade(
+    &mut self,
+    inputs: impl IntoIterator<Item = (Item, u32)>,
+    outputs: impl IntoIterator<Item = (Item, u32)>
+  ) {
     for (item, n) in outputs {
       *(self.0.entry(item).or_default()) += n;
     }
@@ -2072,11 +2798,14 @@ enum InteractMultipleOptions {
 impl InteractMultipleOptions {
   fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
     match self {
-      InteractMultipleOptions::ASTEROIDMiningMinigame { resources_left,
-                                                        tool_durability } => {
-        let msg =
-          format!("You're mining an asteroid. Resources left: {}. Tool durability: {}.",
-                  resources_left, tool_durability);
+      InteractMultipleOptions::ASTEROIDMiningMinigame {
+        resources_left,
+        tool_durability
+      } => {
+        let msg = format!(
+          "You're mining an asteroid. Resources left: {}. Tool durability: {}.",
+          resources_left, tool_durability
+        );
         let mut options = vec![];
 
         if resources_left > 0 && tool_durability > 0 {
@@ -2084,42 +2813,64 @@ impl InteractMultipleOptions {
             "Mine carefully".to_string(),
             MyCommand::multi([
               MyCommand::message_add("You mine carefully, preserving your tool."),
-              MyCommand::give_item_to_player(Item::SPACEMINERALS),
+              MyCommand::give_item_to_player(Item::SPACEMINERALS)
             ]),
-            Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability },
+            Self::ASTEROIDMiningMinigame {
+              resources_left: resources_left - 1,
+              tool_durability
+            }
           ));
           options.push((
             "Mine aggressively".to_string(),
             MyCommand::multi([
-              MyCommand::message_add("You mine aggressively, risking your tool for more resources."),
+              MyCommand::message_add(
+                "You mine aggressively, risking your tool for more resources."
+              ),
               MyCommand::give_item_to_player(Item::SPACEMINERALS),
-              MyCommand::give_item_to_player(Item::SPACEMINERALS),
+              MyCommand::give_item_to_player(Item::SPACEMINERALS)
             ]),
-            Self::ASTEROIDMiningMinigame { resources_left: resources_left - 1, tool_durability: tool_durability - 1 },
+            Self::ASTEROIDMiningMinigame {
+              resources_left: resources_left - 1,
+              tool_durability: tool_durability - 1
+            }
           ));
         }
 
-        options.push(("Leave asteroid".to_string(),
-                      MyCommand::end_object_interaction_mini_game(),
-                      self.clone()));
+        options.push((
+          "Leave asteroid".to_string(),
+          MyCommand::end_object_interaction_mini_game(),
+          self.clone()
+        ));
 
         (msg, options)
       }
       InteractMultipleOptions::Salvage { how_much_loot } => {
         let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
         let options = if how_much_loot > 0 {
-          vec![("take some".to_string(),
-                MyCommand::multi([MyCommand::message_add("You found loot"),
-                                  MyCommand::give_item_to_player(Item::SPACECOIN)]),
-                Self::Salvage { how_much_loot: how_much_loot - 1 }),
-               ("don't take".to_string(), MyCommand::none(), self.clone()),
-               ("leave".to_string(),
-                MyCommand::end_object_interaction_mini_game(),
-                self.clone()),]
+          vec![
+            (
+              "take some".to_string(),
+              MyCommand::multi([
+                MyCommand::message_add("You found loot"),
+                MyCommand::give_item_to_player(Item::SPACECOIN)
+              ]),
+              Self::Salvage {
+                how_much_loot: how_much_loot - 1
+              }
+            ),
+            ("don't take".to_string(), MyCommand::none(), self.clone()),
+            (
+              "leave".to_string(),
+              MyCommand::end_object_interaction_mini_game(),
+              self.clone()
+            ),
+          ]
         } else {
-          vec![("leave".to_string(),
-                MyCommand::end_object_interaction_mini_game(),
-                self.clone()),]
+          vec![(
+            "leave".to_string(),
+            MyCommand::end_object_interaction_mini_game(),
+            self.clone()
+          )]
         };
         (msg, options)
       }
@@ -2127,11 +2878,12 @@ impl InteractMultipleOptions {
         let msg = "talking npc".to_string();
         if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
           let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
-                                        (playersay.to_string(),
-                                         MyCommand::message_add(npcsay.to_string()),
-                                         InteractMultipleOptions::DialogueTREE(tree,
-                                                                               *new_node))
-                                      });
+            (
+              playersay.to_string(),
+              MyCommand::message_add(npcsay.to_string()),
+              InteractMultipleOptions::DialogueTREE(tree, *new_node)
+            )
+          });
           (msg, options.collect())
         } else {
           (msg, default())
@@ -2169,69 +2921,79 @@ enum InteractSingleOption {
 }
 
 impl InteractSingleOption {
-  fn interact(self,
-              self_entity: Entity,
-              self_name: String,
-              player_inventory: &Inventory)
-              -> (String, MyCommand) {
+  fn interact(
+    self,
+    self_entity: Entity,
+    self_name: String,
+    player_inventory: &Inventory
+  ) -> (String, MyCommand) {
     match self {
       InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
-      InteractSingleOption::ASTEROID => {
-        (format!("examine {self_name}"),
-         MyCommand::message_add("it's an asteroid"))
-      }
-      InteractSingleOption::HPBOX => {
-        ("take hp box".to_string(),
-         MyCommand::multi([MyCommand::update_player_component(|combat: Combat| {
-                             Combat { hp: combat.hp + 50,
-                                      ..combat }
-                           }),
-                           MyCommand::despawn(self_entity)]))
-      }
-      InteractSingleOption::Describe => {
-        (format!("examine {self_name}"), MyCommand::message_add(self_name))
-      }
-      InteractSingleOption::Item(item) => {
-        (format!("take {self_name}"),
-         MyCommand::multi([MyCommand::despawn(self_entity),
-                           MyCommand::message_add(format!("You got a {}",debugfmt(item)) ),
-                           MyCommand::give_item_to_player(item)]))
-      }
+      InteractSingleOption::ASTEROID => (
+        format!("examine {self_name}"),
+        MyCommand::message_add("it's an asteroid")
+      ),
+      InteractSingleOption::HPBOX => (
+        "take hp box".to_string(),
+        MyCommand::multi([
+          MyCommand::update_player_component(|combat: Combat| Combat {
+            hp: combat.hp + 50,
+            ..combat
+          }),
+          MyCommand::despawn(self_entity)
+        ])
+      ),
+      InteractSingleOption::Describe => (
+        format!("examine {self_name}"),
+        MyCommand::message_add(self_name)
+      ),
+      InteractSingleOption::Item(item) => (
+        format!("take {self_name}"),
+        MyCommand::multi([
+          MyCommand::despawn(self_entity),
+          MyCommand::message_add(format!("You got a {}", debugfmt(item))),
+          MyCommand::give_item_to_player(item)
+        ])
+      ),
 
-      InteractSingleOption::Trade { inputs: (input_item, input_number),
-                                    outputs: (output_item, output_number) } => {
-        ("trade".to_string(),
-         if let Some(&n) = player_inventory.0.get(&input_item)
-            && n >= input_number
-         {
-           MyCommand::multi([
-             MyCommand::mutate_player_component(move |mut inventory:&mut Inventory|{
-               inventory.trade([(input_item, input_number)],[(output_item, output_number)]);
-             }),
-             MyCommand::message_add(format!("You traded {:?} {:?} for {:?} {:?}s",
-                                           input_number,
-                                           input_item,
-                                           output_number,
-                                           output_item))
-           ])
-         } else {
-           MyCommand::message_add("You don't have enough items")
-         })
-      }
-      InteractSingleOption::GATE(destination_pos) => {
-        ("interact".to_string(),
-         MyCommand::update_player_component(move |transform| Transform { translation:
-                                                                           destination_pos,
-                                                                         ..transform }))
-      }
-      InteractSingleOption::CONTAINER(items) => {
-        ("take container".to_string(),
-         MyCommand::multi([MyCommand::despawn(self_entity),
-                           MyCommand::message_add("you got things"),
-                           MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
-                             inventory.add_contents(items);
-                           })]))
-      }
+      InteractSingleOption::Trade {
+        inputs: (input_item, input_number),
+        outputs: (output_item, output_number)
+      } => (
+        "trade".to_string(),
+        if let Some(&n) = player_inventory.0.get(&input_item)
+          && n >= input_number
+        {
+          MyCommand::multi([
+            MyCommand::mutate_player_component(move |mut inventory: &mut Inventory| {
+              inventory.trade([(input_item, input_number)], [(output_item, output_number)]);
+            }),
+            MyCommand::message_add(format!(
+              "You traded {:?} {:?} for {:?} {:?}s",
+              input_number, input_item, output_number, output_item
+            ))
+          ])
+        } else {
+          MyCommand::message_add("You don't have enough items")
+        }
+      ),
+      InteractSingleOption::GATE(destination_pos) => (
+        "interact".to_string(),
+        MyCommand::update_player_component(move |transform| Transform {
+          translation: destination_pos,
+          ..transform
+        })
+      ),
+      InteractSingleOption::CONTAINER(items) => (
+        "take container".to_string(),
+        MyCommand::multi([
+          MyCommand::despawn(self_entity),
+          MyCommand::message_add("you got things"),
+          MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
+            inventory.add_contents(items);
+          })
+        ])
+      )
     }
   }
 }
@@ -2249,30 +3011,36 @@ impl Interact {
   }
 }
 const INTERACTION_RANGE: f32 = 8.0;
-fn interact(mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory),
-                   With<Player>>,
-            mut interactable_q: Query<(Entity, &Transform, &mut Interact, Option<&Name>),
-                  Without<Player>>,
-            gate_q: Query<(&GlobalTransform, &Gate)>,
-            mut c: Commands,
-            keys: Res<ButtonInput<KeyCode>>,
-            mut ui_data: ResMut<UIData>) {
+fn interact(
+  mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory), With<Player>>,
+  mut interactable_q: Query<
+    (Entity, &Transform, &mut Interact, Option<&Name>),
+    Without<Player>
+  >,
+  gate_q: Query<(&GlobalTransform, &Gate)>,
+  mut c: Commands,
+  keys: Res<ButtonInput<KeyCode>>,
+  mut ui_data: ResMut<UIData>
+) {
   // ui_data.interact_message = None;
   let (player, player_transform, player_combat, player_inventory) = playerq.into_inner();
   let player_pos = player_transform.translation;
-  let closest_interactable_thing = filter_least(|tup| {
-    let dist =
-      tup.1.translation.distance(player_pos);
-    (dist < INTERACTION_RANGE).then_some(dist as u32)
-  },
-                                                &mut interactable_q);
+  let closest_interactable_thing = filter_least(
+    |tup| {
+      let dist = tup.1.translation.distance(player_pos);
+      (dist < INTERACTION_RANGE).then_some(dist as u32)
+    },
+    &mut interactable_q
+  );
   if let Some((interact_entity, transform, mut interact, oname)) = closest_interactable_thing
   {
     match interact.as_mut() {
       Interact::SingleOption(interact_single_option) => {
-        let (message, command) =
-          interact_single_option.clone()
-                                .interact(interact_entity, namefmt(oname), player_inventory);
+        let (message, command) = interact_single_option.clone().interact(
+          interact_entity,
+          namefmt(oname),
+          player_inventory
+        );
         // ui_data.interact_message = Some(format!("[SPACE: {message}]"));
 
         INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
@@ -2282,26 +3050,29 @@ fn interact(mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory),
       }
       Interact::MultipleOptions(interact_multiple_options) => {
         let (msg, options) = interact_multiple_options.clone().interact();
-        INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter()
-                                                      .chain((&options).into_iter()
-                                                             .enumerate()
-                                                             .map(|(n, tup)| {
-                                                               format!("{}: {}",
-                                                                       n + 1,
-                                                                       tup.0)
-                                                             })))));
-        let number_picked =
-          find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n),
-                   [(0, KeyCode::Digit0),
-                    (1u8, KeyCode::Digit1),
-                    (2, KeyCode::Digit2),
-                    (3, KeyCode::Digit3),
-                    (4, KeyCode::Digit4),
-                    (5, KeyCode::Digit5),
-                    (6, KeyCode::Digit6),
-                    (7, KeyCode::Digit7),
-                    (8, KeyCode::Digit8),
-                    (9, KeyCode::Digit9)]);
+        INTERACT_MESSAGE.set(Some(intersperse_newline(
+          [msg, default()].into_iter().chain(
+            (&options)
+              .into_iter()
+              .enumerate()
+              .map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
+          )
+        )));
+        let number_picked = find_map(
+          |(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n),
+          [
+            (0, KeyCode::Digit0),
+            (1u8, KeyCode::Digit1),
+            (2, KeyCode::Digit2),
+            (3, KeyCode::Digit3),
+            (4, KeyCode::Digit4),
+            (5, KeyCode::Digit5),
+            (6, KeyCode::Digit6),
+            (7, KeyCode::Digit7),
+            (8, KeyCode::Digit8),
+            (9, KeyCode::Digit9)
+          ]
+        );
         for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
           if number_picked == Some(n as u8 + 1) {
             c.queue(command);
@@ -2310,15 +3081,13 @@ fn interact(mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory),
         }
       }
     }
-  } else{
+  } else {
     INTERACT_MESSAGE.set(None);
   }
 }
 
-
-
 pub const MESSAGE_LOG_MAX_LEN: usize = 5;
-const MESSAGE_SHOW_TIME_TICKS:u32 = 300;
+const MESSAGE_SHOW_TIME_TICKS: u32 = 300;
 
 #[derive(Clone, Debug)]
 pub struct Message {
@@ -2327,14 +3096,15 @@ pub struct Message {
 }
 
 impl From<Message> for String {
-    fn from(msg: Message) -> Self {
-      msg.string
-    }
+  fn from(msg: Message) -> Self { msg.string }
 }
 impl From<String> for Message {
-    fn from(string: String) -> Self {
-      Message { time: MESSAGE_SHOW_TIME_TICKS, string  }
+  fn from(string: String) -> Self {
+    Message {
+      time: MESSAGE_SHOW_TIME_TICKS,
+      string
     }
+  }
 }
 
 const UI_BACKGROUND_COLOR: Color = Color::srgba(0.0, 0.0, 0.0, 0.5);
@@ -2350,8 +3120,7 @@ static INFOBOX_DATA: Lazy<Mutable<Vec<String>>> = Lazy::new(default);
 static TARGET_DATA: Lazy<Mutable<Vec<String>>> = Lazy::new(default);
 static INTERACT_MESSAGE: Lazy<Mutable<Option<String>>> = Lazy::new(default);
 
-
-comment!{
+comment! {
   pub fn common_style(sb: &mut StyleBuilder) {
     sb.font_size(32.0)
       .display(Display::Block)
@@ -2363,18 +3132,23 @@ comment!{
       .pointer_events(false);
   }
 }
-fn ui_box<T:Into<String>,C:IntoIterator<Item = T> + 'static,
-          S:Signal<Item = C> + Send + 'static>(align:Align,
-                                               signal: S,
-                                               font_handle: Handle<Font>) -> impl Element {
+fn ui_box<
+  T: Into<String>,
+  C: IntoIterator<Item = T> + 'static,
+  S: Signal<Item = C> + Send + 'static
+>(
+  align: Align,
+  signal: S,
+  font_handle: Handle<Font>
+) -> impl Element {
   Column::<Text>::new()
     .background_color(BackgroundColor(UI_BACKGROUND_COLOR))
-    .border_color(BorderColor(UI_BORDER_COLOR) )
+    .border_color(BorderColor(UI_BORDER_COLOR))
     .border_radius(BorderRadius::all(UI_BORDER))
     .align(Some(align))
     .width(Val::Auto)
     .height(Val::Auto)
-    .text_signal(signal.map(|c:C| Text(intersperse_newline(c))))
+    .text_signal(signal.map(|c: C| Text(intersperse_newline(c))))
 }
 // fn infobox(font_handle: Handle<Font>) -> impl Element {
 //   ui_box(Align::new().left().top(), INFOBOX_DATA.signal_cloned(), font_handle)
@@ -2384,20 +3158,38 @@ fn root_ui(font_handle: Handle<Font>) -> impl Element {
   Stack::<NodeBundle>::new() // Stack remains suitable for layering
     .width(Val::Percent(100.0))
     .height(Val::Percent(100.0))
-  // Layer the panels, using the simplified/generic functions
-  // message log
-    .layer(ui_box(Align::new().left().bottom(), MESSAGE_LOG.signal_cloned(), font_handle.clone()))
-  // infobox
-    .layer(ui_box(Align::new().left().top(), INFOBOX_DATA.signal_cloned(), font_handle.clone()))
-  // overview
-    .layer(ui_box(Align::new().right().top(), OVERVIEW_DATA.signal_cloned(), font_handle.clone()))
-  // target box
-    .layer(ui_box(Align::new().right().bottom(), TARGET_DATA.signal_cloned(), font_handle.clone()))
-  // interact message box
-    .layer(ui_box(Align::new().center_x().center_y(), INTERACT_MESSAGE.signal_cloned(), font_handle.clone()))
+    // Layer the panels, using the simplified/generic functions
+    // message log
+    .layer(ui_box(
+      Align::new().left().bottom(),
+      MESSAGE_LOG.signal_cloned(),
+      font_handle.clone()
+    ))
+    // infobox
+    .layer(ui_box(
+      Align::new().left().top(),
+      INFOBOX_DATA.signal_cloned(),
+      font_handle.clone()
+    ))
+    // overview
+    .layer(ui_box(
+      Align::new().right().top(),
+      OVERVIEW_DATA.signal_cloned(),
+      font_handle.clone()
+    ))
+    // target box
+    .layer(ui_box(
+      Align::new().right().bottom(),
+      TARGET_DATA.signal_cloned(),
+      font_handle.clone()
+    ))
+    // interact message box
+    .layer(ui_box(
+      Align::new().center_x().center_y(),
+      INTERACT_MESSAGE.signal_cloned(),
+      font_handle.clone()
+    ))
 }
-
-
 
 #[derive(Resource, Default, Clone)]
 pub struct UIData {
@@ -2416,16 +3208,21 @@ pub struct UIData {
                                 // pub player_inventory: Inventory
 }
 pub fn intersperse_newline<T: Into<String>>(coll: impl IntoIterator<Item = T>) -> String {
-  concat_strings(coll.into_iter()
-                 .map(|v| v.into())
-                 .intersperse("\n".to_string()))
+  concat_strings(
+    coll
+      .into_iter()
+      .map(|v| v.into())
+      .intersperse("\n".to_string())
+  )
 }
 
 impl UIData {
   pub fn message_add(&mut self, message: impl ToString) {
     let time = self.current_time_ticks;
-    self.message_log.push(Message { string: message.to_string().into(),
-                                    time });
+    self.message_log.push(Message {
+      string: message.to_string().into(),
+      time
+    });
   }
 }
 
@@ -2435,7 +3232,9 @@ fn setup_ui_system(world: &mut World) {
   let font_handle: Handle<Font> = default();
   root_ui(font_handle).spawn(world); // Spawn the UI root
   // Add an initial message if desired
-  MESSAGE_LOG.lock_mut().push(Message::from("Welcome!".to_string()));
+  MESSAGE_LOG
+    .lock_mut()
+    .push(Message::from("Welcome!".to_string()));
 }
 
 fn namefmt(oname: Option<&Name>) -> String {
@@ -2449,155 +3248,26 @@ fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
 }
 
 // please finish rewriting the various local variables in fn ui by using TargetData and a lot of method chains and filter_map and such
-    #[derive(QueryData)]
-  struct TargetData<'t> {
-    entity: Entity,
-    transform: &'static Transform,
-    spaceobject: &'static SpaceObject,
-    oname: Option<&'static Name>,
-    ocombat: Option<&'t Combat>,
-    oplanet: Option<&'t Planet>
-  }
-comment!{
-  pub fn ui(mut c: Commands,
-            camq: Single<(Entity, &GlobalTransform), With<Camera3d>>,
-            playerq: Single<(Entity, &Player, &Transform, &Combat, &Inventory)>,
-            target_q: Query<TargetData>,
-            mut ui_data: ResMut<UIData>,
-            time: Res<TimeTicks>
-  ) {
-
-    // if let Ok((player_entity, player, player_transform)) = player_query.get_single()
-    let (_, player, player_transform, player_combat, player_inventory) = *playerq;
-    let (camera_entity, camera_transform) = *camq;
-
-    let get_target_data = |e: Entity| {target_q.get(e).ok()};
-    // let mut target_data = Vec::new();
-    // for (_,target_transform, interaction_state, name) in &target_q {
-    //   let distance = player_pos.distance(target_transform.translation);
-    //   target_data.push(format!("{}", name));
-    //   target_data.push(format!("Distance: {:.1}", distance));
-    //   target_data.push(format!("State: {:?}", interaction_state));
-    // }
-    let player_pos = player_transform.translation;
-
-    // Update infobox data
-    let infobox_data = vec![
-      format!("{:.1}", player_pos),
-      // format!("Space Cats: {}", ui_data.space_cat_count),
-    ].into_iter()
-
-    // .chain(ui_data.player_inventory
-    //               .0
-    //               .clone()
-    //               .into_iter()
-    //               .map(|(item, n)| format!("{} {:?}s", n, item)))
-     .collect();
-
-    let infobox_data =
-      map(ToString::to_string,
-          [format!("{:.1}", player_pos).as_str(),
-           format!("hp: {}", player_combat.hp).as_str(),
-           format!("energy: {}", player_combat.energy).as_str(),
-           "w,a,s,d,shift,ctrl: move",
-           "z: spawn mushroom man",
-           "q: toggle shield",
-           "t: target nearest hostile",
-           "g: warp",
-           "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
-                                   player_inventory.0.clone()))
-                        .collect();
-    let player_dist = |&t| player_pos.distance(t.translation);
-    let overview_data =
-      target_q.iter().sort_by_key(|k|).filter_map(||);
-    mapv(|(name, hp, distance)| format!("{name} hp:{hp} <->{:.1}", distance),
-         sort_by_key(|(_, _, distance)| *distance as u32,
-                     filter_map(|tup| match get_target_data(tup.0) {
-                       Some(TargetData { distance,
-                                         name,
-                                         ocombat:
-                                         Some(Combat { hp,
-                                                       is_hostile:
-                                                       true,
-                                                       .. }),
-                                         .. })
-                         if distance < COMBAT_RANGE =>
-                       {
-                         Some((name, hp, distance))
-                       }
-                       _ => None
-                     },
-                                &target_q)));
-    let target_data = if let Some(player_target) = player.target()
-      && let Some(TargetData { distance,
-                               name,
-                               ocombat,
-                               oplanet,
-                               .. }) = get_target_data(player_target)
-    {
-      let somestring = |x| Some(string(x));
-      [Some(format!("Target: {name}")),
-       oplanet.map(rust_utils::prettyfmt),
-       ocombat.map(|&Combat { hp, .. }| format!("hp: {hp}")),
-       Some(format!("Distance: {:.1}", distance)),
-       somestring("q: approach"),
-       somestring("l: shoot laser"),
-       somestring("r: toggle shoot"),
-       somestring("x: untarget")].into_iter()
-                                 .flatten()
-                                 .collect()
-    } else {
-      default()
-    };
-    let infobox_data =
-      map(ToString::to_string,
-          [format!("{:.1}", player_pos).as_str(),
-           format!("hp: {}", player_combat.hp).as_str(),
-           format!("energy: {}", player_combat.energy).as_str(),
-           "w,a,s,d,shift,ctrl: move",
-           "z: spawn mushroom man",
-           "q: toggle shield",
-           "t: target nearest hostile",
-           "g: warp",
-           "you have:"]).chain(map(|(item, n)| format!("{} {:?}s", n, item),
-                                   player_inventory.0.clone()))
-                        .collect();
-
-    // Update target data
-
-    // Update overview data
-    let overview_data = vec![
-      format!("Count: {}", ui_data.count),
-      format!("Foo: {}", ui_data.foo),
-      // Add any other overview stats here
-    ];
-
-    // Update UIData
-    let current_time_ticks = time.0;
-    let old_ui_data = ui_data.clone();
-    *ui_data = UIData { current_time_ticks,
-                        infobox_data,
-                        target_data,
-                        overview_data,
-                        message_log: old_ui_data.message_log.clone(),
-                        interact_message: old_ui_data.interact_message.clone(),
-                        count: old_ui_data.count,
-                        foo: old_ui_data.foo,
-                        font: old_ui_data.font.clone(),
-                        // player_inventory: old_ui_data.player_inventory,
-                        // space_cat_count: old_ui_data.space_cat_count,
-                        ..old_ui_data.clone() };
-  }
+#[derive(QueryData)]
+struct TargetData<'t> {
+  entity: Entity,
+  transform: &'static Transform,
+  spaceobject: &'static SpaceObject,
+  oname: Option<&'static Name>,
+  ocombat: Option<&'t Combat>,
+  oplanet: Option<&'t Planet>
 }
 
 pub fn ui(
-    playerq: Query<(Entity, &Player, &Transform, &Combat, &Inventory)>, // Changed to Query
-    target_q: Query<TargetData>,
-    // mut ui_data: ResMut<UIData>,
-    time: Res<TimeTicks>,
+  playerq: Query<(Entity, &Player, &Transform, &Combat, &Inventory)>, // Changed to Query
+  target_q: Query<TargetData>,
+  // mut ui_data: ResMut<UIData>,
+  time: Res<TimeTicks>
 ) {
   // Use get_single for clarity, handling potential errors/no player
-  let Ok((_player_entity, player, player_transform, player_combat, player_inventory)) = playerq.get_single() else {
+  let Ok((_player_entity, player, player_transform, player_combat, player_inventory)) =
+    playerq.get_single()
+  else {
     // Handle case where player doesn't exist yet or multiple exist
     // *ui_data = UIData::default(); // Reset UI or show an error state
     return;
@@ -2618,16 +3288,16 @@ pub fn ui(
     " l: shoot laser".to_string(),
     " r: toggle shoot".to_string(),
     " x: untarget".to_string(),
-    "Inventory:".to_string(),
+    "Inventory:".to_string()
   ]
-    .into_iter()
-    .chain(
-      player_inventory
-        .0
-        .iter()
-        .map(|(item, n)| format!(" - {}x {:?}", n, item)),
-    )
-    .collect();
+  .into_iter()
+  .chain(
+    player_inventory
+      .0
+      .iter()
+      .map(|(item, n)| format!(" - {}x {:?}", n, item))
+  )
+  .collect();
   INFOBOX_DATA.set(infobox_data);
 
   // --- Target Data ---
@@ -2642,107 +3312,53 @@ pub fn ui(
         Some(format!("Target: {}", name)),
         target.oplanet.map(|p| format!("Planet Info: {:?}", p)), // Uses Display impl
         target.ocombat.map(|c| format!("HP: {}", c.hp)),
-        Some(format!("Distance: {:.1}", distance)),
-        // Add context-dependent actions if needed
-        // e.g., if target.oplanet.is_some() { Some("F: Land".to_string()) } else { None }
+        Some(format!("Distance: {:.1}", distance)) // Add context-dependent actions if needed
+                                                   // e.g., if target.oplanet.is_some() { Some("F: Land".to_string()) } else { None }
       ]
-        .into_iter()
-        .flatten() // Remove None options
-        .collect()
+      .into_iter()
+      .flatten() // Remove None options
+      .collect()
     })
     .unwrap_or_default(); // Use empty Vec if no target or target data not found
   TARGET_DATA.set(target_data);
 
   // --- Overview Data (Hostiles in Combat Range) ---
-  let player_dist =|t:&TargetDataItem| player_pos.distance(t.transform.translation);
+  let player_dist = |t: &TargetDataItem| player_pos.distance(t.transform.translation);
   let overview_data: Vec<String> = target_q
     .iter()
-  // .sort_by(|a, b| player_dist(*a).partial_cmp(&player_dist(*b)).unwrap_or(std::cmp::Ordering::Equal))
+    // .sort_by(|a, b| player_dist(*a).partial_cmp(&player_dist(*b)).unwrap_or(std::cmp::Ordering::Equal))
     .filter_map(|target| {
       // Calculate distance first
       // Filter for hostiles within range that have combat stats and a name
       let distance = player_dist(&target);
-      if let Some(name) = target.oname
-        && let Some(combat) = target.ocombat
-        && combat.is_hostile
-        && distance < COMBAT_RANGE {
-          Some(format!("{} (HP:{}) <-> {:.1}", name, combat.hp, distance))
+      let name = target.oname.map_or("object", Name::as_str);
+      (distance < COMBAT_RANGE).then_some({
+        if let Some(combat) = target.ocombat {
+          let hostilestr = if combat.is_hostile { "!!" } else { "" };
+          format!(
+            "{}{}{} (HP:{}) <-> {:.1}",
+            hostilestr, name, hostilestr, combat.hp, distance
+          )
         } else {
-          None
+          format!("{} <-> {:.1}", name, distance)
         }
+      })
     })
     .collect();
   OVERVIEW_DATA.set(overview_data);
 
-  MESSAGE_LOG.update_mut(|v|{
-    *v = v.clone().into_iter().filter_map(|Message { time, string }| {
-      (time > 0).then(|| Message{time:time-1,string})
-    }
-    ).collect();
+  MESSAGE_LOG.update_mut(|v| {
+    *v = v
+      .clone()
+      .into_iter()
+      .filter_map(|Message { time, string }| {
+        (time > 0).then(|| Message {
+          time: time - 1,
+          string
+        })
+      })
+      .collect();
   });
-}
-
-
-// **Key Changes:**
-
-// 1.  **`Query` for Player**: Changed `Single` to `Query` for the player and used `get_single()` which returns a `Result`. This is generally safer as it handles cases where the player might not exist yet or if there are multiple entities with the `Player` component. Added an early return if the player isn't found.
-// 2.  **`TargetData` Derives**: Added `#[derive(WorldQuery)]` to `TargetData` as required by Bevy 0.10+.
-// 3.  **`infobox_data`**: Simplified creation using an array literal `[...]`, `into_iter()`, `chain`, and `map` on the player's inventory.
-// 4.  **`target_data`**:
-//     *   Uses `player.target().and_then(|e| target_q.get(e).ok())` to safely get the target's `TargetData`.
-//     *   Uses `.map()` on the resulting `Option<TargetData>` to process it if it exists.
-//     *   Inside the map, it creates an array of `Option<String>`.
-//     *   Uses `flatten()` to filter out the `None` values and collect into the `Vec<String>`.
-//     *   Uses `.unwrap_or_default()` to provide an empty `Vec` if there was no target or the target data couldn't be fetched.
-// 5.  **`overview_data`**:
-//     *   Iterates directly over `target_q`.
-//     *   Uses `filter_map` to:
-//         *   Calculate distance.
-//         *   Check if the distance is within `COMBAT_RANGE`.
-//         *   Check if the target has a `Name` and `Combat` component *and* `is_hostile`.
-//         *   Returns `Some((name, hp, distance))` if all conditions met, `None` otherwise.
-//     *   Uses `itertools::sorted_by` (you'll need the `itertools` crate) to sort the filtered results by distance.
-//     *   Uses `map` to format the final string.
-//     *   Collects into the `Vec<String>`.
-// 6.  **`UIData` Update**: Directly assigns the newly created `Vec<String>`s to the respective fields in `ui_data`, avoiding a full clone and re-creation unless necessary. Other fields like `message_log` are preserved.
-// 7.  **Removed Unused Variables**: Commented out or removed `c`, `camq`, etc., as they weren't used in the logic shown.
-// 8.  **Assumptions**: Added placeholder definitions for components/resources used in the function signature and body. Added a `Display` impl for `Planet` as an example for `format!`. Added `COMBAT_RANGE` constant.
-
-  comment!{
-  fn setup_ui(world: &mut World) {
-    // Example: Spawn a root element holding different panels
-    Column::<Node>::new()
-      .node(node_option)
-      .width(Val::Percent(100.))
-      .height(Val::Percent(100.))
-      .child(message_log_panel()) // Function returning impl Element
-      .child(info_box_panel())    // Function returning impl Element
-    // ... other panels
-      .spawn(world);
-  }
-}
-// Main UIPopup struct
-comment!{
-  #[derive(Clone, PartialEq, new)]
-  pub struct UIPopup {
-    pub style: fn(&mut StyleBuilder),
-    pub display_text_fn: fn(&UIData) -> Vec<String>
-  }
-
-  impl ViewTemplate for UIPopup {
-    type View = impl View;
-    fn create(&self, cx: &mut Cx) -> Self::View {
-      let &Self { display_text_fn,
-                  style } = self;
-      let uidata = cx.use_resource::<UIData>();
-      let display_text = display_text_fn(uidata);
-      Element::<NodeBundle>::new().style((common_style, style))
-                                  .children(intersperse_newline(display_text))
-    }
-  }
-
-
-
 }
 
 pub fn string(t: impl ToString) -> String { t.to_string() }
@@ -2757,15 +3373,17 @@ struct NPC {
 const NPC_FORCE: f32 = 420.0;
 const NPC_FOLLOW_RANGE_MAX: f32 = 300.0;
 const NPC_FOLLOW_RANGE_MIN: f32 = 10.0;
-fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
-                follow_target_q: Query<(Entity, &GlobalTransform),
-                      With<CanBeFollowedByNPC>>) {
+fn npc_movement(
+  mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
+  follow_target_q: Query<(Entity, &GlobalTransform), With<CanBeFollowedByNPC>>
+) {
   // TextureAtlas
   // Image
   let get_target_pos = |e| {
-    follow_target_q.get(e)
-                   .ok()
-                   .map(|(_, globaltransform)| globaltransform.translation())
+    follow_target_q
+      .get(e)
+      .ok()
+      .map(|(_, globaltransform)| globaltransform.translation())
   };
   for (mut npc, mut npc_navigation, npc_globaltransform) in &mut npc_q {
     let npc_pos = npc_globaltransform.translation();
@@ -2775,46 +3393,23 @@ fn npc_movement(mut npc_q: Query<(&mut NPC, &mut Navigation, &GlobalTransform)>,
     // };
     let in_range = |e: Entity| {
       get_target_pos(e).map_or(false, |pos: Vec3| {
-                         let dist = pos.distance(npc_pos);
-                         dist > NPC_FOLLOW_RANGE_MIN && dist < NPC_FOLLOW_RANGE_MAX
-                       })
+        let dist = pos.distance(npc_pos);
+        dist > NPC_FOLLOW_RANGE_MIN && dist < NPC_FOLLOW_RANGE_MAX
+      })
     };
     // let spr = MySprite::try_from(PlanetType::MARSLIKEPLANET);
     if let Some(target_entity) = npc.follow_target
-       && in_range(target_entity)
+      && in_range(target_entity)
     {
       npc_navigation.navigation_kind = NavigationKind::ChaseAtRange(target_entity, 4.0);
     } else {
-      npc.follow_target =
-        pick(filter_map(|(e, _)| in_range(e).then_some(e), &follow_target_q));
+      npc.follow_target = pick(filter_map(
+        |(e, _)| in_range(e).then_some(e),
+        &follow_target_q
+      ));
     }
   }
 }
-
-// #[derive(Clone, Copy, Debug, Assoc)]
-// #[func(pub fn sprite(&self) -> MySprite)]
-// pub enum PlanetType {
-//   #[assoc(sprite = MySprite::MARSLIKEPLANET)]
-//   MARSLIKEPLANET,
-//   #[assoc(sprite = MySprite::HABITABLEPLANET)]
-//   HABITABLEPLANET,
-//   #[assoc(sprite = MySprite::DESERT_PLANET_IMAGEN_3)]
-//   SANDPLANET,
-//   #[assoc(sprite = MySprite::ICEPLANET)]
-//   ICEPLANET,
-//   #[assoc(sprite = MySprite::LAVAPLANET)]
-//   LAVAPLANET,
-//   #[assoc(sprite = MySprite::BROWNGASGIANT)]
-//   BROWNGASGIANT
-// }
-
-// fn make_slice() -> [i32] {
-//   let mut v = Vec::new();
-//   v.push(1);
-//   v.push(1);
-//   v.push(1);
-//   v.as_slice().clone()
-// }
 
 #[derive(Clone, Copy, Debug)]
 pub struct PlanetType {
@@ -2850,7 +3445,7 @@ enum Degree {
   High,
   Higher
 }
-#[derive(Clone,Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Object {
   Empty,
   SpaceObject {
@@ -2888,125 +3483,140 @@ enum Object {
     hp: u32,
     sprite: MySprite
   },
-  TalkingPerson{
+  // can be talked to but cannot move. A moving, talking npc would be hard to interact with
+  TalkingPerson {
     name: &'static str,
     sprite: MySprite,
     dialogue_tree: DialogueTree
-},
+  },
   Sun,
-  Planet{
-    planet_type:PlanetType,
-    radius:f32,
-    population:u32,
-    name:&'static str
-},
-  SpacePirate,
-  SpacePirateBase,
-  SpaceStation,
-  Trader,
-  SpaceCop,
-  SpaceWizard,
-  Nomad,
-  Miner,
+  Planet {
+    planet_type: PlanetType,
+    radius: f32,
+    population: u32,
+    name: &'static str
+  },
+  AbandonedShip,
   AlienSoldier,
-  Player,
-  MinerNpc,
-  MushroomMan,
-  SpaceCowboy,
-  Sign,
-  Wormhole,
   Asteroid,
-  SpaceCat,
-  Spaceman,
-  SpaceCoin,
-  IceAsteroid,
   CrystalAsteroid,
   CrystalMonster,
   CrystalMonster2,
+  FloatingIsland,
   HpBox,
-  TreasureContainer,
+  IceAsteroid,
+  Miner,
+  MinerNpc,
+  MushroomMan,
+  Nomad,
+  Player,
+  Sign,
+  SpaceCat,
+  SpaceCoin,
+  SpaceCop,
+  SpaceCowboy,
+  SpacePirate,
+  SpacePirateBase,
+  SpaceStation,
+  SpaceWizard,
+  Spaceman,
   SphericalCow,
   TradeStation,
-  FloatingIsland,
-  AbandonedShip,
-
-//   BlackHole,
-//   SpaceJellyfish,
-//   WormholePortal,
-//   SpaceWhale,
-//   AlienArtifact,
-//   SPACESTATION,
-//   QuantumAnomaly,
-//   SpaceMine,
-//   NebulaCloud,
-//   SolarFlare,
-//   SpaceDebris,
-//   CometCluster,
-//   DysonSPHERE,
-//   AncientRuins,
-//   AlienOutpost,
-//   RepairDrone,
-//   SalvageYard,
-//   FuelDepot,
-//   SpaceCasino,
-//   ResearchLab,
-//   CloakedShip,
-//   SpaceBarnacle,
-//   CosmicSpore,
-//   TimeDistortion,
-//   GravityWell,
-//   IonStorm,
-//   PlasmaVortex,
-//   SpaceHermit,
-//   BountyHunter,
-//   SpacePiranhas,
-//   LivingCrystal,
-//   VoidEchoes,
-//   DimensionalRift,
-//   HolographicDecoy,
-//   SpaceGeyser,
-//   MagneticAnomaly,
-//   CrystallineEntity,
-//   QuantumComputer,
-//   NanoswarmCloud,
-//   TachyonField,
-//   PsiOrbNetwork,
-//   SpaceMirage,
-//   CosmicStringFragment,
-//   DarkMatterNode,
-//   ASTEROIDHatcher,
-//   SpaceLeviathan,
-//   VoidKraken,
-//   StarforgeRemnant,
-//   TemporalLoop
+  Trader,
+  TreasureContainer,
+  Wormhole
+  //   BlackHole,
+  //   SpaceJellyfish,
+  //   WormholePortal,
+  //   SpaceWhale,
+  //   AlienArtifact,
+  //   SPACESTATION,
+  //   QuantumAnomaly,
+  //   SpaceMine,
+  //   NebulaCloud,
+  //   SolarFlare,
+  //   SpaceDebris,
+  //   CometCluster,
+  //   DysonSPHERE,
+  //   AncientRuins,
+  //   AlienOutpost,
+  //   RepairDrone,
+  //   SalvageYard,
+  //   FuelDepot,
+  //   SpaceCasino,
+  //   ResearchLab,
+  //   CloakedShip,
+  //   SpaceBarnacle,
+  //   CosmicSpore,
+  //   TimeDistortion,
+  //   GravityWell,
+  //   IonStorm,
+  //   PlasmaVortex,
+  //   SpaceHermit,
+  //   BountyHunter,
+  //   SpacePiranhas,
+  //   LivingCrystal,
+  //   VoidEchoes,
+  //   DimensionalRift,
+  //   HolographicDecoy,
+  //   SpaceGeyser,
+  //   MagneticAnomaly,
+  //   CrystallineEntity,
+  //   QuantumComputer,
+  //   NanoswarmCloud,
+  //   TachyonField,
+  //   PsiOrbNetwork,
+  //   SpaceMirage,
+  //   CosmicStringFragment,
+  //   DarkMatterNode,
+  //   ASTEROIDHatcher,
+  //   SpaceLeviathan,
+  //   VoidKraken,
+  //   StarforgeRemnant,
+  //   TemporalLoop
 }
 impl Object {
-  pub fn spawn_at(self, c:&mut Commands,pos:Vec3) -> Entity {
+  pub fn spawn_at(self, c: &mut Commands, pos: Vec3) -> Entity {
     let mut ec = c.spawn(Transform::from_translation(pos));
     Object::insert(&mut ec, self, ());
     ec.id()
   }
   pub const fn space_object(scale: f32, can_move: bool, visuals: Visuals) -> Self {
-    Self::SpaceObject { scale,
-                        can_move,
-                        visuals }
+    Self::SpaceObject {
+      scale,
+      can_move,
+      visuals
+    }
   }
-  pub const fn loot_object(scale: f32, name: &'static str, sprite: MySprite,item_type:Item) -> Self {
-    Self::LootObject { sprite, scale, name, item_type }
+  pub const fn loot_object(
+    scale: f32,
+    name: &'static str,
+    sprite: MySprite,
+    item_type: Item
+  ) -> Self {
+    Self::LootObject {
+      sprite,
+      scale,
+      name,
+      item_type
+    }
   }
-  pub const fn npc(scale: f32,
-             name: &'static str,
-             speed: f32,
-             faction: Faction,
-             hp: u32,
-             sprite: MySprite)
-             -> Self {
-    Self::NPC { name,
-                scale,
-                faction,
-                hp,
-                speed,
-                sprite }
+  pub const fn npc(
+    scale: f32,
+    name: &'static str,
+    speed: f32,
+    faction: Faction,
+    hp: u32,
+    sprite: MySprite
+  ) -> Self {
+    Self::NPC {
+      name,
+      scale,
+      faction,
+      hp,
+      speed,
+      sprite
+    }
   }
   pub fn insert(m: &mut EntityCommands, template: Self, extras: impl Bundle) {
     // use SpawnableTemplate::*;
@@ -3014,280 +3624,496 @@ impl Object {
 
     match template {
       Self::Empty => (),
-      Self::SpaceObject { scale, can_move, visuals } => {
+      Self::SpaceObject {
+        scale,
+        can_move,
+        visuals
+
+      } => {
         let collider = Collider::sphere(1.0);
-        Self::insert(m, Self::Empty, (
-          SpaceObject { scale, ..default() },
-          FacingMode::Position,
-          visuals,
-          LockedAxes::ROTATION_LOCKED,
-          ColliderMassProperties::from_shape(&collider, 1.0),
-          collider,
-          if can_move { RigidBody::Dynamic } else { RigidBody::Static },
-          LinearDamping(1.6),
-          AngularDamping(1.2),
-          LinearVelocity::default(),
-          AngularVelocity::default(),
-          ExternalForce::default().with_persistence(false),
-          ExternalImpulse::default(),
-          Visibility::Visible,
-        ))
+        Self::insert(
+          m,
+          Self::Empty,
+          (
+            SpaceObject { scale, ..default() },
+            FacingMode::Position,
+            visuals,
+            LockedAxes::ROTATION_LOCKED,
+            ColliderMassProperties::from_shape(&collider, 1.0),
+            collider,
+            if can_move {
+              RigidBody::Dynamic
+            } else {
+              RigidBody::Static
+            },
+            LinearDamping(1.6),
+            AngularDamping(1.2),
+            LinearVelocity::default(),
+            AngularVelocity::default(),
+            ExternalForce::default().with_persistence(false),
+            ExternalImpulse::default(),
+            Visibility::Visible
+          )
+        )
       }
-      Self::Planet { planet_type, radius, population, name }=>
-Self::insert(m,
-                     Self::space_object(radius, false, Visuals::sprite(planet_type.sprite())),
-                     (Name::new(name),)),
-      Self::TalkingPerson { name, sprite, dialogue_tree } =>
-        Self::insert(m,
-                     Self::space_object(1.7, true, Visuals::sprite(sprite)),
-                     (Name::new(name),
-                      Interact::dialogue_tree_default_state(dialogue_tree))),
-      Self::ScaledNPC { scale, name, speed, faction, hp, sprite } =>
-        Self::insert(m, Self::space_object(scale, true, Visuals::sprite(sprite)), (
-          Name::new(name), Navigation::speed(speed),
-          NPC { follow_target: None, faction }, Combat { hp, ..default() },
-        )),
-      Self::NPC { name, hp, speed, sprite, scale, faction } =>
-        Self::insert(m, Self::space_object(scale, true, Visuals::sprite(sprite)), (
-          Name::new(name), Navigation::speed(speed),
-          NPC { follow_target: None, faction }, Combat { hp, ..default() },
-        )),
-      Self::Enemy { name, hp, speed, sprite } =>
-        Self::insert(m, Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)), (
-          Name::new(name), Navigation::new(speed),
-          NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
-          Combat { hp, is_hostile: true, ..default() },
-        )),
-      Self::LootObject { sprite, scale, name, item_type } =>
-        Self::insert(m, Self::space_object(1.0, true, Visuals::sprite(sprite)),
-                     (Name::new(format!("{:?}", item_type)),
-                      Interact::SingleOption(InteractSingleOption::Item(item_type)),
-        )),
-      Self::Explorer =>
-        Self::insert(m, Self::NPC {
-          name: "explorer", hp: 50, speed: NORMAL_NPC_SPEED,
+      Self::Planet {
+        planet_type,
+        radius,
+        population,
+        name
+      } => Self::insert(
+        m,
+        Self::space_object(radius, false, Visuals::sprite(planet_type.sprite())),
+        (Name::new(name),)
+      ),
+      Self::TalkingPerson {
+        name,
+        sprite,
+        dialogue_tree
+      } => Self::insert(
+        m,
+        Self::space_object(1.7, true, Visuals::sprite(sprite)),
+        (
+          Name::new(name),
+          Interact::dialogue_tree_default_state(dialogue_tree)
+        )
+      ),
+      Self::ScaledNPC {
+        scale,
+        name,
+        speed,
+        faction,
+        hp,
+        sprite
+      } => Self::insert(
+        m,
+        Self::space_object(scale, true, Visuals::sprite(sprite)),
+        (
+          Name::new(name),
+          Navigation::speed(speed),
+          NPC {
+            follow_target: None,
+            faction
+          },
+          Combat { hp, ..default() }
+        )
+      ),
+      Self::NPC {
+        name,
+        hp,
+        speed,
+        sprite,
+        scale,
+        faction
+      } => Self::insert(
+        m,
+        Self::space_object(scale, true, Visuals::sprite(sprite)),
+        (
+          Name::new(name),
+          Navigation::speed(speed),
+          NPC {
+            follow_target: None,
+            faction
+          },
+          Combat { hp, ..default() }
+        )
+      ),
+      Self::Enemy {
+        name,
+        hp,
+        speed,
+        sprite
+      } => Self::insert(
+        m,
+        Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)),
+        (
+          Name::new(name),
+          Navigation::new(speed),
+          NPC {
+            follow_target: None,
+            faction: Faction::SPACE_PIRATES
+          },
+          Combat {
+            hp,
+            is_hostile: true,
+            ..default()
+          }
+        )
+      ),
+      Self::LootObject {
+        sprite,
+        scale,
+        name,
+        item_type
+      } => Self::insert(
+        m,
+        Self::space_object(1.0, true, Visuals::sprite(sprite)),
+        (
+          Name::new(format!("{:?}", item_type)),
+          Interact::SingleOption(InteractSingleOption::Item(item_type))
+        )
+      ),
+      Self::Explorer => Self::insert(
+        m,
+        Self::NPC {
+          name: "explorer",
+          hp: 50,
+          speed: NORMAL_NPC_SPEED,
           sprite: MySprite::GPT4O_WHITE_EXPLORATION_SHIP,
-          scale: NORMAL_NPC_SCALE, faction: Faction::EXPLORERS,
-        }, ()),
-      Self::Trader =>
-        Self::insert(m, Self::ScaledNPC {
-          scale: NORMAL_NPC_SCALE, name: "Trader", speed: NORMAL_NPC_SPEED,
-          faction: Faction::TRADERS, hp: 30, sprite: MySprite::SPACESHIPWHITE2,
-        }, ()),
-      Self::SpaceCop =>
-        Self::insert(m, Self::ScaledNPC {
-          scale: NORMAL_NPC_SCALE, name: "space cop", speed: NORMAL_NPC_SPEED,
-          faction: Faction::SPACE_POLICE, hp: 70, sprite: MySprite::GPT4O_POLICE_SPACE_SHIP,
-        }, ()),
-      Self::SpaceWizard =>
-        Self::insert(m, Self::ScaledNPC {
-          scale: NORMAL_NPC_SCALE, name: "space wizard", speed: NORMAL_NPC_SPEED,
+          scale: NORMAL_NPC_SCALE,
+          faction: Faction::EXPLORERS
+        },
+        ()
+      ),
+      Self::Trader => Self::insert(
+        m,
+        Self::ScaledNPC {
+          scale: NORMAL_NPC_SCALE,
+          name: "Trader",
+          speed: NORMAL_NPC_SPEED,
+          faction: Faction::TRADERS,
+          hp: 30,
+          sprite: MySprite::SPACESHIPWHITE2
+        },
+        ()
+      ),
+      Self::SpaceCop => Self::insert(
+        m,
+        Self::ScaledNPC {
+          scale: NORMAL_NPC_SCALE,
+          name: "space cop",
+          speed: NORMAL_NPC_SPEED,
+          faction: Faction::SPACE_POLICE,
+          hp: 70,
+          sprite: MySprite::GPT4O_POLICE_SPACE_SHIP
+        },
+        ()
+      ),
+      Self::SpaceWizard => Self::insert(
+        m,
+        Self::ScaledNPC {
+          scale: NORMAL_NPC_SCALE,
+          name: "space wizard",
+          speed: NORMAL_NPC_SPEED,
           faction: Faction::SPACEWIZARDS,
           hp: 40,
-          sprite: MySprite::IMAGEN3WIZARDSPACESHIP,
-        }, ()),
-      Self::Miner =>
-        Self::insert(m, Self::ScaledNPC {
-          scale: NORMAL_NPC_SCALE, name: "miner", speed: NORMAL_NPC_SPEED,
-          faction: Faction::TRADERS, hp: 35, sprite: MySprite::GPT4O_MINING_SHIP,
-        }, ()),
-      Self::AlienSoldier =>
-        Self::insert(m, Self::ScaledNPC {
-          scale: NORMAL_NPC_SCALE, name: "alien soldier", speed: NORMAL_NPC_SPEED,
-          faction: Faction::INVADERS, hp: 80, sprite: MySprite::PURPLEENEMYSHIP,
-        }, ()),
-      Self::MinerNpc =>
-        Self::insert(m, Self::NPC {
-          name: "miner npc", hp: 45, speed: NORMAL_NPC_SPEED * 0.8,
-          sprite: MySprite::GPT4O_MINING_SHIP, scale: NORMAL_NPC_SCALE,
+          sprite: MySprite::IMAGEN3WIZARDSPACESHIP
+        },
+        ()
+      ),
+      Self::Miner => Self::insert(
+        m,
+        Self::ScaledNPC {
+          scale: NORMAL_NPC_SCALE,
+          name: "miner",
+          speed: NORMAL_NPC_SPEED,
           faction: Faction::TRADERS,
-        }, ()),
-      Self::MushroomMan =>
-        Self::insert(m, Self::ScaledNPC {
-          scale: NORMAL_NPC_SCALE, name: "mushroom man", speed: NORMAL_NPC_SPEED * 0.9,
-          faction: Faction::TRADERS, hp: 40, sprite: MySprite::MUSHROOMMAN,
-        }, ()),
-      Self::SpaceCowboy =>
-        Self::insert(m,
-                     Self::space_object(NORMAL_NPC_SCALE,
-                                        true,
-                                        Visuals::sprite(MySprite::SPACECOWBOY)), (
-                       Name::new("space cowboy"),
-                       Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE),
-                     )),
-      Self::Sign =>
-        Self::insert(m, Self::space_object(1.5, false, Visuals::sprite(MySprite::SIGN)), (
+          hp: 35,
+          sprite: MySprite::GPT4O_MINING_SHIP
+        },
+        ()
+      ),
+      Self::AlienSoldier => Self::insert(
+        m,
+        Self::ScaledNPC {
+          scale: NORMAL_NPC_SCALE,
+          name: "alien soldier",
+          speed: NORMAL_NPC_SPEED,
+          faction: Faction::INVADERS,
+          hp: 80,
+          sprite: MySprite::PURPLEENEMYSHIP
+        },
+        ()
+      ),
+      Self::MinerNpc => Self::insert(
+        m,
+        Self::NPC {
+          name: "miner npc",
+          hp: 45,
+          speed: NORMAL_NPC_SPEED * 0.8,
+          sprite: MySprite::GPT4O_MINING_SHIP,
+          scale: NORMAL_NPC_SCALE,
+          faction: Faction::TRADERS
+        },
+        ()
+      ),
+      Self::MushroomMan => Self::insert(
+        m,
+        Self::ScaledNPC {
+          scale: NORMAL_NPC_SCALE,
+          name: "mushroom man",
+          speed: NORMAL_NPC_SPEED * 0.9,
+          faction: Faction::TRADERS,
+          hp: 40,
+          sprite: MySprite::MUSHROOMMAN
+        },
+        ()
+      ),
+      Self::SpaceCowboy => Self::insert(
+        m,
+        Self::space_object(
+          NORMAL_NPC_SCALE,
+          true,
+          Visuals::sprite(MySprite::SPACECOWBOY)
+        ),
+        (
+          Name::new("space cowboy"),
+          Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE)
+        )
+      ),
+      Self::Sign => Self::insert(
+        m,
+        Self::space_object(1.5, false, Visuals::sprite(MySprite::SIGN)),
+        (
           Name::new("Sign"),
           Interact::SingleOption(InteractSingleOption::Describe),
-          TextDisplay::from("cowboy"),
-        )),
-      Self::Wormhole =>
-        Self::insert(m, Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE)), (
+          TextDisplay::from("cowboy")
+        )
+      ),
+      Self::Wormhole => Self::insert(
+        m,
+        Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE)),
+        (
           Name::new("wormhole"),
-          Interact::SingleOption(InteractSingleOption::Describe),
-        )),
-      Self::Asteroid =>
-        Self::insert(m, Self::space_object(asteroid_scale(), false, Visuals::sprite(MySprite::GPT4O_ASTEROID)),
-                     (Name::new("Asteroid"),
-                      Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame {
-                        resources_left: 5, tool_durability: 5,
-                      }),
-                      CanBeFollowedByNPC,
-                     )),
-      Self::SpaceCat =>
-        Self::insert(m,
-                     Self::loot_object(1.3,
-                                       "space cat",
-                                       MySprite::GPT4O_SPACE_CAT,
-                                       Item::SPACECAT), ()),
-      Self::Spaceman =>
-        Self::insert(m,
-                     Self::loot_object(1.3,
-                                       "spaceman",
-                                       MySprite::GPT4O_SPACE_MAN,
-                                       Item::PERSON), ()),
-      Self::SpaceCoin =>
-        Self::insert(m,
-                     Self::loot_object(1.7,
-                                       "space coin",
-                                       MySprite::COIN,
-                                       Item::SPACECOIN), ()),
-      Self::IceAsteroid =>
-        Self::insert(m,
-                     Self::loot_object(asteroid_scale(),
-                                       "ice asteroid",
-                                       MySprite::GPT4O_ICE_ASTEROID,
-                                       Item::DIHYDROGENMONOXIDE) ,()),
-      Self::CrystalAsteroid =>
-        Self::insert(m,
-                     Self::loot_object(asteroid_scale(),
-                                       "crystal asteroid",
-                                       MySprite::CRYSTALASTEROID,
-                                       Item::CRYSTAL), ()),
-      Self::CrystalMonster =>
-        Self::insert(m, Self::space_object(2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)), (
+          Interact::SingleOption(InteractSingleOption::Describe)
+        )
+      ),
+      Self::Asteroid => Self::insert(
+        m,
+        Self::space_object(
+          asteroid_scale(),
+          false,
+          Visuals::sprite(MySprite::GPT4O_ASTEROID)
+        ),
+        (
+          Name::new("Asteroid"),
+          Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame {
+            resources_left: 5,
+            tool_durability: 5
+          }),
+          CanBeFollowedByNPC
+        )
+      ),
+      Self::SpaceCat => Self::insert(
+        m,
+        Self::loot_object(1.3, "space cat", MySprite::GPT4O_SPACE_CAT, Item::SPACECAT),
+        ()
+      ),
+      Self::Spaceman => Self::insert(
+        m,
+        Self::loot_object(1.3, "spaceman", MySprite::GPT4O_SPACE_MAN, Item::PERSON),
+        ()
+      ),
+      Self::SpaceCoin => Self::insert(
+        m,
+        Self::loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN),
+        ()
+      ),
+      Self::IceAsteroid => Self::insert(
+        m,
+        Self::loot_object(
+          asteroid_scale(),
+          "ice asteroid",
+          MySprite::GPT4O_ICE_ASTEROID,
+          Item::DIHYDROGENMONOXIDE
+        ),
+        ()
+      ),
+      Self::CrystalAsteroid => Self::insert(
+        m,
+        Self::loot_object(
+          asteroid_scale(),
+          "crystal asteroid",
+          MySprite::CRYSTALASTEROID,
+          Item::CRYSTAL
+        ),
+        ()
+      ),
+      Self::CrystalMonster => Self::insert(
+        m,
+        Self::space_object(2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)),
+        (
           Name::new("crystal monster"),
-          Combat { hp: 100, is_hostile: true, ..default() },
-          NPC { faction: Faction::SPACE_PIRATES, ..default() },
-          Navigation::speed(NORMAL_NPC_SPEED * 1.2),
-        )),
-      Self::CrystalMonster2 =>
-        Self::insert(m, Self::space_object(1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)), (
+          Combat {
+            hp: 100,
+            is_hostile: true,
+            ..default()
+          },
+          NPC {
+            faction: Faction::SPACE_PIRATES,
+            ..default()
+          },
+          Navigation::speed(NORMAL_NPC_SPEED * 1.2)
+        )
+      ),
+      Self::CrystalMonster2 => Self::insert(
+        m,
+        Self::space_object(1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)),
+        (
           Name::new("lesser crystal monster"),
-          Interact::SingleOption(InteractSingleOption::Describe),
-        )),
-      Self::HpBox =>
-        Self::insert(m, Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX)), (
+          Interact::SingleOption(InteractSingleOption::Describe)
+        )
+      ),
+      Self::HpBox => Self::insert(
+        m,
+        Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX)),
+        (
           Name::new("hp box"),
-          Interact::SingleOption(InteractSingleOption::HPBOX),
-        )),
-      Self::TreasureContainer =>
-        Self::insert(m, Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER)), (
+          Interact::SingleOption(InteractSingleOption::HPBOX)
+        )
+      ),
+      Self::TreasureContainer => Self::insert(
+        m,
+        Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER)),
+        (
           Name::new("container"),
           Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
-            (Item::SPACECOIN, 4), (Item::COFFEE, 1),
-          ])),
-        )),
-      Self::SphericalCow =>
-        Self::insert(m, Self::space_object(1.7, true, Visuals::sprite(MySprite::GPT4O_SPHERICAL_COW)), (
+            (Item::SPACECOIN, 4),
+            (Item::COFFEE, 1),
+          ]))
+        )
+      ),
+      Self::SphericalCow => Self::insert(
+        m,
+        Self::space_object(1.7, true, Visuals::sprite(MySprite::GPT4O_SPHERICAL_COW)),
+        (
           Name::new("spherical cow"),
-          Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),
-        )),
+          Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE)
+        )
+      ),
 
       // Note: The trade logic requires braces because it's not a single expression
       Self::TradeStation => {
         let (trade_interaction, text) = if prob(0.5) {
-          let trade_buy = pick([Item::DIHYDROGENMONOXIDE,
-                                 Item::CRYSTAL,
-                                 Item::SPACECAT]).unwrap();
-          (Interact::SingleOption(InteractSingleOption::Trade {
-            inputs: (trade_buy, 1),
-            outputs: (Item::SPACECOIN, 5), }),
-           format!("space station\nbuys {:?}", trade_buy))
+          let trade_buy =
+            pick([Item::DIHYDROGENMONOXIDE, Item::CRYSTAL, Item::SPACECAT]).unwrap();
+          (
+            Interact::SingleOption(InteractSingleOption::Trade {
+              inputs: (trade_buy, 1),
+              outputs: (Item::SPACECOIN, 5)
+            }),
+            format!("space station\nbuys {:?}", trade_buy)
+          )
         } else {
-          let trade_sell = pick([Item::SPICE,
-                                  Item::COFFEE, Item::ROCK]).unwrap();
-          (Interact::SingleOption(InteractSingleOption::Trade {
-            inputs: (Item::SPACECOIN, 5),
-            outputs: (trade_sell, 1), }),
-           format!("space station\nsells {:?}", trade_sell))
+          let trade_sell = pick([Item::SPICE, Item::COFFEE, Item::ROCK]).unwrap();
+          (
+            Interact::SingleOption(InteractSingleOption::Trade {
+              inputs: (Item::SPACECOIN, 5),
+              outputs: (trade_sell, 1)
+            }),
+            format!("space station\nsells {:?}", trade_sell)
+          )
         };
-        Self::insert(m,
-                     Self::space_object(3.0,
-                                        false,
-                                        Visuals::sprite(MySprite::IMAGEN3SPACESTATION)),
-                     (Name::new("space station"), CanBeFollowedByNPC,
-                      trade_interaction, TextDisplay::from(text),
-                     ))
+        Self::insert(
+          m,
+          Self::space_object(3.0, false, Visuals::sprite(MySprite::IMAGEN3SPACESTATION)),
+          (
+            Name::new("space station"),
+            CanBeFollowedByNPC,
+            trade_interaction,
+            TextDisplay::from(text)
+          )
+        )
       }
-      Self::FloatingIsland =>
-        Self::insert(m, Self::space_object(3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)), (
+      Self::FloatingIsland => Self::insert(
+        m,
+        Self::space_object(3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)),
+        (
           Name::new("floating island"),
-          Interact::SingleOption(InteractSingleOption::Describe),
-        )),
-      Self::Sun =>
-        Self::insert(m,
-                     Self::space_object(300.0,
-                                         false,
-                                         Visuals::material_sphere(MyMaterial::GLOWY_2)) ,
-                     (CubemapVisibleEntities::default(),
-                      CubemapFrusta::default(),
-                      PointLight { intensity: 3_000_000.0,
-                                   radius: 1.0,
-                                   range: 10000.0,
-                                   shadows_enabled: true,
-                                   color: Color::srgb(0.9, 0.8, 0.6),
-                                   ..default() })),
-      Self::AbandonedShip =>
-        Self::insert(m, Self::space_object(2.0, false, Visuals::sprite(MySprite::SPACESHIPABANDONED)), (
+          Interact::SingleOption(InteractSingleOption::Describe)
+        )
+      ),
+      Self::Sun => Self::insert(
+        m,
+        Self::space_object(300.0, false, Visuals::material_sphere(MyMaterial::GLOWY_2)),
+        (
+          CubemapVisibleEntities::default(),
+          CubemapFrusta::default(),
+          PointLight {
+            intensity: 3_000_000.0,
+            radius: 1.0,
+            range: 10000.0,
+            shadows_enabled: true,
+            color: Color::srgb(0.9, 0.8, 0.6),
+            ..default()
+          }
+        )
+      ),
+      Self::AbandonedShip => Self::insert(
+        m,
+        Self::space_object(2.0, false, Visuals::sprite(MySprite::SPACESHIPABANDONED)),
+        (
           Name::new("abandoned ship"),
-          Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),
-        )),
-      Self::Player =>
-        {Self::insert(m,
-                     Self::space_object(PLAYER_SCALE, true,
-                                        Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP)),
-                     (Player::default(),
-                      Name::new("You"),
-                      Combat { hp: 400, ..default() },
-                      Inventory::default(),
-                      Navigation::new(PLAYER_FORCE),
-                      CanBeFollowedByNPC));
-         println("player spawned");
+          Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 })
+        )
+      ),
+      Self::Player => {
+        Self::insert(
+          m,
+          Self::space_object(
+            PLAYER_SCALE,
+            true,
+            Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP)
+          ),
+          (
+            Player::default(),
+            Name::new("You"),
+            Combat {
+              hp: 400,
+              ..default()
+            },
+            Inventory::default(),
+            Navigation::new(PLAYER_FORCE),
+            CanBeFollowedByNPC
+          )
+        );
+        println("player spawned");
+      }
+      Self::SpacePirate => Self::insert(
+        m,
+        Self::Enemy {
+          name: "Space Pirate",
+          hp: 60,
+          speed: NORMAL_NPC_SPEED * 1.1,
+          sprite: MySprite::PURPLEENEMYSHIP
         },
-      Self::SpacePirate =>
-        Self::insert(m, Self::Enemy {
-          name: "Space Pirate", hp: 60, speed: NORMAL_NPC_SPEED * 1.1,
-          sprite: MySprite::PURPLEENEMYSHIP,
-        }, ()),
-      Self::SpacePirateBase => 
-        Self::insert(m, Self::space_object(
-     4.0,
-     false,
-     Visuals::sprite(MySprite::GPT4O_PIRATE_STATION),
-     ), (Combat { hp: 120, is_hostile: false, ..default() },
-      Interact::SingleOption(InteractSingleOption::Describe),
-      Name::new("space pirate base"))),
+        ()
+      ),
+      Self::SpacePirateBase => Self::insert(
+        m,
+        Self::space_object(4.0, false, Visuals::sprite(MySprite::GPT4O_PIRATE_STATION)),
+        (
+          Combat {
+            hp: 120,
+            is_hostile: false,
+            ..default()
+          },
+          Interact::SingleOption(InteractSingleOption::Describe),
+          Name::new("space pirate base")
+        )
+      ),
       Self::SpaceStation => {}
-      Self::Nomad =>
-        Self::insert(m,
-                     Self::npc(
-                       NORMAL_NPC_SCALE,
-                       "nomad",
-                       NORMAL_NPC_SPEED,
-                       Faction::WANDERERS,
-                       35,
-                       MySprite::GPT4O_GREEN_CAR_SHIP), ()),
+      Self::Nomad => Self::insert(
+        m,
+        Self::npc(
+          NORMAL_NPC_SCALE,
+          "nomad",
+          NORMAL_NPC_SPEED,
+          Faction::WANDERERS,
+          35,
+          MySprite::GPT4O_GREEN_CAR_SHIP
+        ),
+        ()
+      )
     }
   }
-
 }
 
-#[derive(Clone,Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Zone {
-    pub name: &'static str,
-    pub objects: &'static [([f32; 3], Object)],
-    pub faction_control: Option<Faction>,
+  pub name: &'static str,
+  pub objects: &'static [([f32; 3], Object)],
+  pub faction_control: Option<Faction>
 }
 comment! {
   static TIME_TRAVELERS: S = S(|mut c, pos| {
@@ -3337,7 +4163,7 @@ fn asteroid_scale() -> f32 { rangerand(0.8, 2.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > random::<f32>() }
 
-comment!{
+comment! {
   #[derive(Component, Debug, Clone)]
   pub struct Zone {
     pub faction_control: Option<Faction>,
@@ -3361,14 +4187,14 @@ struct ZoneEntity {
   zone: Entity
 }
 
-
 impl Zone {
-  fn spawn_at(self,
-           mut c: &mut Commands,
-           zone_pos: Vec3 // , zone_entity: Entity
+  fn spawn_at(
+    self,
+    mut c: &mut Commands,
+    zone_pos: Vec3 // , zone_entity: Entity
   ) {
-    for (relpos, obj) in self.objects{
-      obj.spawn_at(&mut c, zone_pos + Vec3::from_array(*relpos) );
+    for (relpos, obj) in self.objects {
+      obj.spawn_at(&mut c, zone_pos + Vec3::from_array(*relpos));
     }
   }
 }
@@ -3380,115 +4206,135 @@ const MAX_ZONE_RANGE: f32 = 200.0;
 //   in_player_zone: bool // zone: Option<Entity>
 // }
 
-
-fn spawn_sprite(serv: Res<AssetServer>,
-                // assets: Res<Assets>,
-                mut c: Commands,
-                mut oh: Local<Option<Handle<Image>>>,
-                mut done: Local<bool>,
-                // mut next_state: ResMut<NextState<GameState>>,
-                mut sprite_params: Sprite3dParams) {
+fn spawn_sprite(
+  serv: Res<AssetServer>,
+  // assets: Res<Assets>,
+  mut c: Commands,
+  mut oh: Local<Option<Handle<Image>>>,
+  mut done: Local<bool>,
+  // mut next_state: ResMut<NextState<GameState>>,
+  mut sprite_params: Sprite3dParams
+) {
   match &*oh {
     None => *oh = Some(serv.load("embedded://lava_planet.png")),
     Some(h) => {
       if (!*done) && matches!(serv.get_load_state(h.id()), Some(LoadState::Loaded)) {
-        c.spawn(Sprite3dBuilder { image: h.clone(),
-                                  pixels_per_metre: 0.02,
-                                  double_sided: true,
-                                  alpha_mode: AlphaMode::Blend,
-                                  unlit: true,
-                                  // pivot: Some(Vec2::new(0.5, 0.5)),
-                                  ..default() }.bundle(&mut sprite_params));
+        c.spawn(
+          Sprite3dBuilder {
+            image: h.clone(),
+            pixels_per_metre: 0.02,
+            double_sided: true,
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            // pivot: Some(Vec2::new(0.5, 0.5)),
+            ..default()
+          }
+          .bundle(&mut sprite_params)
+        );
         *done = true;
       }
     }
   }
 }
-pub fn setup(playerq: Query<&Transform, With<Player>>,
-             serv: Res<AssetServer>,
-             mut meshes: ResMut<Assets<Mesh>>,
-             mut materials: ResMut<Assets<StandardMaterial>>,
-             mut c: Commands) {
+pub fn setup(
+  playerq: Query<&Transform, With<Player>>,
+  serv: Res<AssetServer>,
+  mut meshes: ResMut<Assets<Mesh>>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut c: Commands
+) {
   let sun_pos = Vec3::ZERO;
   Object::Player.spawn_at(&mut c, Vec3::Y * 1000.0);
   Object::Sun.spawn_at(&mut c, sun_pos);
-  for (pos, zone) in aigen::ZONES{
-    zone.spawn_at(&mut c, Vec3::from_array(*pos) );
+  for (pos, zone) in aigen::ZONES {
+    zone.spawn_at(&mut c, Vec3::from_array(*pos));
   }
 
   let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
-  c.spawn((PointLight { shadows_enabled: true,
-                        ..default() },
-           Transform::from_xyz(4.0, 8.0, 4.0)));
+  c.spawn((
+    PointLight {
+      shadows_enabled: true,
+      ..default()
+    },
+    Transform::from_xyz(4.0, 8.0, 4.0)
+  ));
 
   let fov = std::f32::consts::PI / 4.0;
 
   let pitch_limit_radians = 1.0;
-  let camera =
-    (IsDefaultUiCamera,
-     BLOOM,
-     // Skybox { image: skybox_handle.clone(),
-     //          brightness: 600.0 },
-     Camera2d,
-     // Camera3d { ..default() },
-     // Camera { hdr: true,
-     //          ..default() },
-     // Projection::Perspective(PerspectiveProjection { fov, ..default() }),
-     // bevy::render::camera::Exposure { ev100: 10.0 },
-     // Transform::default(),
-     Camera3dBundle { camera: Camera { hdr: true,
+  let camera = (
+    IsDefaultUiCamera,
+    BLOOM,
+    // Skybox { image: skybox_handle.clone(),
+    //          brightness: 600.0 },
+    Camera2d,
+    // Camera3d { ..default() },
+    // Camera { hdr: true,
+    //          ..default() },
+    // Projection::Perspective(PerspectiveProjection { fov, ..default() }),
+    // bevy::render::camera::Exposure { ev100: 10.0 },
+    // Transform::default(),
+    Camera3dBundle {
+      camera: Camera {
+        hdr: true,
 
-                                       ..default() },
-                      projection:
-                        Projection::Perspective(PerspectiveProjection { fov, ..default() }),
-                      exposure: bevy::render::camera::Exposure { ev100: 10.0 },
-                      // tonemapping:
-                      //   bevy::core_pipeline::tonemapping::Tonemapping::Reinhard,
-                      ..default() },
-     PanOrbitCamera { // radius: Some(5.0),
+        ..default()
+      },
+      projection: Projection::Perspective(PerspectiveProjection { fov, ..default() }),
+      exposure: bevy::render::camera::Exposure { ev100: 10.0 },
+      // tonemapping:
+      //   bevy::core_pipeline::tonemapping::Tonemapping::Reinhard,
+      ..default()
+    },
+    PanOrbitCamera {
+      // radius: Some(5.0),
 
-                      // focus: todo!(),
-                      // yaw: todo!(),
-                      // pitch: todo!(),
-                      // target_focus: todo!(),
-                      // target_yaw: todo!(),
-                      // target_pitch: todo!(),
-                      // target_radius: todo!(),
-                      // yaw_upper_limit: todo!(),
-                      // yaw_lower_limit: todo!(),
-                      pitch_upper_limit: Some(pitch_limit_radians),
-                      pitch_lower_limit: Some(-pitch_limit_radians),
-                      zoom_upper_limit: Some(200.0),
-                      zoom_lower_limit: 5.0,
-                      // orbit_sensitivity: todo!(),
-                      orbit_smoothness: 0.0,
-                      pan_sensitivity: 0.0,
-                      pan_smoothness: 0.85,
-                      zoom_sensitivity: 2.5,
-                      // zoom_smoothness: todo!(),
-                      // button_orbit: todo!(),
-                      // button_pan: todo!(),
-                      // modifier_orbit: todo!(),
-                      // modifier_pan: todo!(),
-                      // touch_enabled: todo!(),
-                      // touch_controls: todo!(),
-                      // reversed_zoom: todo!(),
-                      // is_upside_down: todo!(),
-                      // allow_upside_down: todo!(),
-                      // enabled: todo!(),
-                      // initialized: todo!(),
-                      // force_update: todo!(),
-                      ..default() });
+      // focus: todo!(),
+      // yaw: todo!(),
+      // pitch: todo!(),
+      // target_focus: todo!(),
+      // target_yaw: todo!(),
+      // target_pitch: todo!(),
+      // target_radius: todo!(),
+      // yaw_upper_limit: todo!(),
+      // yaw_lower_limit: todo!(),
+      pitch_upper_limit: Some(pitch_limit_radians),
+      pitch_lower_limit: Some(-pitch_limit_radians),
+      zoom_upper_limit: Some(200.0),
+      zoom_lower_limit: 5.0,
+      // orbit_sensitivity: todo!(),
+      orbit_smoothness: 0.0,
+      pan_sensitivity: 0.0,
+      pan_smoothness: 0.85,
+      zoom_sensitivity: 2.5,
+      // zoom_smoothness: todo!(),
+      // button_orbit: todo!(),
+      // button_pan: todo!(),
+      // modifier_orbit: todo!(),
+      // modifier_pan: todo!(),
+      // touch_enabled: todo!(),
+      // touch_controls: todo!(),
+      // reversed_zoom: todo!(),
+      // is_upside_down: todo!(),
+      // allow_upside_down: todo!(),
+      // enabled: todo!(),
+      // initialized: todo!(),
+      // force_update: todo!(),
+      ..default()
+    }
+  );
   c.spawn(camera);
   println("spawned camera");
   println("setup");
 }
 
-fn spawn_skybox(serv: Res<AssetServer>,
-                mut images: ResMut<Assets<Image>>,
-                mut camq: Query<Entity, (With<Camera>, Without<Skybox>)>,
-                mut c: Commands,
-                mut skybox_handle: Local<Option<Handle<Image>>>) {
+fn spawn_skybox(
+  serv: Res<AssetServer>,
+  mut images: ResMut<Assets<Image>>,
+  mut camq: Query<Entity, (With<Camera>, Without<Skybox>)>,
+  mut c: Commands,
+  mut skybox_handle: Local<Option<Handle<Image>>>
+) {
   if let Ok(cam_entity) = camq.get_single() {
     // Image::reinterpret_stacked_2d_as_array(&mut self, layers);
     let skybox_handle = serv.load(MySprite::SKYBOX.embedded_path());
@@ -3499,67 +4345,70 @@ fn spawn_skybox(serv: Res<AssetServer>,
       //                                    depth_or_array_layers: 6 });
       skybox.reinterpret_stacked_2d_as_array(skybox.height() / skybox.width());
 
-      skybox.texture_view_descriptor =
-        Some(TextureViewDescriptor {
-          dimension:
-          Some(bevy::render::render_resource::TextureViewDimension::Cube),
-          ..default() });
-      c.entity(cam_entity)
-       .insert(Skybox { image: skybox_handle.clone(),
-                        brightness: 600.0,
-                        rotation: default() });
+      skybox.texture_view_descriptor = Some(TextureViewDescriptor {
+        dimension: Some(bevy::render::render_resource::TextureViewDimension::Cube),
+        ..default()
+      });
+      c.entity(cam_entity).insert(Skybox {
+        image: skybox_handle.clone(),
+        brightness: 600.0,
+        rotation: default()
+      });
       // *done = true;
     } else {
-      c.spawn(Skybox { image: skybox_handle,
-                       ..default() });
+      c.spawn(Skybox {
+        image: skybox_handle,
+        ..default()
+      });
     }
   }
 }
 #[bevy_main]
 pub fn main() {
   let gravity = avian3d::dynamics::integrator::Gravity::ZERO;
-  let solver_config = SolverConfig { contact_damping_ratio: 0.5,
-                                     // contact_frequency_factor: 1.5,
-                                     // max_overlap_solve_speed: 4.0,
-                                     // warm_start_coefficient: 1.0,
-                                     // restitution_threshold: 1.0,
-                                     // restitution_iterations: 1,
-                                     ..default() };
+  let solver_config = SolverConfig {
+    contact_damping_ratio: 0.5,
+    // contact_frequency_factor: 1.5,
+    // max_overlap_solve_speed: 4.0,
+    // warm_start_coefficient: 1.0,
+    // restitution_threshold: 1.0,
+    // restitution_iterations: 1,
+    ..default()
+  };
   let address_mode = bevy::image::ImageAddressMode::ClampToBorder;
-  let default_sampler =
-    bevy::image::ImageSamplerDescriptor { // address_mode_u: address_mode,
-                                          //                        address_mode_v: address_mode,
-                                          //                        address_mode_w: address_mode,
-                                          mag_filter: ImageFilterMode::Nearest,
-                                          min_filter: ImageFilterMode::Linear,
-                                          mipmap_filter: ImageFilterMode::Linear,
-                                          // compare:
-                                          //   Some(ImageCompareFunction::Less),
-                                          // lod_min_clamp: 10.0,
-                                          // lod_max_clamp: 100.0,
-                                          // border_color:
-                                          //   Some(ImageSamplerBorderColor::TransparentBlack),
-                                          // anisotropy_clamp: 1000,
-                                          ..default() };
+  let default_sampler = bevy::image::ImageSamplerDescriptor {
+    // address_mode_u: address_mode,
+    //                        address_mode_v: address_mode,
+    //                        address_mode_w: address_mode,
+    mag_filter: ImageFilterMode::Nearest,
+    min_filter: ImageFilterMode::Linear,
+    mipmap_filter: ImageFilterMode::Linear,
+    // compare:
+    //   Some(ImageCompareFunction::Less),
+    // lod_min_clamp: 10.0,
+    // lod_max_clamp: 100.0,
+    // border_color:
+    //   Some(ImageSamplerBorderColor::TransparentBlack),
+    // anisotropy_clamp: 1000,
+    ..default()
+  };
   App::new()
     .add_plugins((
       EmbeddedAssetPlugin::default(),
       // bevy::pbr::ScreenSpaceAmbientOcclusionPlugin
       DefaultPlugins
-      // .set(RenderPlugin {
-      //   render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
-      //     backends: Some(bevy::render::settings::Backends::VULKAN),
-      //     ..default()
-      //   }),
-      //   ..default()
-      // })
-        .set(ImagePlugin{default_sampler})
+        // .set(RenderPlugin {
+        //   render_creation: bevy::render::settings::RenderCreation::Automatic(bevy::render::settings::WgpuSettings {
+        //     backends: Some(bevy::render::settings::Backends::VULKAN),
+        //     ..default()
+        //   }),
+        //   ..default()
+        // })
+        .set(ImagePlugin { default_sampler })
         .set(WindowPlugin {
           primary_window: Some(Window {
             // resolution: WindowResolution
-
-
-            mode:WindowMode::Windowed,
+            mode: WindowMode::Windowed,
 
             present_mode: bevy::window::PresentMode::AutoVsync,
             title: "bevy space game".to_string(),
@@ -3568,14 +4417,13 @@ pub fn main() {
           }),
           ..default()
         }),
-        HaalkaPlugin,
+      HaalkaPlugin,
       // bevy_vox_scene::VoxScenePlugin,
       bevy_sprite3d::Sprite3dPlugin,
       bevy_panorbit_camera::PanOrbitCameraPlugin,
       // bevy_mod_billboard::prelude::BillboardPlugin,
-      avian3d::PhysicsPlugins::default(),
-      // QuillPlugin,
-      // QuillOverlaysPlugin,
+      avian3d::PhysicsPlugins::default() // QuillPlugin,
+                                         // QuillOverlaysPlugin,
     ))
     // .add_event::<GuiInputEvent>()
     .init_resource::<UIData>()
@@ -3585,42 +4433,54 @@ pub fn main() {
     .insert_resource(ClearColor(Color::BLACK))
     // .init_asset::<bevy_vox_scene::VoxelScene>()
     .insert_resource(AMBIENT_LIGHT)
-    .add_systems(Startup, (setup,setup_ui_system// ,add_global_highlight
-                           ,// ui
-    ).chain())
-
-  // .add_systems(Startup, setup.run_if(in_state))
-    .add_systems(Update,(
-      // spawn_sprite,
-      close_on_esc,
-      // spawn_mushroom_man,
-      set_space_object_scale,
-      player_movement,
-      camera_follow_player,
-      increment_time,
-      origin_time,
-      // timed_animation_system,
-      combat_visual_effects,
-      player_target_interaction,
-    ).chain())
-    .add_systems(Update,(
-      // update_in_zone,
-      combat_system,
-      warp,
-
-      ui,
-      // spawn_skybox,
-      npc_movement,
-      interact,
-      navigation,
-      click_target,
-      face_camera_system,
-// face_camera_dir,
-// face_camera,
-      // set_visuals,
-      visuals,
-      debug_input
-    ).chain())
+    .add_systems(
+      Startup,
+      (
+        setup,
+        setup_ui_system // ,add_global_highlight
+                        ,// ui
+      )
+        .chain()
+    )
+    // .add_systems(Startup, setup.run_if(in_state))
+    .add_systems(
+      Update,
+      (
+        // spawn_sprite,
+        close_on_esc,
+        // spawn_mushroom_man,
+        set_space_object_scale,
+        player_movement,
+        camera_follow_player,
+        increment_time,
+        origin_time,
+        // timed_animation_system,
+        combat_visual_effects,
+        player_target_interaction
+      )
+        .chain()
+    )
+    .add_systems(
+      Update,
+      (
+        // update_in_zone,
+        combat_system,
+        warp,
+        ui,
+        // spawn_skybox,
+        npc_movement,
+        interact,
+        navigation,
+        click_target,
+        face_camera_system,
+        // face_camera_dir,
+        // face_camera,
+        // set_visuals,
+        visuals,
+        debug_input
+      )
+        .chain()
+    )
     .run();
 }
 
@@ -3632,29 +4492,28 @@ pub fn main() {
 // cargo run --target x86_64-unknown-linux-gnu
 // cargo check --target x86_64-unknown-linux-gnu
 
-
-  enum Temperature {
-    Permafrost,
-    Cold,
-    Medium,
-    Warm,
-    Hot
-  }
-  pub struct Region {
-    is_mountain: bool,
-    temperature: Temperature,
-    land_area: f32
-  }
-  enum Ideology {
-    Communism,
-    Fascism,
-    Democracy
-  }
-  pub struct Country {
-    regions: Vec<Region>,
-    ideology: Ideology
-  }
-  pub struct WorldMap(Vec<Country>);
+enum Temperature {
+  Permafrost,
+  Cold,
+  Medium,
+  Warm,
+  Hot
+}
+pub struct Region {
+  is_mountain: bool,
+  temperature: Temperature,
+  land_area: f32
+}
+enum Ideology {
+  Communism,
+  Fascism,
+  Democracy
+}
+pub struct Country {
+  regions: Vec<Region>,
+  ideology: Ideology
+}
+pub struct WorldMap(Vec<Country>);
 // pub fn integration_parameters() -> IntegrationSet {
 //     IntegrationParameters { damping_ratio: 4.0,
 //                             // dt: todo!(),
@@ -3676,12 +4535,7 @@ pub fn main() {
 //                             ..default() }
 //   }
 
-
-
-
-
-
-comment!{
+comment! {
   fn update_in_zone(player_transform: Single<&Transform, With<Player>>,
                     mut entity_query: Query<(Entity, &Transform, Option<&mut InZone>),
                                             Without<Player>>,
