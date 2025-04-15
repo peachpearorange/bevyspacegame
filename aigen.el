@@ -57,6 +57,7 @@ Using the provided CONTEXT CODE (core definitions from src/main.rs and a formatt
     * `objects: &'static [([f32; 3], Obj)]`: Define game objects at specific coordinates `[f32; 3]`.
         * Use the `Obj` type (likely an alias for `Object`).
         * Construct objects using variants defined in context (e.g., `Obj::Asteroid`, `Obj::TradingStation`, `Obj::Npc { ... }`, `Obj::SpaceObject { ... }`). Refer to the example for patterns.
+        * Be careful not to create very large objects too close to others, such as planets, whose radius or scale is so large that they overlap with other objects. It is however ok if small objects overlap but it can be a problem if an entire zone is inside a planet for example so check how far away a planet is from other things and if it is sufficiently far away that they don't overlap.
     * `faction_control: Option<Faction>`: Assign a controlling faction if appropriate (e.g., `Some(Faction::Guild)`), otherwise `None`. Infer from description or context.
     * *(Include other relevant `Zone` fields if they exist, describing how to populate them)*
 

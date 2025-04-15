@@ -114,6 +114,7 @@ impl MySprite {
   const GPT4O_PLANET_MUSTAFAR: Self = Self::new("GPT4O Mustafar.png");
   const GPT4O_PLANET_TRANTOR: Self = Self::new("GPT4O Trantor.png");
   const GPT4O_CONTAINER: Self = Self::new("GPT4O Container.png");
+  const GPT4O_GATE: Self = Self::new("GPT4O gate.png");
   const IMAGEN3GREENSPACESHIP: Self = Self::new("imagen3greenspaceship.png");
   const IMAGEN3WIZARDSPACESHIP: Self = Self::new("imagen3wizardspaceship.png");
   const IMAGEN3WHITESPACESHIP: Self = Self::new("imagen3whitespaceship.png");
@@ -149,7 +150,6 @@ impl MySprite {
   const NOTE: Self = Self::new("note.png");
   const PENGUIN: Self = Self::new("penguin.png");
   const PLAYER: Self = Self::new("player.png");
-  const PORTAL: Self = Self::new("portal.png");
   const PURPLEENEMYSHIP: Self = Self::new("purpleenemyship.png");
   const SANDPLANET: Self = Self::new("sandplanet.png");
   const SIGN: Self = Self::new("sign.png");
@@ -1197,6 +1197,7 @@ fn player_target_interaction(
     Object::MushroomMan.spawn_at(&mut c, player_pos);
   }
   if keys.just_pressed(KeyCode::KeyT) {
+    todo!("fix this");
     println("pressed t");
     if let Some((e, _, _)) = filter_least(
       |(e, hostile, transform)| {
@@ -1489,7 +1490,7 @@ pub fn warp(
   keyboard_input: Res<ButtonInput<KeyCode>>
 ) {
   if keyboard_input.just_pressed(KeyCode::KeyG) {
-  let target_globaltransform = pick(targetq.iter()).unwrap();
+    let target_globaltransform = pick(targetq.iter()).unwrap();
     player_transform.translation = target_globaltransform.translation();
   }
 }
@@ -2703,13 +2704,13 @@ pub fn one_d20() -> u32 { nd20(1) }
 enum InteractMultipleOptions {
   Salvage { how_much_loot: u8 },
   WarpGate { name: &'static str },
-  DialogueTREE(DialogueTree, &'static str),
-  ASTEROIDMiningMinigame { resources_left: u8, tool_durability: u8 }
+  DialogueTree(DialogueTree, &'static str),
+  AsteroidMiningMiniGame { resources_left: u8, tool_durability: u8 }
 }
 impl InteractMultipleOptions {
   fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
     match self {
-      InteractMultipleOptions::ASTEROIDMiningMinigame {
+      InteractMultipleOptions::AsteroidMiningMiniGame {
         resources_left,
         tool_durability
       } => {
@@ -2726,7 +2727,7 @@ impl InteractMultipleOptions {
               MyCommand::message_add("You mine carefully, preserving your tool."),
               MyCommand::give_item_to_player(Item::SPACEMINERALS)
             ]),
-            Self::ASTEROIDMiningMinigame {
+            Self::AsteroidMiningMiniGame {
               resources_left: resources_left - 1,
               tool_durability
             }
@@ -2740,7 +2741,7 @@ impl InteractMultipleOptions {
               MyCommand::give_item_to_player(Item::SPACEMINERALS),
               MyCommand::give_item_to_player(Item::SPACEMINERALS)
             ]),
-            Self::ASTEROIDMiningMinigame {
+            Self::AsteroidMiningMiniGame {
               resources_left: resources_left - 1,
               tool_durability: tool_durability - 1
             }
@@ -2783,14 +2784,14 @@ impl InteractMultipleOptions {
         };
         (msg, options)
       }
-      InteractMultipleOptions::DialogueTREE(tree, node) => {
+      InteractMultipleOptions::DialogueTree(tree, node) => {
         let msg = "talking npc".to_string();
         if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
           let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
             (
               playersay.to_string(),
               MyCommand::message_add(npcsay.to_string()),
-              InteractMultipleOptions::DialogueTREE(tree, *new_node)
+              InteractMultipleOptions::DialogueTree(tree, *new_node)
             )
           });
           (msg, options.collect())
@@ -2798,7 +2799,14 @@ impl InteractMultipleOptions {
           (msg, default())
         }
       }
-      InteractMultipleOptions::WarpGate { name } => todo!()
+      // todo!
+      InteractMultipleOptions::WarpGate { name } => {
+        ("this is a warp gate".to_string(), vec![(
+          "...".to_string(),
+          MyCommand::message_add("WIP"),
+          InteractMultipleOptions::WarpGate { name }
+        )])
+      }
     }
   }
 }
@@ -2901,7 +2909,7 @@ enum Interact {
 impl Interact {
   fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
     let (node, _) = tree[0];
-    Self::MultipleOptions(InteractMultipleOptions::DialogueTREE(tree, node))
+    Self::MultipleOptions(InteractMultipleOptions::DialogueTree(tree, node))
   }
 }
 const INTERACTION_RANGE: f32 = 8.0;
@@ -3190,9 +3198,13 @@ pub fn ui(
 
   // --- Overview Data (Hostiles in Combat Range) ---
   let player_dist = |t: &TargetDataItem| player_pos.distance(t.transform.translation);
-  let overview_data: Vec<String> = target_q
-    .iter()
-    // .sort_by(|a, b| player_dist(*a).partial_cmp(&player_dist(*b)).unwrap_or(std::cmp::Ordering::Equal))
+  let targetqvec: Vec<TargetDataItem> = vec(&target_q);
+  let overview_data: Vec<String> = targetqvec
+    .into_iter()
+    // .sort_by_key(|i: &TargetDataItem| player_pos.distance(i.transform.translation) as i32)
+    // .sort_by(|a, b| {
+    //   player_dist(*a).partial_cmp(&player_dist(**b)).unwrap_or(std::cmp::Ordering::Equal)
+    // })
     .filter_map(|target| {
       // Calculate distance first
       // Filter for hostiles within range that have combat stats and a name
@@ -3210,6 +3222,7 @@ pub fn ui(
         }
       })
     })
+    // .take(12)
     .collect();
   OVERVIEW_DATA.set(overview_data);
 
@@ -3483,6 +3496,7 @@ impl Object {
           Self::Empty,
           (
             SpaceObject { scale, ..default() },
+            Name::new(name),
             FacingMode::Position,
             visuals,
             LockedAxes::ROTATION_LOCKED,
@@ -3653,11 +3667,12 @@ impl Object {
           1.5,
           false,
           Visuals::sprite(MySprite::SIGN),
-          &format!("Sign: {text}")
+          // const_format_args!()
+          "sign"
         ),
         (
           Interact::SingleOption(InteractSingleOption::Describe),
-          TextDisplay::from("cowboy")
+          TextDisplay(text.to_string())
         )
       ),
       Self::Wormhole => Self::insert(
@@ -3674,7 +3689,7 @@ impl Object {
           "Asteroid"
         ),
         (
-          Interact::MultipleOptions(InteractMultipleOptions::ASTEROIDMiningMinigame {
+          Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMiniGame {
             resources_left: 5,
             tool_durability: 5
           }),
@@ -3901,7 +3916,7 @@ impl Object {
       ),
       Self::WarpGate { name } => Self::insert(
         m,
-        Self::space_object(3.0, false, Visuals::sprite(MySprite::GATE), name),
+        Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name),
         (Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }), WarpGate)
       )
     }
