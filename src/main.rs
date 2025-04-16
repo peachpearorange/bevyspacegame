@@ -13,6 +13,7 @@
 #![feature(impl_trait_in_assoc_type)]
 // #![feature(option_get_or_insert_default)]
 #![feature(let_chains)]
+#![feature(const_closures)]
 // #![feature(const_mut_refs)]
 
 // #![feature(int_roundings)]
@@ -748,6 +749,113 @@ impl MyCommand {
 impl Command for MyCommand {
   fn apply(self, world: &mut World) { (self.0)(world); }
 }
+
+// to the ai: implement all this stuff as extension methods of World. use auto-implementation for as many of them as possible. rust has a feature that lets you specify the implementation of methods in the trait definition. use it. one method should just return an &mut World. that method should have an implementation separate from the trait definition but all the other methods should use auto-implementation
+
+pub trait WorldExt {
+  fn get_world_mut(&mut self) -> &mut World;
+  fn insert_component<C: Component + 'static>(&mut self, entity: Entity, component: C) {
+    if let Ok(mut entity_mut) = self.get_world_mut().get_entity_mut(entity) {
+      entity_mut.insert(component);
+    }
+  }
+  fn update_component<C: Component + Clone + 'static>(
+    &mut self,
+    entity: Entity,
+    f: impl FnOnce(C) -> C
+  ) {
+    if let Ok(mut entity_mut) = self.get_world_mut().get_entity_mut(entity)
+      && let Some(mut component) = entity_mut.get_mut::<C>()
+      && let updated = f((*component).clone())
+    {
+      *component = updated;
+    }
+  }
+  fn mutate_component<C: Component + 'static>(
+    &mut self,
+    entity: Entity,
+    f: impl FnOnce(&mut C)
+  ) {
+    if let Ok(mut entity_mut) = self.get_world_mut().get_entity_mut(entity)
+      && let Some(mut component) = entity_mut.get_mut::<C>()
+    {
+      f(&mut component);
+    }
+  }
+  fn get_player(&mut self) -> Option<Entity> {
+    self
+      .get_world_mut()
+      .query_filtered::<Entity, With<Player>>()
+      .iter(self.get_world_mut())
+      .next()
+  }
+  fn give_items_to_player(&mut self, items: impl IntoIterator<Item = (Item, u32)>) {
+    if let Some(player_entity) = self.get_player() {
+      self.mutate_component(player_entity, |inventory: &mut Inventory| {
+        inventory.add_contents(items);
+      });
+    }
+  }
+  fn give_item_to_player(&mut self, item: Item) {
+    if let Some(player_entity) = self.get_player() {
+      self.mutate_component(player_entity, |inventory: &mut Inventory| {
+        inventory.add_contents([(item.clone(), 1)]);
+      });
+    }
+  }
+  fn end_object_interaction_mini_game(&mut self) {
+    // Implement mini-game ending logic here
+  }
+  fn damage_entity(&mut self, entity: Entity, amount: u32) {
+    if let Some(mut combat) = self.get_world_mut().get_mut::<Combat>(entity) {
+      combat.hp = combat.hp.saturating_sub(amount);
+    }
+  }
+  fn message_add(&mut self, message: impl Into<String> + Send + Sync + 'static) {
+    let s: String = message.into();
+    MESSAGE_LOG.update_mut(|v| v.push(Message::from(s)));
+    // if let Some(mut ui_data) = self.get_world_mut().get_resource_mut::<UIData>() {
+    //     ui_data.message_add(message.to_string().clone());
+    // }
+  }
+  fn despawn_entity(&mut self, entity: Entity) {
+    self.get_world_mut().commands().entity(entity).despawn_recursive();
+  }
+  fn despawn(&mut self, entity: Entity) {
+    self.get_world_mut().commands().entity(entity).despawn_recursive();
+  }
+  fn insert_player_component<C: Component + 'static>(&mut self, component: C) {
+    if let Some(player_entity) = self.get_player() {
+      self.insert_component(player_entity, component);
+    }
+  }
+  fn update_player_component<C: Component + Clone + 'static>(
+    &mut self,
+    f: impl FnOnce(C) -> C
+  ) {
+    if let Some(player_entity) = self.get_player() {
+      self.update_component(player_entity, f);
+    }
+  }
+  fn mutate_player_component<C: Component + Clone + 'static>(
+    &mut self,
+    f: impl FnOnce(&mut C)
+  ) {
+    if let Some(player_entity) = self.get_player() {
+      self.mutate_component(player_entity, f);
+    }
+  }
+}
+impl WorldExt for World {
+  fn get_world_mut(&mut self) -> &mut World { self }
+}
+
+// You would then use these extension methods like this:
+// fn some_system(world: &mut World, player_entity: Entity) {
+//     world.insert_component(player_entity, Inventory { contents: vec![] });
+//     world.give_item_to_player(Item {});
+//     world.message_add("You received an item!");
+// }
 
 // fn combat_actions()
 
@@ -2699,6 +2807,81 @@ pub fn nd20(n: u32) -> u32 { ndm(n, 20) }
 pub fn one_d6() -> u32 { nd6(1) }
 pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
+// Helper that wraps a closure into an Interact::MultipleOptions.
+// fn minigame(
+//   f: impl FnMut(
+//     &mut World
+//   ) -> (String, Vec<(String, MyCommand, Box<dyn MultipleOptionsInteractFn>)>)
+//   + 'static
+// ) -> Interact {
+//   Interact::MultipleOptions(InteractMultipleOptions::new(f))
+// }
+
+comment! {
+struct OptionSet {
+  options: Vec<(String, Box<dyn FnOnce()>)>
+}
+impl OptionSet {
+  fn new() -> Self { Self { options: default() } }
+  fn add<F>(mut self, label: impl ToString, f: F) -> Self
+  where
+    F: FnOnce()
+  {
+    self.options.push((label.to_string(), Box::new(f)));
+    self
+  }
+
+  fn add_if<F>(self, condition: bool, label: impl ToString, f: F) -> Self
+  where
+    F: FnOnce()
+  {
+    if condition { self.add(label, f) } else { self }
+  }
+}
+  fn self_mutating_closure() -> Box<dyn FnMut(&mut World) -> (String, OptionSet)> {
+    let mut resource_quantity = 0;
+    let mut durability = 5;
+    let mut has_dynamite = true;
+    Box::new(|world| {
+      let msg = "theres's a rock here that you can mine".to_string();
+      let options = OptionSet::new()
+        .add_if(has_dynamite, "throw dynamite", || {
+          has_dynamite = false;
+          resource_quantity += 2;
+        })
+        .add_if(durability > 0, "dig", || {
+          durability -= 1;
+          resource_quantity += 1;
+        })
+        .add("leave", || {
+          world.give_items_to_player([(Item::SPACEMINERALS, resource_quantity)]);
+          resource_quantity = 0;
+        });
+      (msg, options)
+    })
+  }
+}
+// Helper to create an option with a short closure that produces the next state.
+// This simply converts the provided closure (with no world dependency) into the boxed closure.
+// fn mk_option(
+//   text: &str,
+//   command: MyCommand,
+//   mut next: impl FnMut()
+//     -> (String, Vec<(String, MyCommand, Box<dyn MultipleOptionsInteractFn>)>)
+//   + 'static
+// ) -> (String, MyCommand, Box<dyn MultipleOptionsInteractFn>) {
+//   (
+//     text.to_string(),
+//     command,
+//     Box::new(move |_world| next()) as Box<dyn MultipleOptionsInteractFn>
+//   )
+// }
+
+// // A super–concise asteroid-mining minigame. The local mutable state is captured in the closure,
+// // and the entire Interact::MultipleOptions value is constructed in one go with minigame() and inline options.
+// fn simple_mining_minigame(mut resources: u8, mut durability: u8) -> Interact {
+//   minigame(move |_world| {})
+// }
 
 #[derive(Clone)]
 enum InteractMultipleOptions {
@@ -2810,6 +2993,8 @@ impl InteractMultipleOptions {
     }
   }
 }
+// #[derive(Component)]
+// struct NewInteract(Box<dyn std::fmt::Debug>);
 
 #[derive(Clone)]
 enum InteractSingleOption {
@@ -4208,14 +4393,14 @@ pub fn main() {
         // spawn_sprite,
         close_on_esc,
         // spawn_mushroom_man,
-        set_space_object_scale,
-        player_movement,
-        camera_follow_player,
-        increment_time,
-        origin_time,
+        player_movement.param_warn_once(),
+        camera_follow_player.param_warn_once(),
+        combat_system.param_warn_once(),
+        visuals,
+        face_camera_system.param_warn_once(),
+        warp.param_warn_once(),
         // timed_animation_system,
-        combat_visual_effects,
-        player_target_interaction
+        player_target_interaction.param_warn_once()
       )
         .chain()
     )
@@ -4223,19 +4408,19 @@ pub fn main() {
       Update,
       (
         // update_in_zone,
-        combat_system,
-        warp,
         ui,
         // spawn_skybox,
         npc_movement,
+        set_space_object_scale,
         interact,
+        combat_visual_effects,
+        origin_time,
+        increment_time,
         navigation,
         click_target,
-        face_camera_system,
         // face_camera_dir,
         // face_camera,
         // set_visuals,
-        visuals,
         debug_input
       )
         .chain()
