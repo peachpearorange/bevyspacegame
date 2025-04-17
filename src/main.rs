@@ -845,16 +845,29 @@ pub trait WorldExt {
       self.mutate_component(player_entity, f);
     }
   }
+  fn get_player_pos(&mut self) -> Option<Vec3> {
+    let world = self.get_world_mut();
+    let player = world.get_player()?;
+    let &transform = world.get_entity(player).ok()?.get_components::<&Transform>()?;
+    Some(transform.translation)
+  }
+  fn get_component<C: Component + 'static>(&mut self, entity: Entity) -> Option<&C> {
+    self.get_world_mut().get::<C>(entity)
+  }
+  fn get_player_component<C: Component + 'static>(&mut self) -> Option<&C> {
+    let player_entity = self.get_player()?;
+    self.get_component(player_entity)
+  }
 }
 impl WorldExt for World {
   fn get_world_mut(&mut self) -> &mut World { self }
 }
-impl WorldExt for SingleOptionMiniGameContext {
+impl WorldExt for MiniGameContext {
   fn get_world_mut(&mut self) -> &mut World { self.world }
 }
-impl WorldExt for MultiOptionMiniGameContext {
-  fn get_world_mut(&mut self) -> &mut World { self.world }
-}
+// impl WorldExt for MultiOptionMiniGameContext {
+//   fn get_world_mut(&mut self) -> &mut World { self.world }
+// }
 
 // You would then use these extension methods like this:
 // fn some_system(world: &mut World, player_entity: Entity) {
@@ -1763,6 +1776,21 @@ type DialogueTreeNode = (
 const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
 type DialogueTree = &'static [DialogueTreeNode];
 
+impl MiniGameTrait for (DialogueTree, &'static str) {
+  fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
+    ctx.msg("talking npc");
+    let (tree, node) = *self;
+    for &(node2, options) in tree.iter() {
+      if node2 == node {
+        for &(id, playersay, npcsay, effect) in options {
+          if ctx.selected(playersay) {
+            self.1 = id;
+          }
+        }
+      }
+    }
+  }
+}
 pub const SPHERICAL_SPACE_COW_DIALOGUE: DialogueTree = &[
   ("A", &[("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None)]),
   ("B", &[
@@ -2813,40 +2841,78 @@ pub fn nd20(n: u32) -> u32 { ndm(n, 20) }
 pub fn one_d6() -> u32 { nd6(1) }
 pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
-// Helper that wraps a closure into an Interact::MultipleOptions.
-// fn minigame(
-//   f: impl FnMut(
-//     &mut World
-//   ) -> (String, Vec<(String, MyCommand, Box<dyn MultipleOptionsInteractFn>)>)
-//   + 'static
-// ) -> Interact {
-//   Interact::MultipleOptions(InteractMultipleOptions::new(f))
+// struct MultiOptionMiniGameContext {
+//   current_option_number: u8,
+//   world: &'static mut World
+// }
+// impl MultiOptionMiniGameContext {
+//   fn msg(&self, arg: impl ToString) { todo!() }
+//   fn selected(&mut self, arg: impl ToString) -> bool { todo!() }
+//   fn exclusive_selected(&mut self, arg: impl ToString) -> bool { todo!() }
+// }
+// struct SingleOptionMiniGameContext {
+//   world: &'static mut World
 // }
 
-struct MultiOptionMiniGameContext {
-  current_option_number: u8,
-  world: &'static mut World
-}
-impl MultiOptionMiniGameContext {
-  fn msg(&self, arg: impl ToString) { todo!() }
+// impl SingleOptionMiniGameContext {
+//   fn msg(&mut self, s: impl ToString) {}
+// }
 
-  fn selected(&mut self, arg: impl ToString) -> bool { todo!() }
-}
-struct SingleOptionMiniGameContext {
+struct MiniGameContext {
+  current_option_number: u8,
+  selected_option_number: Option<u8>,
+  display_string: String,
   world: &'static mut World
 }
-trait MultiOptionMiniGame {
-  fn play_mini_game(&mut self, ctx: &mut MultiOptionMiniGameContext);
+impl MiniGameContext {
+  fn msg(&mut self, arg: impl ToString) { self.display_string = arg.to_string() }
+  fn selected(&mut self, arg: impl ToString) -> bool {
+    let is_selected = (self.selected_option_number == Some(self.current_option_number));
+    self.current_option_number += 1;
+    is_selected
+  }
+  fn exclusive_selected(&mut self, arg: impl ToString) -> bool { todo!() }
 }
-trait SingleOptionMiniGame: Send + Sync {
-  fn play_mini_game(&mut self, ctx: &mut SingleOptionMiniGameContext);
+trait MiniGameTrait: Send + Sync {
+  // const ALLOW_MULTIPLE_OPTIONS: bool;
+  fn play_mini_game(&mut self, ctx: &mut MiniGameContext);
 }
+// trait MultiOptionMiniGame: Send + Sync {
+//   fn play_mini_game(&mut self, ctx: &mut MultiOptionMiniGameContext);
+// }
+// trait SingleOptionMiniGame: Send + Sync {
+//   fn play_mini_game(&mut self, ctx: &mut SingleOptionMiniGameContext);
+// }
+// #[derive(Component)]
+// enum MiniGame {
+//   SingleOption(Box<dyn SingleOptionMiniGame>),
+//   MultiOption(Box<dyn MultiOptionMiniGame>)
+//   SingleOption(Box<dyn SingleOptionMiniGame>),
+// }
+
+#[derive(Component)]
+struct MiniGame(Box<dyn MiniGameTrait>);
+
+impl MiniGame {
+  // fn multi(g: impl MultiOptionMiniGame + 'static) -> Self { Self::MultiOption(Box::new(g)) }
+  // fn single(g: impl SingleOptionMiniGame + 'static) -> Self {
+  //   Self::SingleOption(Box::new(g))
+  // }
+  // fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
+  //   let (node, _) = tree[0];
+  //   Self::multi((tree, node))
+  // }
+  fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
+    let (node, _) = tree[0];
+    Self(Box::new((tree, node)))
+  }
+}
+
 struct Salvage {
   loot_quantity: u8
 }
-// fn salvage_game_fn(salv:&mut Salvage,&mut MiniGameContext)
-impl MultiOptionMiniGame for Salvage {
-  fn play_mini_game(&mut self, ctx: &mut MultiOptionMiniGameContext) {
+impl MiniGameTrait for Salvage {
+  fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
     ctx.msg("It's a destroyed spaceship. Maybe you can find loot in it");
     if self.loot_quantity > 0 && ctx.selected("take some") {
       ctx.message_add("You found loot");
@@ -2856,10 +2922,86 @@ impl MultiOptionMiniGame for Salvage {
     if ctx.selected("leave") {}
   }
 }
-#[derive(Component)]
-enum MiniGame {
-  SingleOption(Box<dyn SingleOptionMiniGame>),
-  MultiOption(Box<dyn MultiOptionMiniGame>)
+
+comment! {
+  fn (&mut self, ctx: &mut MultiOptionMiniGameContext) {
+    ctx.msg("It's a destroyed spaceship. Maybe you can find loot in it");
+    if self.loot_quantity > 0 && ctx.selected("take some") {
+      ctx.message_add("You found loot");
+      ctx.give_item_to_player(Item::SPACECOIN);
+      self.loot_quantity = self.loot_quantity - 1;
+    }
+    if ctx.selected("leave") {}
+  }
+}
+
+fn play_mini_game(
+  world: &mut World,
+  mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory), With<Player>>,
+  mut c: Commands,
+  keys: Res<ButtonInput<KeyCode>>
+) {
+  let keys = world.resource::<ButtonInput<KeyCode>>();
+  let just_pressed = keys.get_just_pressed();
+  let games: Vec<(Entity, &Transform, &mut MiniGame, Option<&Name>)> =
+    world.query_filtered().iter(world).collect();
+  let player = world.get_player().unwrap();
+  let player_pos = world.get_player_pos().unwrap();
+  let c = world.commands();
+  let (player_transform, player_combat, player_inventory) = world
+    .get_entity(player)
+    .unwrap()
+    .get_components::<(&Transform, &Combat, &Inventory)>()
+    .unwrap();
+  let (player, player_transform, player_combat, player_inventory) = playerq.into_inner();
+  let player_pos = player_transform.translation;
+  let closest_interactable_thing = filter_least(
+    |&&(e, t, g, oname)| {
+      let dist = t.translation.distance(player_pos);
+      (dist < INTERACTION_RANGE).then_some(dist as u32)
+    },
+    &games
+  );
+  if let Some((interact_entity, transform, mut game, oname)) = closest_interactable_thing {
+    let ctx = MiniGameContext {
+      world,
+      selected_option_number: None,
+      current_option_number: 0,
+      display_string: "mini-game object".to_string()
+    };
+    game.0.play_mini_game(&mut ctx);
+
+    let number_picked =
+      find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n), [
+        (0, KeyCode::Digit0),
+        (1u8, KeyCode::Digit1),
+        (2, KeyCode::Digit2),
+        (3, KeyCode::Digit3),
+        (4, KeyCode::Digit4),
+        (5, KeyCode::Digit5),
+        (6, KeyCode::Digit6),
+        (7, KeyCode::Digit7),
+        (8, KeyCode::Digit8),
+        (9, KeyCode::Digit9)
+      ]);
+    let (msg, options) = interact_multiple_options.clone().interact();
+    INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
+      (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
+    ))));
+    for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
+      if number_picked == Some(n as u8 + 1) {
+        c.queue(command);
+        *interact_multiple_options = new_interact.clone();
+      }
+    }
+
+    INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
+    if keys.just_pressed(KeyCode::Space) {
+      c.queue(command);
+    }
+  } else {
+    INTERACT_MESSAGE.set(None);
+  }
 }
 // fn self_mutating_closure() -> Box<dyn FnMut(&mut World) -> (String, OptionSet)> {
 //   let mut resource_quantity = 0;
