@@ -849,6 +849,12 @@ pub trait WorldExt {
 impl WorldExt for World {
   fn get_world_mut(&mut self) -> &mut World { self }
 }
+impl WorldExt for SingleOptionMiniGameContext {
+  fn get_world_mut(&mut self) -> &mut World { self.world }
+}
+impl WorldExt for MultiOptionMiniGameContext {
+  fn get_world_mut(&mut self) -> &mut World { self.world }
+}
 
 // You would then use these extension methods like this:
 // fn some_system(world: &mut World, player_entity: Entity) {
@@ -2817,72 +2823,70 @@ pub fn one_d20() -> u32 { nd20(1) }
 //   Interact::MultipleOptions(InteractMultipleOptions::new(f))
 // }
 
-comment! {
-struct OptionSet {
-  options: Vec<(String, Box<dyn FnOnce()>)>
+struct MultiOptionMiniGameContext {
+  current_option_number: u8,
+  world: &'static mut World
 }
-impl OptionSet {
-  fn new() -> Self { Self { options: default() } }
-  fn add<F>(mut self, label: impl ToString, f: F) -> Self
-  where
-    F: FnOnce()
-  {
-    self.options.push((label.to_string(), Box::new(f)));
-    self
-  }
+impl MultiOptionMiniGameContext {
+  fn msg(&self, arg: impl ToString) { todo!() }
 
-  fn add_if<F>(self, condition: bool, label: impl ToString, f: F) -> Self
-  where
-    F: FnOnce()
-  {
-    if condition { self.add(label, f) } else { self }
+  fn selected(&mut self, arg: impl ToString) -> bool { todo!() }
+}
+struct SingleOptionMiniGameContext {
+  world: &'static mut World
+}
+trait MultiOptionMiniGame {
+  fn play_mini_game(&mut self, ctx: &mut MultiOptionMiniGameContext);
+}
+trait SingleOptionMiniGame: Send + Sync {
+  fn play_mini_game(&mut self, ctx: &mut SingleOptionMiniGameContext);
+}
+struct Salvage {
+  loot_quantity: u8
+}
+// fn salvage_game_fn(salv:&mut Salvage,&mut MiniGameContext)
+impl MultiOptionMiniGame for Salvage {
+  fn play_mini_game(&mut self, ctx: &mut MultiOptionMiniGameContext) {
+    ctx.msg("It's a destroyed spaceship. Maybe you can find loot in it");
+    if self.loot_quantity > 0 && ctx.selected("take some") {
+      ctx.message_add("You found loot");
+      ctx.give_item_to_player(Item::SPACECOIN);
+      self.loot_quantity = self.loot_quantity - 1;
+    }
+    if ctx.selected("leave") {}
   }
 }
-  fn self_mutating_closure() -> Box<dyn FnMut(&mut World) -> (String, OptionSet)> {
-    let mut resource_quantity = 0;
-    let mut durability = 5;
-    let mut has_dynamite = true;
-    Box::new(|world| {
-      let msg = "theres's a rock here that you can mine".to_string();
-      let options = OptionSet::new()
-        .add_if(has_dynamite, "throw dynamite", || {
-          has_dynamite = false;
-          resource_quantity += 2;
-        })
-        .add_if(durability > 0, "dig", || {
-          durability -= 1;
-          resource_quantity += 1;
-        })
-        .add("leave", || {
-          world.give_items_to_player([(Item::SPACEMINERALS, resource_quantity)]);
-          resource_quantity = 0;
-        });
-      (msg, options)
-    })
-  }
+#[derive(Component)]
+enum MiniGame {
+  SingleOption(Box<dyn SingleOptionMiniGame>),
+  MultiOption(Box<dyn MultiOptionMiniGame>)
 }
-// Helper to create an option with a short closure that produces the next state.
-// This simply converts the provided closure (with no world dependency) into the boxed closure.
-// fn mk_option(
-//   text: &str,
-//   command: MyCommand,
-//   mut next: impl FnMut()
-//     -> (String, Vec<(String, MyCommand, Box<dyn MultipleOptionsInteractFn>)>)
-//   + 'static
-// ) -> (String, MyCommand, Box<dyn MultipleOptionsInteractFn>) {
-//   (
-//     text.to_string(),
-//     command,
-//     Box::new(move |_world| next()) as Box<dyn MultipleOptionsInteractFn>
-//   )
+// fn self_mutating_closure() -> Box<dyn FnMut(&mut World) -> (String, OptionSet)> {
+//   let mut resource_quantity = 0;
+//   let mut durability = 5;
+//   let mut has_dynamite = true;
+//   Box::new(|mut ctx| {
+//     let msg = "theres's a rock here that you can mine".to_string();
+//     ctx.msg(msg);
+//     let mut add_option = |s, f| ctx.add_option(s, f);
+//     if has_dynamite {
+//       add_option("throw dynamite", || {
+//         has_dynamite = false;
+//         resource_quantity += 2;
+//       });
+//     }
+//     if durability > 0 {
+//       add_option("dig", || {
+//         durability -= 1;
+//         resource_quantity += 1;
+//       });
+//     }
+//     add_option("leave", || {
+//       world.give_items_to_player([(Item::SPACEMINERALS, resource_quantity)]);
+//       resource_quantity = 0;
+//     });
+//   });
 // }
-
-// // A super–concise asteroid-mining minigame. The local mutable state is captured in the closure,
-// // and the entire Interact::MultipleOptions value is constructed in one go with minigame() and inline options.
-// fn simple_mining_minigame(mut resources: u8, mut durability: u8) -> Interact {
-//   minigame(move |_world| {})
-// }
-
 #[derive(Clone)]
 enum InteractMultipleOptions {
   Salvage { how_much_loot: u8 },
