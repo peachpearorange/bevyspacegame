@@ -3817,13 +3817,15 @@ impl Object {
   }
   pub fn insert(m: &mut EntityCommands, template: Self, extras: impl Bundle) {
     m.insert(extras);
+    fn delegate(o: Object, b: impl Bundle) -> Box<dyn FnOnce(&mut EntityCommands)> {
+      Box::new(move |m| Object::insert(m, o, b))
+    }
 
-    match template {
-      Self::Empty => (),
+    (match template {
+      Self::Empty => Box::new(move |m| {}),
       Self::SpaceObject { scale, can_move, visuals, name } => {
         let collider = Collider::sphere(1.0);
-        Self::insert(
-          m,
+        delegate(
           Self::Empty,
           (
             SpaceObject { scale, ..default() },
@@ -3845,31 +3847,27 @@ impl Object {
         )
       }
       Self::Planet { sprite, radius, population, name } => {
-        Self::insert(m, Self::space_object(radius, false, Visuals::sprite(sprite), name), ())
+        delegate(Self::space_object(radius, false, Visuals::sprite(sprite), name), ())
       }
-      Self::TalkingPerson { name, sprite, dialogue_tree } => Self::insert(
-        m,
+      Self::TalkingPerson { name, sprite, dialogue_tree } => delegate(
         Self::space_object(1.7, true, Visuals::sprite(sprite), name),
         (Interact::dialogue_tree_default_state(dialogue_tree),)
       ),
-      Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => Self::insert(
-        m,
+      Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => delegate(
         Self::space_object(scale, true, Visuals::sprite(sprite), name),
         (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
           hp,
           ..default()
         })
       ),
-      Self::NPC { name, hp, speed, sprite, scale, faction } => Self::insert(
-        m,
+      Self::NPC { name, hp, speed, sprite, scale, faction } => delegate(
         Self::space_object(scale, true, Visuals::sprite(sprite), name),
         (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
           hp,
           ..default()
         })
       ),
-      Self::Enemy { name, hp, speed, sprite } => Self::insert(
-        m,
+      Self::Enemy { name, hp, speed, sprite } => delegate(
         Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite), name),
         (
           Navigation::new(speed),
@@ -3877,16 +3875,14 @@ impl Object {
           Combat { hp, is_hostile: true, ..default() }
         )
       ),
-      Self::LootObject { sprite, scale, name, item_type } => Self::insert(
-        m,
+      Self::LootObject { sprite, scale, name, item_type } => delegate(
         Self::space_object(1.0, true, Visuals::sprite(sprite), name),
         (
           Name::new(format!("{:?}", item_type)),
           Interact::SingleOption(InteractSingleOption::Item(item_type))
         )
       ),
-      Self::Explorer => Self::insert(
-        m,
+      Self::Explorer => delegate(
         Self::NPC {
           name: "explorer",
           hp: 50,
@@ -3897,8 +3893,7 @@ impl Object {
         },
         ()
       ),
-      Self::Trader => Self::insert(
-        m,
+      Self::Trader => delegate(
         Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "Trader",
@@ -3909,8 +3904,7 @@ impl Object {
         },
         ()
       ),
-      Self::SpaceCop => Self::insert(
-        m,
+      Self::SpaceCop => delegate(
         Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "space cop",
@@ -3921,8 +3915,7 @@ impl Object {
         },
         ()
       ),
-      Self::SpaceWizard => Self::insert(
-        m,
+      Self::SpaceWizard => delegate(
         Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "space wizard",
@@ -3933,8 +3926,7 @@ impl Object {
         },
         ()
       ),
-      Self::Miner => Self::insert(
-        m,
+      Self::Miner => delegate(
         Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "miner",
@@ -3945,8 +3937,7 @@ impl Object {
         },
         ()
       ),
-      Self::AlienSoldier => Self::insert(
-        m,
+      Self::AlienSoldier => delegate(
         Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "alien soldier",
@@ -3958,8 +3949,7 @@ impl Object {
         },
         ()
       ),
-      Self::MinerNpc => Self::insert(
-        m,
+      Self::MinerNpc => delegate(
         Self::NPC {
           name: "miner npc",
           hp: 45,
@@ -3970,8 +3960,7 @@ impl Object {
         },
         ()
       ),
-      Self::MushroomMan => Self::insert(
-        m,
+      Self::MushroomMan => delegate(
         Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "mushroom man",
@@ -3982,8 +3971,7 @@ impl Object {
         },
         ()
       ),
-      Self::SpaceCowboy => Self::insert(
-        m,
+      Self::SpaceCowboy => delegate(
         Self::space_object(
           NORMAL_NPC_SCALE,
           true,
@@ -3992,8 +3980,7 @@ impl Object {
         ),
         (Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE),)
       ),
-      Self::Sign { text } => Self::insert(
-        m,
+      Self::Sign { text } => delegate(
         Self::space_object(
           1.5,
           false,
@@ -4006,13 +3993,11 @@ impl Object {
           TextDisplay(text.to_string())
         )
       ),
-      Self::Wormhole => Self::insert(
-        m,
+      Self::Wormhole => delegate(
         Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE), "wormhole"),
         (Interact::SingleOption(InteractSingleOption::Describe),)
       ),
-      Self::Asteroid => Self::insert(
-        m,
+      Self::Asteroid => delegate(
         Self::space_object(
           asteroid_scale(),
           false,
@@ -4027,23 +4012,18 @@ impl Object {
           CanBeFollowedByNPC
         )
       ),
-      Self::SpaceCat => Self::insert(
-        m,
+      Self::SpaceCat => delegate(
         Self::loot_object(1.3, "space cat", MySprite::GPT4O_SPACE_CAT, Item::SPACECAT),
         ()
       ),
-      Self::Spaceman => Self::insert(
-        m,
+      Self::Spaceman => delegate(
         Self::loot_object(1.3, "spaceman", MySprite::GPT4O_SPACE_MAN, Item::PERSON),
         ()
       ),
-      Self::SpaceCoin => Self::insert(
-        m,
-        Self::loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN),
-        ()
-      ),
-      Self::IceAsteroid => Self::insert(
-        m,
+      Self::SpaceCoin => {
+        delegate(Self::loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN), ())
+      }
+      Self::IceAsteroid => delegate(
         Self::loot_object(
           asteroid_scale(),
           "ice asteroid",
@@ -4052,8 +4032,7 @@ impl Object {
         ),
         ()
       ),
-      Self::CrystalAsteroid => Self::insert(
-        m,
+      Self::CrystalAsteroid => delegate(
         Self::loot_object(
           asteroid_scale(),
           "crystal asteroid",
@@ -4062,8 +4041,7 @@ impl Object {
         ),
         ()
       ),
-      Self::CrystalMonster => Self::insert(
-        m,
+      Self::CrystalMonster => delegate(
         Self::space_object(
           2.1,
           true,
@@ -4076,8 +4054,7 @@ impl Object {
           Navigation::speed(NORMAL_NPC_SPEED * 1.2)
         )
       ),
-      Self::CrystalMonster2 => Self::insert(
-        m,
+      Self::CrystalMonster2 => delegate(
         Self::space_object(
           1.7,
           true,
@@ -4086,21 +4063,18 @@ impl Object {
         ),
         (Interact::SingleOption(InteractSingleOption::Describe),)
       ),
-      Self::HpBox => Self::insert(
-        m,
+      Self::HpBox => delegate(
         Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX), "hp box"),
         (Interact::SingleOption(InteractSingleOption::HPBOX),)
       ),
-      Self::TreasureContainer => Self::insert(
-        m,
+      Self::TreasureContainer => delegate(
         Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER), "container"),
         (Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
           (Item::SPACECOIN, 4),
           (Item::COFFEE, 1),
         ])),)
       ),
-      Self::SphericalCow => Self::insert(
-        m,
+      Self::SphericalCow => delegate(
         Self::space_object(
           1.7,
           true,
@@ -4130,8 +4104,7 @@ impl Object {
             format!("space station\nsells {:?}", trade_sell)
           )
         };
-        Self::insert(
-          m,
+        delegate(
           Self::space_object(
             3.0,
             false,
@@ -4141,8 +4114,7 @@ impl Object {
           (CanBeFollowedByNPC, trade_interaction, TextDisplay::from(text))
         )
       }
-      Self::FloatingIsland => Self::insert(
-        m,
+      Self::FloatingIsland => delegate(
         Self::space_object(
           3.4,
           false,
@@ -4151,8 +4123,7 @@ impl Object {
         ),
         (Interact::SingleOption(InteractSingleOption::Describe),)
       ),
-      Self::Sun => Self::insert(
-        m,
+      Self::Sun => delegate(
         Self::space_object(
           300.0,
           false,
@@ -4168,8 +4139,7 @@ impl Object {
           ..default()
         })
       ),
-      Self::AbandonedShip => Self::insert(
-        m,
+      Self::AbandonedShip => delegate(
         Self::space_object(
           2.0,
           false,
@@ -4179,8 +4149,8 @@ impl Object {
         (Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),)
       ),
       Self::Player => {
-        Self::insert(
-          m,
+        println!("player spawned");
+        delegate(
           Self::space_object(
             PLAYER_SCALE,
             true,
@@ -4194,11 +4164,9 @@ impl Object {
             Navigation::new(PLAYER_FORCE),
             CanBeFollowedByNPC
           )
-        );
-        println!("player spawned");
+        )
       }
-      Self::SpacePirate => Self::insert(
-        m,
+      Self::SpacePirate => delegate(
         Self::Enemy {
           name: "Space Pirate",
           hp: 60,
@@ -4207,8 +4175,7 @@ impl Object {
         },
         ()
       ),
-      Self::SpacePirateBase => Self::insert(
-        m,
+      Self::SpacePirateBase => delegate(
         Self::space_object(
           4.0,
           false,
@@ -4220,8 +4187,7 @@ impl Object {
           Interact::SingleOption(InteractSingleOption::Describe)
         )
       ),
-      Self::SpaceStation => Self::insert(
-        m,
+      Self::SpaceStation => delegate(
         Self::space_object(
           4.0,
           false,
@@ -4233,8 +4199,7 @@ impl Object {
           Interact::SingleOption(InteractSingleOption::Describe)
         )
       ),
-      Self::Nomad => Self::insert(
-        m,
+      Self::Nomad => delegate(
         Self::npc(
           NORMAL_NPC_SCALE,
           "nomad",
@@ -4245,12 +4210,11 @@ impl Object {
         ),
         ()
       ),
-      Self::WarpGate { name } => Self::insert(
-        m,
+      Self::WarpGate { name } => delegate(
         Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name),
         (Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }), WarpGate)
       )
-    }
+    })(m);
   }
 }
 
