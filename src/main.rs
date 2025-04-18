@@ -116,6 +116,13 @@ impl MySprite {
   const GPT4O_PLANET_TRANTOR: Self = Self::new("GPT4O Trantor.png");
   const GPT4O_CONTAINER: Self = Self::new("GPT4O Container.png");
   const GPT4O_GATE: Self = Self::new("GPT4O gate.png");
+
+  const GPT4O_ALIEN_ARTIFACT: Self = Self::new("GPT4O alien artifact.png");
+  const GPT4O_DRONE: Self = Self::new("GPT4O drone.png");
+  const GPT4O_SIGN: Self = Self::new("GPT4O sign.png");
+  const GPT4O_SIGNAL_RELAY_SATELLITE: Self = Self::new("GPT4O signal relay satellite.png");
+  const GPT4O_WORMHOLE: Self = Self::new("GPT4O wormhole.png");
+
   const IMAGEN3GREENSPACESHIP: Self = Self::new("imagen3greenspaceship.png");
   const IMAGEN3WIZARDSPACESHIP: Self = Self::new("imagen3wizardspaceship.png");
   const IMAGEN3WHITESPACESHIP: Self = Self::new("imagen3whitespaceship.png");
@@ -609,6 +616,7 @@ pub fn get_player(world: &mut World) -> Option<Entity> {
 
 // #[derive(Clone)]
 pub struct MyCommand(pub Box<dyn FnOnce(&mut World) + 'static + Send + Sync>);
+type CMD = MyCommand;
 
 // impl From<Box<dyn FnOnce(&mut World) + 'static + Send + Sync>> for MyCommand {
 //   fn from(f: Box<dyn FnOnce(&mut World) + 'static + Send + Sync>) -> Self { MyCommand(f) }
@@ -618,10 +626,7 @@ pub struct MyCommand(pub Box<dyn FnOnce(&mut World) + 'static + Send + Sync>);
 //   fn from(f: F) -> Self { MyCommand(Box::new(f)) }
 // }
 
-impl<F> From<F> for MyCommand
-where
-  F: FnOnce(&mut World) + 'static + Send + Sync
-{
+impl<F: FnOnce(&mut World) + 'static + Send + Sync> From<F> for MyCommand {
   fn from(f: F) -> Self { MyCommand(Box::new(f)) }
 }
 impl MyCommand {
@@ -637,13 +642,13 @@ impl MyCommand {
     .into()
   }
 
-  // pub fn spawn(b: impl Bundle) -> Self {
-  //   let spawnable: Spawnable = b.into();
-  //   (move |world: &mut World| {
-  //     let mut commands = world.commands();
-  //     spawnable.spawn(&mut commands);
-  //   }).into()
-  // }
+  pub fn spawn_ad(o: Object, pos: Vec3) -> Self {
+    (move |world: &mut World| {
+      let mut commands = world.commands();
+      o.spawn_at(&mut commands, pos);
+    })
+    .into()
+  }
 
   pub fn give_item_to_player(item: Item) -> Self {
     (move |world: &mut World| {
@@ -1647,45 +1652,6 @@ fn close_on_esc(mut exit: EventWriter<AppExit>, keyboard_input: Res<ButtonInput<
     exit.send(AppExit::Success);
   }
 }
-
-// #[derive(Resource, Default)]
-// pub enum GameState {
-//   #[default]
-//   FlyingInSpace,
-//   WarpGui(ui::WarpGui)
-// }
-// #[derive(Event, Clone, Copy)]
-// pub enum GuiInputEvent {
-//   Up,
-//   Down,
-//   Left,
-//   Right,
-//   Select,
-//   Cancel
-// }
-// convert this enum to a wrapper struct with named fields around &'static str and CharacterAlignment. convert variants to const instances in an impl block
-// #[derive(Eq, PartialEq, Clone, Copy, Assoc, Default, Debug)]
-// #[func(pub const fn alignment(&self) -> CharacterAlignment)]
-// pub enum Faction {
-//   #[default]
-//   #[assoc(alignment = CharacterAlignment::Neutral)]
-//   Wanderers,
-//   #[assoc(alignment = CharacterAlignment::LawfulGood)]
-//   SpacePolice,
-//   #[assoc(alignment = CharacterAlignment::ChaoticEvil)]
-//   SpacePirates,
-//   #[assoc(alignment = CharacterAlignment::ChaoticNeutral)]
-//   SPACEWIZARDs,
-//   #[assoc(alignment = CharacterAlignment::Neutral)]
-//   Traders,
-//   #[assoc(alignment = CharacterAlignment::LawfulEvil)]
-//   Invaders,
-//   #[assoc(alignment = CharacterAlignment::NeutralGood)]
-//   Explorers,
-//   #[assoc(alignment = CharacterAlignment::Neutral)]
-//   Neutral,
-// }
-
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 enum CharacterAlignment {
   LawfulGood,
@@ -1790,7 +1756,52 @@ impl MiniGameTrait for (DialogueTree, &'static str) {
       }
     }
   }
+  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice) { todo!() }
+  type Choice;
+  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> { todo!() }
+  fn get_display_string(&self, ctx: &MiniGameContext) -> String { todo!() }
 }
+impl MiniGameTrait for (DialogueTree, &'static str) {
+  type Choice = usize;
+
+  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice) {
+    let (tree, current_node) = *self;
+    if let Some(&(_, options)) = tree.iter().find(|&&(node_id, _)| node_id == current_node) {
+      if let Some(&(next_node_id, _, _, effect)) = options.get(choice) {
+        if let Some(e) = effect {
+          let command = e();
+          ctx.world.commands().queue(command);
+        }
+        self.1 = next_node_id;
+      }
+    }
+  }
+  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> {
+    let (tree, current_node) = *self;
+    if let Some(&(_, options)) = tree.iter().find(|&&(node_id, _)| node_id == current_node) {
+      options
+        .iter()
+        .enumerate()
+        .map(|(i, &(_, player_line, _, _))| (player_line.to_string(), i))
+        .collect()
+    } else {
+      vec![]
+    }
+  }
+  fn get_display_string(&self, ctx: &MiniGameContext) -> String {
+    let (tree, current_node) = *self;
+    if let Some(&(_, options)) = tree.iter().find(|&&(node_id, _)| node_id == current_node) {
+      if let Some(&(_, _, npc_say, _)) = options.first() {
+        npc_say.to_string()
+      } else {
+        "They have nothing to say.".to_string()
+      }
+    } else {
+      "They don't respond.".to_string()
+    }
+  }
+}
+
 pub const SPHERICAL_SPACE_COW_DIALOGUE: DialogueTree = &[
   ("A", &[("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None)]),
   ("B", &[
@@ -2841,31 +2852,19 @@ pub fn nd20(n: u32) -> u32 { ndm(n, 20) }
 pub fn one_d6() -> u32 { nd6(1) }
 pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
-// struct MultiOptionMiniGameContext {
-//   current_option_number: u8,
-//   world: &'static mut World
-// }
-// impl MultiOptionMiniGameContext {
-//   fn msg(&self, arg: impl ToString) { todo!() }
-//   fn selected(&mut self, arg: impl ToString) -> bool { todo!() }
-//   fn exclusive_selected(&mut self, arg: impl ToString) -> bool { todo!() }
-// }
-// struct SingleOptionMiniGameContext {
-//   world: &'static mut World
-// }
 
-// impl SingleOptionMiniGameContext {
-//   fn msg(&mut self, s: impl ToString) {}
-// }
+// I'm trying to create a system of interactable minigame objects in my bevy game. for maximum extensibility and flexibility, an &mut World needs to be involved when simulating the game object. I'm thinking of solving the problems with dyn compatibility by wrapping the game implementor in a wrapper and implementing a trait for that and turning that into a trait object. Does a wrapper solve the problems with dyn compatibility?
 
-struct MiniGameContext {
+struct MiniGameContext<'t> {
   current_option_number: u8,
   selected_option_number: Option<u8>,
   display_string: String,
-  world: &'static mut World
+  self_entity: Entity,
+  world: &'t mut World
 }
 impl MiniGameContext {
   fn msg(&mut self, arg: impl ToString) { self.display_string = arg.to_string() }
+  fn add_option(&mut self, opt: impl Into<MyCommand>) -> &mut Self {}
   fn selected(&mut self, arg: impl ToString) -> bool {
     let is_selected = (self.selected_option_number == Some(self.current_option_number));
     self.current_option_number += 1;
@@ -2874,52 +2873,94 @@ impl MiniGameContext {
   fn exclusive_selected(&mut self, arg: impl ToString) -> bool { todo!() }
 }
 trait MiniGameTrait: Send + Sync {
-  // const ALLOW_MULTIPLE_OPTIONS: bool;
+  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice);
+  type Choice;
+  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice);
+  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)>;
+  fn get_display_string(&self, ctx: &MiniGameContext) -> String;
+}
+
+struct MiniGameWrapper<T> {
+  game: T
+}
+trait MiniGameWrapperTrait: Send + Sync {
   fn play_mini_game(&mut self, ctx: &mut MiniGameContext);
 }
-// trait MultiOptionMiniGame: Send + Sync {
-//   fn play_mini_game(&mut self, ctx: &mut MultiOptionMiniGameContext);
-// }
-// trait SingleOptionMiniGame: Send + Sync {
-//   fn play_mini_game(&mut self, ctx: &mut SingleOptionMiniGameContext);
-// }
-// #[derive(Component)]
-// enum MiniGame {
-//   SingleOption(Box<dyn SingleOptionMiniGame>),
-//   MultiOption(Box<dyn MultiOptionMiniGame>)
-//   SingleOption(Box<dyn SingleOptionMiniGame>),
-// }
-
+impl<G: MiniGameTrait> MiniGameWrapperTrait for MiniGameWrapper<G> {
+  fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
+    type Choice = <G as MiniGame>::Choice;
+    let choices: Vec<Choice> = self.game.get_choices();
+    let num_chosen = ctx.num_chosen;
+    let choice_picked_option: Option<Choice> = choices.into_iter().nth(num_chosen);
+    if let Some(choice_picked) = choice_picked_option {
+      self.game.perform_action(choice_picked);
+    }
+    // I suppose a Box<dyn MiniGameWrapperTrait> might be more feasible to make than to make MiniGameTrait itself dyn compatible???
+  }
+}
 #[derive(Component)]
-struct MiniGame(Box<dyn MiniGameTrait>);
+struct MiniGame(Box<dyn MiniGameWrapperTrait>);
 
 impl MiniGame {
-  // fn multi(g: impl MultiOptionMiniGame + 'static) -> Self { Self::MultiOption(Box::new(g)) }
-  // fn single(g: impl SingleOptionMiniGame + 'static) -> Self {
-  //   Self::SingleOption(Box::new(g))
-  // }
-  // fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
-  //   let (node, _) = tree[0];
-  //   Self::multi((tree, node))
-  // }
+  fn new(game: impl MiniGame) -> Self { Self(Box::new(MiniGameWrapper { game })) }
   fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
     let (node, _) = tree[0];
-    Self(Box::new((tree, node)))
+    Self::new((tree, node))
   }
 }
 
+enum SalvageChoice {
+  Leave,
+  Mine,
+  ThrowDynamite
+}
 struct Salvage {
   loot_quantity: u8
 }
 impl MiniGameTrait for Salvage {
+  type Choice = SalvageChoice;
+
+  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice) {
+    match choice {
+      SalvageChoice::Leave => {
+        ctx.message_add("You leave");
+      }
+      SalvageChoice::Mine => {
+        ctx.message_add("You leave");
+        self.loot_quantity = self.loot_quantity - 1;
+      }
+      SalvageChoice::ThrowDynamite => {}
+    }
+  }
+  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> {
+    vec![SalvageChoice::Leave, SalvageChoice::Mine, SalvageChoice::ThrowDynamite]
+  }
+  fn get_display_string(&self, ctx: &MiniGameContext) -> String {
+    "It's a destroyed spaceship. Maybe you can find loot in it".to_string()
+  }
   fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
-    ctx.msg("It's a destroyed spaceship. Maybe you can find loot in it");
+    ctx.msg();
+    if self.loot_quantity > 0 {
+      ctx.add_option("take some", |g, ctx| {
+        g.loot_quantity = g.loot_quantity - 1;
+        ctx.message_add("You found loot");
+        ctx.give_item_to_player(Item::SPACECOIN);
+      })
+    }
     if self.loot_quantity > 0 && ctx.selected("take some") {
       ctx.message_add("You found loot");
       ctx.give_item_to_player(Item::SPACECOIN);
       self.loot_quantity = self.loot_quantity - 1;
     }
     if ctx.selected("leave") {}
+  }
+
+  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> { todo!() }
+
+  fn get_display_string(&self, ctx: &MiniGameContext) -> String { todo!() }
+
+  fn perform_choiceper(&mut self, ctx: &mut MiniGameCont, choice: Self::Choiceext) {
+    todo!()
   }
 }
 
@@ -3786,7 +3827,8 @@ impl Object {
   // pub const ARRAKIS:Self = Self::Planet { planet_type: (), radius: (), population: (), name: () }
   pub fn spawn_at(self, c: &mut Commands, pos: Vec3) -> Entity {
     let mut ec = c.spawn(Transform::from_translation(pos));
-    Object::insert(&mut ec, self, ());
+    self.insert(())(&mut ec);
+    // Object::insert(&mut ec, self, ());
     ec.id()
   }
   pub const fn space_object(
@@ -3815,19 +3857,18 @@ impl Object {
   ) -> Self {
     Self::NPC { name, scale, faction, hp, speed, sprite }
   }
-  pub fn insert(m: &mut EntityCommands, template: Self, extras: impl Bundle) {
-    m.insert(extras);
-    fn delegate(o: Object, b: impl Bundle) -> Box<dyn FnOnce(&mut EntityCommands)> {
-      Box::new(move |m| Object::insert(m, o, b))
-    }
-
-    (match template {
-      Self::Empty => Box::new(move |m| {}),
-      Self::SpaceObject { scale, can_move, visuals, name } => {
-        let collider = Collider::sphere(1.0);
-        delegate(
-          Self::Empty,
-          (
+  fn insert(self, b: impl Bundle) -> Box<dyn FnOnce(&mut EntityCommands)> {
+    Box::new(move |m: &mut EntityCommands| {
+      m.insert(b);
+      (match self {
+        Self::Empty => {
+          // Base case: Empty does nothing further
+          Box::new(move |_m: &mut EntityCommands| {})
+        }
+        Self::SpaceObject { scale, can_move, visuals, name } => {
+          let collider = Collider::sphere(1.0 * scale); // Scale collider with object scale
+          // Delegate to Empty to insert the base components
+          Self::Empty.insert((
             SpaceObject { scale, ..default() },
             Name::new(name),
             FacingMode::Position,
@@ -3843,378 +3884,350 @@ impl Object {
             ExternalForce::default().with_persistence(false),
             ExternalImpulse::default(),
             Visibility::Visible
-          )
-        )
-      }
-      Self::Planet { sprite, radius, population, name } => {
-        delegate(Self::space_object(radius, false, Visuals::sprite(sprite), name), ())
-      }
-      Self::TalkingPerson { name, sprite, dialogue_tree } => delegate(
-        Self::space_object(1.7, true, Visuals::sprite(sprite), name),
-        (Interact::dialogue_tree_default_state(dialogue_tree),)
-      ),
-      Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => delegate(
-        Self::space_object(scale, true, Visuals::sprite(sprite), name),
-        (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
-          hp,
-          ..default()
-        })
-      ),
-      Self::NPC { name, hp, speed, sprite, scale, faction } => delegate(
-        Self::space_object(scale, true, Visuals::sprite(sprite), name),
-        (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
-          hp,
-          ..default()
-        })
-      ),
-      Self::Enemy { name, hp, speed, sprite } => delegate(
-        Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite), name),
-        (
-          Navigation::new(speed),
-          NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
-          Combat { hp, is_hostile: true, ..default() }
-        )
-      ),
-      Self::LootObject { sprite, scale, name, item_type } => delegate(
-        Self::space_object(1.0, true, Visuals::sprite(sprite), name),
-        (
-          Name::new(format!("{:?}", item_type)),
-          Interact::SingleOption(InteractSingleOption::Item(item_type))
-        )
-      ),
-      Self::Explorer => delegate(
-        Self::NPC {
+          ))
+        }
+        Self::NPC { name, hp, speed, sprite, scale, faction } => {
+          Self::space_object(scale, true, Visuals::sprite(sprite), name).insert((
+            Navigation::speed(speed),
+            NPC { follow_target: None, faction },
+            Combat { hp, is_hostile: false, ..default() }
+          ))
+        }
+        Self::Planet { sprite, radius, population, name } => {
+          Self::space_object(radius, false, Visuals::sprite(sprite), name)
+            .insert((Planet { population },))
+        }
+        Self::TalkingPerson { name, sprite, dialogue_tree } => {
+          // Construct the base SpaceObject, then delegate
+          Self::space_object(1.7, true, Visuals::sprite(sprite), name).insert((
+            Interact::dialogue_tree_default_state(dialogue_tree),
+            // Maybe add NPC components too if they can move/interact beyond talking?
+            // Navigation::speed(NORMAL_NPC_SPEED * 0.5), // Example: slow speed
+            // NPC { faction: Faction::TRADERS, ..default() }, // Example faction
+          ))
+        }
+        Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => {
+          Self::space_object(scale, true, Visuals::sprite(sprite), name).insert((
+            Navigation::speed(speed),
+            NPC { follow_target: None, faction },
+            Combat { hp, is_hostile: false, ..default() } // Default non-hostile
+          ))
+        }
+        Self::Enemy { name, hp, speed, sprite } => {
+          Self::space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite), name).insert((
+            Navigation::new(speed),
+            NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
+            Combat { hp, is_hostile: true, ..default() } // Explicitly hostile
+          ))
+        }
+        Self::LootObject { sprite, scale, name, item_type } => {
+          Self::space_object(scale, true, Visuals::sprite(sprite), name)
+            .insert((Interact::SingleOption(InteractSingleOption::Item(item_type)),))
+        }
+        Self::Explorer => Self::NPC {
           name: "explorer",
           hp: 50,
           speed: NORMAL_NPC_SPEED,
           sprite: MySprite::GPT4O_WHITE_EXPLORATION_SHIP,
           scale: NORMAL_NPC_SCALE,
           faction: Faction::EXPLORERS
-        },
-        ()
-      ),
-      Self::Trader => delegate(
-        Self::ScaledNPC {
+        }
+        .insert(()),
+        Self::Trader => Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "Trader",
           speed: NORMAL_NPC_SPEED,
           faction: Faction::TRADERS,
           hp: 30,
           sprite: MySprite::SPACESHIPWHITE2
-        },
-        ()
-      ),
-      Self::SpaceCop => delegate(
-        Self::ScaledNPC {
+        }
+        .insert(()),
+        Self::SpaceCop => Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "space cop",
           speed: NORMAL_NPC_SPEED,
           faction: Faction::SPACE_POLICE,
           hp: 70,
           sprite: MySprite::GPT4O_POLICE_SPACE_SHIP
-        },
-        ()
-      ),
-      Self::SpaceWizard => delegate(
-        Self::ScaledNPC {
+        }
+        .insert(()),
+        Self::SpaceWizard => Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "space wizard",
           speed: NORMAL_NPC_SPEED,
           faction: Faction::SPACEWIZARDS,
           hp: 40,
           sprite: MySprite::IMAGEN3WIZARDSPACESHIP
-        },
-        ()
-      ),
-      Self::Miner => delegate(
-        Self::ScaledNPC {
+        }
+        .insert(()),
+        Self::Miner => Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "miner",
           speed: NORMAL_NPC_SPEED,
           faction: Faction::TRADERS,
           hp: 35,
           sprite: MySprite::GPT4O_MINING_SHIP
-        },
-        ()
-      ),
-      Self::AlienSoldier => delegate(
-        Self::ScaledNPC {
+        }
+        .insert(()),
+        Self::AlienSoldier => Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "alien soldier",
           speed: NORMAL_NPC_SPEED,
           faction: Faction::INVADERS,
-
           hp: 80,
           sprite: MySprite::PURPLEENEMYSHIP
-        },
-        ()
-      ),
-      Self::MinerNpc => delegate(
-        Self::NPC {
+        }
+        .insert(()),
+        Self::MinerNpc => Self::NPC {
           name: "miner npc",
           hp: 45,
           speed: NORMAL_NPC_SPEED * 0.8,
           sprite: MySprite::GPT4O_MINING_SHIP,
           scale: NORMAL_NPC_SCALE,
           faction: Faction::TRADERS
-        },
-        ()
-      ),
-      Self::MushroomMan => delegate(
-        Self::ScaledNPC {
+        }
+        .insert(()),
+        Self::MushroomMan => Self::ScaledNPC {
           scale: NORMAL_NPC_SCALE,
           name: "mushroom man",
           speed: NORMAL_NPC_SPEED * 0.9,
-          faction: Faction::TRADERS,
+          faction: Faction::TRADERS, // ?? Seems odd, maybe needs own faction
           hp: 40,
           sprite: MySprite::MUSHROOMMAN
-        },
-        ()
-      ),
-      Self::SpaceCowboy => delegate(
-        Self::space_object(
+        }
+        .insert(()),
+        Self::SpaceCowboy => Self::space_object(
           NORMAL_NPC_SCALE,
-          true,
+          true, // Can move
           Visuals::sprite(MySprite::SPACECOWBOY),
           "space cowboy"
-        ),
-        (Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE),)
-      ),
-      Self::Sign { text } => delegate(
-        Self::space_object(
+        )
+        .insert((Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE),)),
+        Self::Sign { text } => Self::space_object(
           1.5,
-          false,
+          false, // Static
           Visuals::sprite(MySprite::SIGN),
-          // const_format_args!()
-          "sign"
-        ),
-        (
+          "sign" // Name could include text? Name::new(format!("sign: {}", text))
+        )
+        .insert((
           Interact::SingleOption(InteractSingleOption::Describe),
           TextDisplay(text.to_string())
-        )
-      ),
-      Self::Wormhole => delegate(
-        Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE), "wormhole"),
-        (Interact::SingleOption(InteractSingleOption::Describe),)
-      ),
-      Self::Asteroid => delegate(
-        Self::space_object(
+        )),
+        Self::Wormhole => {
+          Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE), "wormhole")
+            .insert((Interact::SingleOption(InteractSingleOption::Describe),)) // Should probably do something! Maybe WarpGate interaction?
+        }
+        Self::Asteroid => Self::space_object(
           asteroid_scale(),
-          false,
+          false, // Typically static unless destructible/mineable changes state
           Visuals::sprite(MySprite::GPT4O_ASTEROID),
           "Asteroid"
-        ),
-        (
-          Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMiniGame {
-            resources_left: 5,
-            tool_durability: 5
-          }),
-          CanBeFollowedByNPC
         )
-      ),
-      Self::SpaceCat => delegate(
-        Self::loot_object(1.3, "space cat", MySprite::GPT4O_SPACE_CAT, Item::SPACECAT),
-        ()
-      ),
-      Self::Spaceman => delegate(
-        Self::loot_object(1.3, "spaceman", MySprite::GPT4O_SPACE_MAN, Item::PERSON),
-        ()
-      ),
-      Self::SpaceCoin => {
-        delegate(Self::loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN), ())
-      }
-      Self::IceAsteroid => delegate(
-        Self::loot_object(
+        .insert((
+          Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMiniGame {
+            resources_left: 5,  // Should probably be randomized
+            tool_durability: 5  // Should this be on player?
+          }),
+          CanBeFollowedByNPC // Why would NPCs follow an asteroid? Maybe for mining?
+        )),
+        Self::SpaceCat => {
+          Self::loot_object(1.3, "space cat", MySprite::GPT4O_SPACE_CAT, Item::SPACECAT)
+            .insert(())
+        }
+        Self::Spaceman => {
+          Self::loot_object(1.3, "spaceman", MySprite::GPT4O_SPACE_MAN, Item::PERSON)
+            .insert(())
+        }
+        Self::SpaceCoin => {
+          Self::loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN).insert(())
+        }
+        Self::IceAsteroid => Self::loot_object(
           asteroid_scale(),
           "ice asteroid",
           MySprite::GPT4O_ICE_ASTEROID,
           Item::DIHYDROGENMONOXIDE
-        ),
-        ()
-      ),
-      Self::CrystalAsteroid => delegate(
-        Self::loot_object(
+        )
+        .insert(()), // Should probably have Interact::Item or similar
+        Self::CrystalAsteroid => Self::loot_object(
           asteroid_scale(),
           "crystal asteroid",
           MySprite::CRYSTALASTEROID,
           Item::CRYSTAL
-        ),
-        ()
-      ),
-      Self::CrystalMonster => delegate(
-        Self::space_object(
+        )
+        .insert(()), // Should probably have Interact::Item or similar
+        Self::CrystalMonster => Self::space_object(
           2.1,
           true,
           Visuals::sprite(MySprite::CRYSTALMONSTER),
           "crystal monster"
-        ),
-        (
-          Combat { hp: 100, is_hostile: true, ..default() },
-          NPC { faction: Faction::SPACE_PIRATES, ..default() },
-          Navigation::speed(NORMAL_NPC_SPEED * 1.2)
         )
-      ),
-      Self::CrystalMonster2 => delegate(
-        Self::space_object(
+        .insert((
+          Combat { hp: 100, is_hostile: true, ..default() },
+          NPC { faction: Faction::SPACE_PIRATES, ..default() }, // Monsters faction?
+          Navigation::speed(NORMAL_NPC_SPEED * 1.2)
+        )),
+        Self::CrystalMonster2 => Self::space_object(
           1.7,
-          true,
-          Visuals::sprite(MySprite::CRYSTALMONSTER),
+          true,                                      // Assuming it moves
+          Visuals::sprite(MySprite::CRYSTALMONSTER), // Same sprite?
           "lesser crystal monster"
-        ),
-        (Interact::SingleOption(InteractSingleOption::Describe),)
-      ),
-      Self::HpBox => delegate(
-        Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX), "hp box"),
-        (Interact::SingleOption(InteractSingleOption::HPBOX),)
-      ),
-      Self::TreasureContainer => delegate(
-        Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER), "container"),
-        (Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
-          (Item::SPACECOIN, 4),
-          (Item::COFFEE, 1),
-        ])),)
-      ),
-      Self::SphericalCow => delegate(
-        Self::space_object(
+        )
+        .insert((
+          Interact::SingleOption(InteractSingleOption::Describe),
+          // Maybe add Combat { hp: 50, is_hostile: false } ?
+          // Or maybe it becomes hostile if attacked? Requires more complex state.
+        )),
+        Self::HpBox => {
+          Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX), "hp box")
+            .insert((Interact::SingleOption(InteractSingleOption::HPBOX),))
+        }
+        Self::TreasureContainer => {
+          Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER), "container")
+            .insert((Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
+              (Item::SPACECOIN, 4),
+              (Item::COFFEE, 1),
+            ])),))
+        } // Note the extra comma for the tuple bundle
+        Self::SphericalCow => Self::space_object(
           1.7,
           true,
           Visuals::sprite(MySprite::GPT4O_SPHERICAL_COW),
           "spherical cow"
-        ),
-        (Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),)
-      ),
-      Self::TradeStation => {
-        let (trade_interaction, text) = if prob(0.5) {
-          let trade_buy =
-            pick([Item::DIHYDROGENMONOXIDE, Item::CRYSTAL, Item::SPACECAT]).unwrap();
-          (
-            Interact::SingleOption(InteractSingleOption::Trade {
-              inputs: (trade_buy, 1),
-              outputs: (Item::SPACECOIN, 5)
-            }),
-            format!("space station\nbuys {:?}", trade_buy)
-          )
-        } else {
-          let trade_sell = pick([Item::SPICE, Item::COFFEE, Item::ROCK]).unwrap();
-          (
-            Interact::SingleOption(InteractSingleOption::Trade {
-              inputs: (Item::SPACECOIN, 5),
-              outputs: (trade_sell, 1)
-            }),
-            format!("space station\nsells {:?}", trade_sell)
-          )
-        };
-        delegate(
+        )
+        .insert((Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),)),
+        Self::TradeStation => {
+          let (trade_interaction, text) = if prob(0.5) {
+            let &trade_buy =
+              pick(&[Item::DIHYDROGENMONOXIDE, Item::CRYSTAL, Item::SPACECAT]).unwrap();
+            (
+              Interact::SingleOption(InteractSingleOption::Trade {
+                inputs: (trade_buy, 1),        // Station buys 1 unit
+                outputs: (Item::SPACECOIN, 5)  // Station pays 5 coins
+              }),
+              format!("space station\nbuys {:?}", trade_buy)
+            )
+          } else {
+            let &trade_sell = pick(&[Item::SPICE, Item::COFFEE, Item::ROCK]).unwrap();
+            (
+              Interact::SingleOption(InteractSingleOption::Trade {
+                inputs: (Item::SPACECOIN, 5), // Player pays 5 coins
+                outputs: (trade_sell, 1)      // Player gets 1 unit
+              }),
+              format!("space station\nsells {:?}", trade_sell)
+            )
+          };
           Self::space_object(
             3.0,
-            false,
+            false, // Static
             Visuals::sprite(MySprite::IMAGEN3SPACESTATION),
             "space station"
-          ),
-          (CanBeFollowedByNPC, trade_interaction, TextDisplay::from(text))
-        )
-      }
-      Self::FloatingIsland => delegate(
-        Self::space_object(
-          3.4,
-          false,
-          Visuals::sprite(MySprite::FLOATINGISLAND),
-          "floating island"
-        ),
-        (Interact::SingleOption(InteractSingleOption::Describe),)
-      ),
-      Self::Sun => delegate(
-        Self::space_object(
-          300.0,
-          false,
-          Visuals::material_sphere(MyMaterial::GLOWY_2),
-          "sun"
-        ),
-        (CubemapVisibleEntities::default(), CubemapFrusta::default(), PointLight {
-          intensity: 3_000_000.0,
-          radius: 1.0,
-          range: 10000.0,
-          shadows_enabled: true,
-          color: Color::srgb(0.9, 0.8, 0.6),
-          ..default()
-        })
-      ),
-      Self::AbandonedShip => delegate(
-        Self::space_object(
-          2.0,
-          false,
-          Visuals::sprite(MySprite::SPACESHIPABANDONED),
-          "abandoned ship"
-        ),
-        (Interact::MultipleOptions(InteractMultipleOptions::Salvage { how_much_loot: 3 }),)
-      ),
-      Self::Player => {
-        println!("player spawned");
-        delegate(
-          Self::space_object(
-            PLAYER_SCALE,
-            true,
-            Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP),
-            "You"
-          ),
-          (
-            Player::default(),
-            Combat { hp: 400, ..default() },
-            Inventory::default(),
-            Navigation::new(PLAYER_FORCE),
-            CanBeFollowedByNPC
           )
+          .insert((
+            CanBeFollowedByNPC, // NPCs can dock/interact?
+            trade_interaction,
+            TextDisplay::from(text)
+          ))
+        }
+        Self::FloatingIsland => {
+          Self::space_object(
+            3.4,
+            false, // Static
+            Visuals::sprite(MySprite::FLOATINGISLAND),
+            "floating island"
+          )
+          .insert((Interact::SingleOption(InteractSingleOption::Describe),))
+        }
+        Self::Sun => {
+          Self::space_object(
+            300.0,
+            false, // Static
+            Visuals::material_sphere(MyMaterial::GLOWY_2),
+            "sun"
+          )
+          .insert((
+            // Components for lighting
+            CubemapVisibleEntities::default(),
+            CubemapFrusta::default(),
+            PointLight {
+              intensity: 3_000_000.0, // Very intense
+              radius: 1.0,            // Light source size (affects shadow softness)
+              range: 10000.0,         // How far light reaches
+              shadows_enabled: true,
+              color: Color::srgb(0.9, 0.8, 0.6), // Yellowish
+              ..default()
+            }
+          ))
+        }
+        Self::AbandonedShip => {
+          Self::space_object(
+            2.0,
+            false, // Static derelict
+            Visuals::sprite(MySprite::SPACESHIPABANDONED),
+            "abandoned ship"
+          )
+          .insert((Interact::MultipleOptions(InteractMultipleOptions::Salvage {
+            how_much_loot: 3
+          }),))
+        }
+        Self::Player => Self::space_object(
+          PLAYER_SCALE,
+          true, // Dynamic
+          Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP),
+          "You"
         )
-      }
-      Self::SpacePirate => delegate(
-        Self::Enemy {
+        .insert((
+          Player::default(),
+          Combat { hp: 400, is_hostile: false, ..default() },
+          Inventory::default(),
+          Navigation::new(PLAYER_FORCE),
+          CanBeFollowedByNPC
+        )),
+        Self::SpacePirate => Self::Enemy {
           name: "Space Pirate",
           hp: 60,
           speed: NORMAL_NPC_SPEED * 1.1,
           sprite: MySprite::PURPLEENEMYSHIP
-        },
-        ()
-      ),
-      Self::SpacePirateBase => delegate(
-        Self::space_object(
+        }
+        .insert(()),
+        Self::SpacePirateBase => Self::space_object(
           4.0,
-          false,
+          false, // Static base
           Visuals::sprite(MySprite::GPT4O_PIRATE_STATION),
           "space pirate base"
-        ),
-        (
-          Combat { hp: 120, is_hostile: false, ..default() },
-          Interact::SingleOption(InteractSingleOption::Describe)
         )
-      ),
-      Self::SpaceStation => delegate(
-        Self::space_object(
+        .insert((
+          Combat { hp: 120, is_hostile: false, ..default() }, // Base might be non-hostile until attacked?
+          Interact::SingleOption(InteractSingleOption::Describe)  // Can interact? Raid?
+        )),
+        Self::SpaceStation => Self::space_object(
           4.0,
-          false,
+          false, // Static base
           Visuals::sprite(MySprite::GPT4O_TRADING_STATION),
           "space station"
-        ),
-        (
-          Combat { hp: 120, is_hostile: false, ..default() },
-          Interact::SingleOption(InteractSingleOption::Describe)
         )
-      ),
-      Self::Nomad => delegate(
-        Self::npc(
+        .insert((
+          Combat { hp: 120, is_hostile: false, ..default() }, // Non-hostile
+          Interact::SingleOption(InteractSingleOption::Describe) // Should have Trade interaction? Maybe merge with TradeStation?
+        )),
+        Self::Nomad => Self::npc(
           NORMAL_NPC_SCALE,
           "nomad",
           NORMAL_NPC_SPEED,
           Faction::WANDERERS,
           35,
           MySprite::GPT4O_GREEN_CAR_SHIP
-        ),
-        ()
-      ),
-      Self::WarpGate { name } => delegate(
-        Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name),
-        (Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }), WarpGate)
-      )
-    })(m);
+        )
+        .insert(()), // npc constructor adds necessary components
+        Self::WarpGate { name } => {
+          Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name).insert(
+            (
+              Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }),
+              WarpGate // Marker component
+            )
+          )
+        }
+      })(m); // Execute the returned closure
+    })
   }
 }
 
