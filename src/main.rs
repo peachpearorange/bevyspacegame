@@ -27,9 +27,10 @@ pub use bevy::prelude::Name;
 use {aigen::*,
      bevy::{asset::LoadState,
             core_pipeline::Skybox,
-            ecs::query::QueryData,
+            ecs::{query, query::QueryData},
             render::render_resource::{Extent3d, TextureViewDescriptor}},
-     bevy_sprite3d::Sprite3dParams};
+     bevy_sprite3d::Sprite3dParams,
+     bevy_trait_query::RegisterExt};
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
@@ -578,56 +579,34 @@ impl Player {
   }
 }
 
-pub fn insert_component<C: Component>(world: &mut World, entity: Entity, component: C) {
-  if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-    entity_mut.insert(component);
-  }
-}
-
-pub fn update_component<C: Component + Clone>(
-  world: &mut World,
-  entity: Entity,
-  f: impl FnOnce(C) -> C
-) {
-  // Children
-  if let Ok(mut entity_mut) = world.get_entity_mut(entity)
-    && let Some(mut component) = entity_mut.get_mut::<C>()
-    && let updated = f((*component).clone())
-  {
-    *component = updated;
-  }
-}
-
-pub fn mutate_component<C: Component>(
-  world: &mut World,
-  entity: Entity,
-  f: impl FnOnce(&mut C)
-) {
-  if let Ok(mut entity_mut) = world.get_entity_mut(entity)
-    && let Some(mut component) = entity_mut.get_mut::<C>()
-  {
-    f(&mut component);
-  }
-}
-
-pub fn get_player(world: &mut World) -> Option<Entity> {
-  world.query_filtered::<Entity, With<Player>>().iter(world).next()
-}
-
 // #[derive(Clone)]
 pub struct MyCommand(pub Box<dyn FnOnce(&mut World) + 'static + Send + Sync>);
 type CMD = MyCommand;
 
-// impl From<Box<dyn FnOnce(&mut World) + 'static + Send + Sync>> for MyCommand {
-//   fn from(f: Box<dyn FnOnce(&mut World) + 'static + Send + Sync>) -> Self { MyCommand(f) }
-// }
-
-// impl<F> From<F> for MyCommand where F: FnOnce(&mut World) + 'static + Send + Sync {
-//   fn from(f: F) -> Self { MyCommand(Box::new(f)) }
-// }
-
 impl<F: FnOnce(&mut World) + 'static + Send + Sync> From<F> for MyCommand {
   fn from(f: F) -> Self { MyCommand(Box::new(f)) }
+}
+impl From<Vec<MyCommand>> for MyCommand {
+  fn from(cmds: Vec<MyCommand>) -> Self {
+    MyCommand::from(|w: &mut World| {
+      for cmd in cmds {
+        cmd.0(w);
+      }
+    })
+  }
+}
+impl<const N: usize> From<[MyCommand; N]> for MyCommand {
+  fn from(cmds: [MyCommand; N]) -> Self {
+    MyCommand::from(|w: &mut World| {
+      for cmd in cmds {
+        cmd.0(w);
+      }
+    })
+  }
+}
+
+impl Command for MyCommand {
+  fn apply(self, world: &mut World) { (self.0)(world); }
 }
 impl MyCommand {
   pub fn none() -> Self { (|_world: &mut World| {}).into() }
@@ -642,7 +621,7 @@ impl MyCommand {
     .into()
   }
 
-  pub fn spawn_ad(o: Object, pos: Vec3) -> Self {
+  pub fn spawn_at(o: Object, pos: Vec3) -> Self {
     (move |world: &mut World| {
       let mut commands = world.commands();
       o.spawn_at(&mut commands, pos);
@@ -652,8 +631,8 @@ impl MyCommand {
 
   pub fn give_item_to_player(item: Item) -> Self {
     (move |world: &mut World| {
-      if let Some(player_entity) = get_player(world) {
-        mutate_component(world, player_entity, |inventory: &mut Inventory| {
+      if let Some(player_entity) = world.get_player() {
+        world.mutate_component(player_entity, |inventory: &mut Inventory| {
           inventory.add_contents([(item.clone(), 1)]);
         });
       }
@@ -702,27 +681,27 @@ impl MyCommand {
   }
 
   pub fn insert_component<C: Component + 'static>(entity: Entity, component: C) -> Self {
-    (move |world: &mut World| insert_component(world, entity, component)).into()
+    (move |world: &mut World| world.insert_component(entity, component)).into()
   }
 
   pub fn update_component<C: Component + Clone + 'static>(
     entity: Entity,
     f: impl FnOnce(C) -> C + 'static + Send + Sync
   ) -> Self {
-    (move |world: &mut World| update_component(world, entity, f)).into()
+    (move |world: &mut World| world.update_component(entity, f)).into()
   }
 
   pub fn mutate_component<C: Component + 'static>(
     entity: Entity,
     f: impl FnOnce(&mut C) + 'static + Send + Sync
   ) -> Self {
-    (move |world: &mut World| mutate_component(world, entity, f)).into()
+    (move |world: &mut World| world.mutate_component(entity, f)).into()
   }
 
   pub fn insert_player_component<C: Component + 'static>(component: C) -> Self {
     (move |world: &mut World| {
-      if let Some(player_entity) = get_player(world) {
-        insert_component(world, player_entity, component);
+      if let Some(player_entity) = world.get_player() {
+        world.insert_component(player_entity, component);
       }
     })
     .into()
@@ -732,8 +711,8 @@ impl MyCommand {
     f: impl FnOnce(C) -> C + 'static + Send + Sync
   ) -> Self {
     (move |world: &mut World| {
-      if let Some(player_entity) = get_player(world) {
-        update_component(world, player_entity, f);
+      if let Some(player_entity) = world.get_player() {
+        world.update_component(player_entity, f);
       }
     })
     .into()
@@ -743,22 +722,17 @@ impl MyCommand {
     f: impl FnOnce(&mut C) + 'static + Send + Sync
   ) -> Self {
     (move |world: &mut World| {
-      if let Some(player_entity) = get_player(world) {
-        mutate_component(world, player_entity, f);
+      if let Some(player_entity) = world.get_player() {
+        world.mutate_component(player_entity, f);
       }
     })
     .into()
   }
 }
 
-impl Command for MyCommand {
-  fn apply(self, world: &mut World) { (self.0)(world); }
-}
-
-// to the ai: implement all this stuff as extension methods of World. use auto-implementation for as many of them as possible. rust has a feature that lets you specify the implementation of methods in the trait definition. use it. one method should just return an &mut World. that method should have an implementation separate from the trait definition but all the other methods should use auto-implementation
-
 pub trait WorldExt {
   fn get_world_mut(&mut self) -> &mut World;
+  fn get_world(&self) -> &World;
   fn insert_component<C: Component + 'static>(&mut self, entity: Entity, component: C) {
     if let Ok(mut entity_mut) = self.get_world_mut().get_entity_mut(entity) {
       entity_mut.insert(component);
@@ -787,12 +761,11 @@ pub trait WorldExt {
       f(&mut component);
     }
   }
-  fn get_player(&mut self) -> Option<Entity> {
+  fn get_player(&self) -> Option<Entity> {
     self
-      .get_world_mut()
-      .query_filtered::<Entity, With<Player>>()
-      .iter(self.get_world_mut())
-      .next()
+      .get_world()
+      .iter_entities()
+      .find_map(|er| er.contains::<Player>().then_some(er.id()))
   }
   fn give_items_to_player(&mut self, items: impl IntoIterator<Item = (Item, u32)>) {
     if let Some(player_entity) = self.get_player() {
@@ -850,38 +823,24 @@ pub trait WorldExt {
       self.mutate_component(player_entity, f);
     }
   }
-  fn get_player_pos(&mut self) -> Option<Vec3> {
-    let world = self.get_world_mut();
+  fn get_player_pos(&self) -> Option<Vec3> {
+    let world = self.get_world();
     let player = world.get_player()?;
     let &transform = world.get_entity(player).ok()?.get_components::<&Transform>()?;
     Some(transform.translation)
   }
-  fn get_component<C: Component + 'static>(&mut self, entity: Entity) -> Option<&C> {
-    self.get_world_mut().get::<C>(entity)
+  fn get_component<C: Component + 'static>(&self, entity: Entity) -> Option<&C> {
+    self.get_world().get::<C>(entity)
   }
-  fn get_player_component<C: Component + 'static>(&mut self) -> Option<&C> {
+  fn get_player_component<C: Component + 'static>(&self) -> Option<&C> {
     let player_entity = self.get_player()?;
     self.get_component(player_entity)
   }
 }
 impl WorldExt for World {
   fn get_world_mut(&mut self) -> &mut World { self }
+  fn get_world(&self) -> &World { self }
 }
-impl WorldExt for MiniGameContext {
-  fn get_world_mut(&mut self) -> &mut World { self.world }
-}
-// impl WorldExt for MultiOptionMiniGameContext {
-//   fn get_world_mut(&mut self) -> &mut World { self.world }
-// }
-
-// You would then use these extension methods like this:
-// fn some_system(world: &mut World, player_entity: Entity) {
-//     world.insert_component(player_entity, Inventory { contents: vec![] });
-//     world.give_item_to_player(Item {});
-//     world.message_add("You received an item!");
-// }
-
-// fn combat_actions()
 
 #[derive(Component, Clone)]
 pub enum VisualEffect {
@@ -1510,22 +1469,13 @@ fn navigation(
       NavigationKind::None => {}
       NavigationKind::Dir3(dir) => {
         accelerate(dir.as_vec3());
-        // velocity.0 += ;
-        // velocity.0 = velocity.0.clamp_length_max(max_speed);
-        // force.apply_force(dir.as_vec3() * max_speed);
       }
       NavigationKind::Vec3(v) => {
         accelerate(v);
-        // velocity.0 += v;
-        // velocity.0 = velocity.0.clamp_length_max(max_speed);
-        // force.apply_force(vec.normalize_or_zero() * max_speed);
       }
       NavigationKind::Pos(pos) => {
         let v = (pos - translation);
         accelerate(v);
-        // velocity.0 += v;
-        // velocity.0 = velocity.0.clamp_length_max(max_speed);
-        // force.apply_force((pos - translation).normalize_or_zero() * max_speed);
       }
       NavigationKind::Chase(entity) => {
         if let Ok(entity_globaltransform) = chase_targets_q.get(entity) {
@@ -1542,7 +1492,7 @@ fn navigation(
           force.apply_force(
             rel.normalize_or_zero() * max_speed * if within_range { -1.0 } else { 1.0 }
           );
-        };
+        }
       }
     }
   }
@@ -1598,15 +1548,6 @@ pub fn player_movement(
     } else {
       NavigationKind::Vec3(keyb_dir)
     };
-}
-comment! {
-  #[derive(Bundle)]
-  struct SceneSpaceObjectBundle((Handle<Scene>, SpaceObjectBundle));
-  impl SceneSpaceObjectBundle {
-    fn new(translation: Vec3, scale: f32, can_move: bool, scene: Handle<Scene>) -> Self {
-      Self((scene, space_object(scale, can_move, Visuals::sprite(MySprite::COFFEE))))
-    }
-  }
 }
 // pub const RAPIER_CONFIG: RapierConfiguration =
 //   RapierConfiguration { gravity: Vec3::ZERO,
@@ -1733,74 +1674,6 @@ fn colorful_texture() -> Image {
 
 #[derive(Component, Clone)]
 pub struct Enemy;
-
-type DialogueEffect = fn() -> MyCommand;
-type DialogueTreeNode = (
-  &'static str,
-  &'static [(&'static str, &'static str, &'static str, Option<DialogueEffect>)]
-);
-const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
-type DialogueTree = &'static [DialogueTreeNode];
-
-impl MiniGameTrait for (DialogueTree, &'static str) {
-  fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
-    ctx.msg("talking npc");
-    let (tree, node) = *self;
-    for &(node2, options) in tree.iter() {
-      if node2 == node {
-        for &(id, playersay, npcsay, effect) in options {
-          if ctx.selected(playersay) {
-            self.1 = id;
-          }
-        }
-      }
-    }
-  }
-  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice) { todo!() }
-  type Choice;
-  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> { todo!() }
-  fn get_display_string(&self, ctx: &MiniGameContext) -> String { todo!() }
-}
-impl MiniGameTrait for (DialogueTree, &'static str) {
-  type Choice = usize;
-
-  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice) {
-    let (tree, current_node) = *self;
-    if let Some(&(_, options)) = tree.iter().find(|&&(node_id, _)| node_id == current_node) {
-      if let Some(&(next_node_id, _, _, effect)) = options.get(choice) {
-        if let Some(e) = effect {
-          let command = e();
-          ctx.world.commands().queue(command);
-        }
-        self.1 = next_node_id;
-      }
-    }
-  }
-  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> {
-    let (tree, current_node) = *self;
-    if let Some(&(_, options)) = tree.iter().find(|&&(node_id, _)| node_id == current_node) {
-      options
-        .iter()
-        .enumerate()
-        .map(|(i, &(_, player_line, _, _))| (player_line.to_string(), i))
-        .collect()
-    } else {
-      vec![]
-    }
-  }
-  fn get_display_string(&self, ctx: &MiniGameContext) -> String {
-    let (tree, current_node) = *self;
-    if let Some(&(_, options)) = tree.iter().find(|&&(node_id, _)| node_id == current_node) {
-      if let Some(&(_, _, npc_say, _)) = options.first() {
-        npc_say.to_string()
-      } else {
-        "They have nothing to say.".to_string()
-      }
-    } else {
-      "They don't respond.".to_string()
-    }
-  }
-}
 
 pub const SPHERICAL_SPACE_COW_DIALOGUE: DialogueTree = &[
   ("A", &[("B", "Hello there, cow!", "Cow: \"Moo-stronaut reporting for duty!\"", None)]),
@@ -2853,165 +2726,339 @@ pub fn one_d6() -> u32 { nd6(1) }
 pub fn two_d6() -> u32 { nd6(2) }
 pub fn one_d20() -> u32 { nd20(1) }
 
-// I'm trying to create a system of interactable minigame objects in my bevy game. for maximum extensibility and flexibility, an &mut World needs to be involved when simulating the game object. I'm thinking of solving the problems with dyn compatibility by wrapping the game implementor in a wrapper and implementing a trait for that and turning that into a trait object. Does a wrapper solve the problems with dyn compatibility?
-
-struct MiniGameContext<'t> {
-  current_option_number: u8,
-  selected_option_number: Option<u8>,
-  display_string: String,
-  self_entity: Entity,
-  world: &'t mut World
+struct InteractionInput<'t> {
+  // current_option: u8,
+  // selected: Option<u8>,
+  // display: String,
+  world: &'t World,
+  // self_component: &'t T,
+  self_entity: Entity
 }
-impl MiniGameContext {
-  fn msg(&mut self, arg: impl ToString) { self.display_string = arg.to_string() }
-  fn add_option(&mut self, opt: impl Into<MyCommand>) -> &mut Self {}
-  fn selected(&mut self, arg: impl ToString) -> bool {
-    let is_selected = (self.selected_option_number == Some(self.current_option_number));
-    self.current_option_number += 1;
-    is_selected
+#[derive(Default)]
+pub struct InteractionOutput {
+  pub choices: Vec<(String, MyCommand)>,
+  pub msg: String
+}
+
+impl InteractionOutput {
+  pub fn new() -> Self { default() }
+  fn msg(self, text: impl ToString) -> Self { Self { msg: text.to_string(), ..self } }
+  pub fn add(mut self, label: impl ToString, cmd: impl Into<MyCommand>) -> Self {
+    self.choices.push((label.to_string(), cmd.into()));
+    self
   }
-  fn exclusive_selected(&mut self, arg: impl ToString) -> bool { todo!() }
-}
-trait MiniGameTrait: Send + Sync {
-  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice);
-  type Choice;
-  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice);
-  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)>;
-  fn get_display_string(&self, ctx: &MiniGameContext) -> String;
-}
-
-struct MiniGameWrapper<T> {
-  game: T
-}
-trait MiniGameWrapperTrait: Send + Sync {
-  fn play_mini_game(&mut self, ctx: &mut MiniGameContext);
-}
-impl<G: MiniGameTrait> MiniGameWrapperTrait for MiniGameWrapper<G> {
-  fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
-    type Choice = <G as MiniGame>::Choice;
-    let choices: Vec<Choice> = self.game.get_choices();
-    let num_chosen = ctx.num_chosen;
-    let choice_picked_option: Option<Choice> = choices.into_iter().nth(num_chosen);
-    if let Some(choice_picked) = choice_picked_option {
-      self.game.perform_action(choice_picked);
+  pub fn add_if(
+    mut self,
+    cond: bool,
+    label: impl ToString,
+    cmd: impl Into<MyCommand>
+  ) -> Self {
+    if cond {
+      self.choices.push((label.to_string(), cmd.into()));
     }
-    // I suppose a Box<dyn MiniGameWrapperTrait> might be more feasible to make than to make MiniGameTrait itself dyn compatible???
-  }
-}
-#[derive(Component)]
-struct MiniGame(Box<dyn MiniGameWrapperTrait>);
-
-impl MiniGame {
-  fn new(game: impl MiniGame) -> Self { Self(Box::new(MiniGameWrapper { game })) }
-  fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
-    let (node, _) = tree[0];
-    Self::new((tree, node))
-  }
-}
-
-enum SalvageChoice {
-  Leave,
-  Mine,
-  ThrowDynamite
-}
-struct Salvage {
-  loot_quantity: u8
-}
-impl MiniGameTrait for Salvage {
-  type Choice = SalvageChoice;
-
-  fn perform_choice(&mut self, ctx: &mut MiniGameContext, choice: Self::Choice) {
-    match choice {
-      SalvageChoice::Leave => {
-        ctx.message_add("You leave");
-      }
-      SalvageChoice::Mine => {
-        ctx.message_add("You leave");
-        self.loot_quantity = self.loot_quantity - 1;
-      }
-      SalvageChoice::ThrowDynamite => {}
-    }
-  }
-  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> {
-    vec![SalvageChoice::Leave, SalvageChoice::Mine, SalvageChoice::ThrowDynamite]
-  }
-  fn get_display_string(&self, ctx: &MiniGameContext) -> String {
-    "It's a destroyed spaceship. Maybe you can find loot in it".to_string()
-  }
-  fn play_mini_game(&mut self, ctx: &mut MiniGameContext) {
-    ctx.msg();
-    if self.loot_quantity > 0 {
-      ctx.add_option("take some", |g, ctx| {
-        g.loot_quantity = g.loot_quantity - 1;
-        ctx.message_add("You found loot");
-        ctx.give_item_to_player(Item::SPACECOIN);
-      })
-    }
-    if self.loot_quantity > 0 && ctx.selected("take some") {
-      ctx.message_add("You found loot");
-      ctx.give_item_to_player(Item::SPACECOIN);
-      self.loot_quantity = self.loot_quantity - 1;
-    }
-    if ctx.selected("leave") {}
-  }
-
-  fn get_choices(&self, ctx: &MiniGameContext) -> Vec<(String, Self::Choice)> { todo!() }
-
-  fn get_display_string(&self, ctx: &MiniGameContext) -> String { todo!() }
-
-  fn perform_choiceper(&mut self, ctx: &mut MiniGameCont, choice: Self::Choiceext) {
-    todo!()
+    self
   }
 }
 
 comment! {
-  fn (&mut self, ctx: &mut MultiOptionMiniGameContext) {
-    ctx.msg("It's a destroyed spaceship. Maybe you can find loot in it");
-    if self.loot_quantity > 0 && ctx.selected("take some") {
-      ctx.message_add("You found loot");
-      ctx.give_item_to_player(Item::SPACECOIN);
-      self.loot_quantity = self.loot_quantity - 1;
+  impl<'t> InteractionInput<'t> {
+    fn add_option(&mut self, label: impl ToString, effect: impl Into<MyCommand>) -> &mut Self {
+      if self.selected == Some(self.current_option) {
+        self.effect = Some(effect.into())
+      }
+      self.current_option += 1;
+      self
     }
-    if ctx.selected("leave") {}
+
+    fn selected(&mut self) -> Option<u8> {
+      let sel = self.selected;
+      self.current_option = self.current_option.wrapping_add(1);
+      sel
+    }
+  }
+  fn play_mini_game(
+    world: &mut World,
+    mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory), With<Player>>,
+    mut c: Commands,
+    keys: Res<ButtonInput<KeyCode>>
+  ) {
+    let keys = world.resource::<ButtonInput<KeyCode>>();
+    let just_pressed = keys.get_just_pressed();
+    let games: Vec<(Entity, &Transform, &mut MiniGame, Option<&Name>)> =
+      world.query_filtered().iter(world).collect();
+    let player = world.get_player().unwrap();
+    let player_pos = world.get_player_pos().unwrap();
+    let c = world.commands();
+    // let (player_transform, player_combat, player_inventory) = world
+    //   .get_entity(player)
+    //   .unwrap()
+    //   .get_components::<(&Transform, &Combat, &Inventory)>()
+    //   .unwrap();
+    // let (player, player_transform, player_combat, player_inventory) = playerq.into_inner();
+    // let player_pos = player_transform.translation;
+    let closest_interactable_thing = filter_least(
+      |&&(e, t, g, oname)| {
+        let dist = t.translation.distance(player_pos);
+        (dist < INTERACTION_RANGE).then_some(dist as u32)
+      },
+      &games
+    );
+    if let Some((interact_entity, transform, mut game, oname)) = closest_interactable_thing {
+      let ctx = MiniGameContext {
+        world,
+        selected_option_number: None,
+        current_option_number: 0,
+        display_string: "mini-game object".to_string()
+      };
+      game.0.play_mini_game(&mut ctx);
+
+      let number_picked =
+        find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n), [
+          (0, KeyCode::Digit0),
+          (1u8, KeyCode::Digit1),
+          (2, KeyCode::Digit2),
+          (3, KeyCode::Digit3),
+          (4, KeyCode::Digit4),
+          (5, KeyCode::Digit5),
+          (6, KeyCode::Digit6),
+          (7, KeyCode::Digit7),
+          (8, KeyCode::Digit8),
+          (9, KeyCode::Digit9)
+        ]);
+      let (msg, options) = interact_multiple_options.clone().interact();
+      INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
+        (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
+      ))));
+      for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
+        if number_picked == Some(n as u8 + 1) {
+          c.queue(command);
+          *interact_multiple_options = new_interact.clone();
+        }
+      }
+
+      INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
+      if keys.just_pressed(KeyCode::Space) {
+        c.queue(command);
+      }
+    } else {
+      INTERACT_MESSAGE.set(None);
+    }
   }
 }
 
-fn play_mini_game(
-  world: &mut World,
-  mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory), With<Player>>,
+const INTERACTION_RANGE: f32 = 8.0;
+
+/// Resource to hold the current interact message
+struct InteractMessage(String);
+
+/// Builder for labelled options and their commands
+
+#[bevy_trait_query::queryable]
+pub trait InteractableTrait: Send + Sync + 'static {
+  fn interact(&self, world: &World, self_entity: Entity) -> InteractionOutput;
+  // fn play(&self, entity: Entity) -> (String, InteractionOutput);
+}
+// pub trait InteractableTrait: Send + Sync + 'static + Component {
+//   fn interact(input: InteractionInput) -> InteractionOutput;
+//   // fn play(&self, entity: Entity) -> (String, InteractionOutput);
+// }
+#[derive(Component)]
+struct Salvage {
+  loot: u8
+}
+impl InteractableTrait for Salvage {
+  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
+    InteractionOutput::new()
+      .msg("Salvage wreck")
+      .add("leave", CMD::message_add("You leave"))
+      .add_if(self.loot > 0, "take loot", [
+        CMD::message_add("Looted"),
+        CMD::give_item_to_player(Item::SPACECOIN),
+        CMD::mutate_component::<Salvage>(self_entity, |mut s| s.loot -= 1)
+      ])
+  }
+}
+#[derive(Component)]
+struct MiniGame(Box<dyn InteractableTrait>);
+impl MiniGame {
+  fn new(game: impl InteractableTrait + 'static) -> Self { Self(Box::new(game)) }
+}
+
+type DialogueEffect = fn() -> MyCommand;
+type DialogueTreeNode = (
+  &'static str,
+  &'static [(&'static str, &'static str, &'static str, Option<DialogueEffect>)]
+);
+const DIALOGUE_END: DialogueTreeNode = ("END", &[]);
+type DialogueTree = &'static [DialogueTreeNode];
+
+// --- Dialogue Tree ---
+#[derive(Component)]
+pub struct DialogueTreeInteract {
+  pub tree: DialogueTree,
+  pub current: &'static str
+}
+
+impl DialogueTreeInteract {
+  pub fn new(tree: DialogueTree) -> Self {
+    let (current, _) = tree[0];
+    Self { tree, current }
+  }
+}
+
+impl InteractableTrait for DialogueTreeInteract {
+  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
+    let node_opts =
+      self.tree.iter().find(|&&(id, _)| id == self.current).map(|&(_, opts)| opts).unwrap();
+
+    node_opts.iter().fold(
+      InteractionOutput::new().msg(node_opts[0].2),
+      |out, &(next, player_line, npc_line, effect)| {
+        let cmd = MyCommand::from(match effect {
+          Some(eff) => vec![
+            CMD::message_add(npc_line),
+            CMD::mutate_component::<DialogueTreeInteract>(self_entity, move |c| {
+              c.current = next
+            }),
+            eff(),
+          ],
+          None => vec![
+            CMD::message_add(npc_line),
+            CMD::mutate_component::<DialogueTreeInteract>(self_entity, move |c| {
+              c.current = next;
+            }),
+          ]
+        });
+        out.add(player_line, cmd)
+      }
+    )
+  }
+}
+struct HPBoxInteract {
+  heal: u32
+}
+struct DescribeInteract {
+  description: String
+}
+struct ItemInteract {
+  item: Item,
+  label: String
+}
+
+// --- Trade ---
+#[derive(Component)]
+pub struct TradeInteract {
+  pub inputs: Vec<(Item, u32)>,
+  pub outputs: Vec<(Item, u32)>
+}
+
+impl InteractableTrait for TradeInteract {
+  fn interact(&self, _world: &World, _self_entity: Entity) -> InteractionOutput {
+    InteractionOutput::new().msg("Trade terminal").add("trade", [
+      CMD::mutate_player_component::<Inventory>({
+        let inputs = self.inputs.clone();
+        let outputs = self.outputs.clone();
+        move |inv| inv.trade(inputs, outputs)
+      }),
+      CMD::message_add("Trade executed")
+    ])
+  }
+}
+#[derive(Component)]
+pub struct Container(Vec<(Item, u32)>);
+impl InteractableTrait for Container {
+  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
+    InteractionOutput::new().msg("Cargo container").add("loot container", [
+      CMD::despawn_entity(self_entity),
+      CMD::mutate_player_component::<Inventory>({
+        let loot = self.0.clone();
+        move |inv| inv.add_contents(loot)
+      }),
+      CMD::message_add("Container looted")
+    ])
+  }
+}
+
+// --- Asteroid Mining ---
+#[derive(Component)]
+pub struct AsteroidMining {
+  pub resources: u8,
+  pub durability: u8
+}
+
+impl InteractableTrait for AsteroidMining {
+  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
+    let can_mine = self.resources > 0 && self.durability > 0;
+    InteractionOutput::new()
+      .msg(format!("Mining asteroid: {} res, {} dur", self.resources, self.durability))
+      .add_if(can_mine, "mine safe", [
+        CMD::message_add("Safe mine"),
+        CMD::give_item_to_player(Item::SPACEMINERALS),
+        CMD::mutate_component::<AsteroidMining>(self_entity, |mut a| a.resources -= 1)
+      ])
+      .add_if(can_mine, "mine hard", [
+        CMD::message_add("Hard mine"),
+        CMD::give_item_to_player(Item::SPACEMINERALS),
+        CMD::give_item_to_player(Item::SPACEMINERALS),
+        CMD::mutate_component::<AsteroidMining>(self_entity, |a| {
+          a.resources -= 1;
+          a.durability -= 1;
+        })
+      ])
+      .add("leave", CMD::none())
+  }
+}
+
+#[derive(Component)]
+pub struct WarpGate {
+  pub name: &'static str
+}
+
+impl InteractableTrait for WarpGate {
+  fn interact(&self, world: &World, _self_entity: Entity) -> InteractionOutput {
+    let player_pos = world.get_player_pos().unwrap();
+    let mut gates: Vec<(&WarpGate, Vec3)> = world
+      .iter_entities()
+      .filter_map(|er: EntityRef<'_>| {
+        er.get_components::<(&WarpGate, &Transform)>().map(|(wg, tr)| (wg, tr.translation))
+      })
+      .collect();
+    gates.sort_by(|a, b| {
+      a.1.distance(player_pos).partial_cmp(&b.1.distance(player_pos)).unwrap()
+    });
+    gates.truncate(4);
+
+    gates
+      .into_iter()
+      .fold(InteractionOutput::new().msg("Select warp gate:"), |out, (gate, pos)| {
+        out.add(gate.name, [
+          CMD::message_add(format!("Warping to {}", gate.name)),
+          CMD::mutate_player_component::<Transform>(move |t| t.translation = pos)
+        ])
+      })
+      .add("leave", CMD::none())
+  }
+}
+fn interact(
+  world: &World,
+  mut playerq: Single<(Entity, &Transform), With<Player>>,
+  mut interactable_q: Query<
+    (Entity, &Transform, bevy_trait_query::One<&dyn InteractableTrait>, Option<&Name>),
+    Without<Player>
+  >,
   mut c: Commands,
   keys: Res<ButtonInput<KeyCode>>
 ) {
-  let keys = world.resource::<ButtonInput<KeyCode>>();
-  let just_pressed = keys.get_just_pressed();
-  let games: Vec<(Entity, &Transform, &mut MiniGame, Option<&Name>)> =
-    world.query_filtered().iter(world).collect();
-  let player = world.get_player().unwrap();
-  let player_pos = world.get_player_pos().unwrap();
-  let c = world.commands();
-  let (player_transform, player_combat, player_inventory) = world
-    .get_entity(player)
-    .unwrap()
-    .get_components::<(&Transform, &Combat, &Inventory)>()
-    .unwrap();
-  let (player, player_transform, player_combat, player_inventory) = playerq.into_inner();
+  let (player, &player_transform) = *playerq;
   let player_pos = player_transform.translation;
   let closest_interactable_thing = filter_least(
-    |&&(e, t, g, oname)| {
-      let dist = t.translation.distance(player_pos);
+    |tup| {
+      let dist = tup.1.translation.distance(player_pos);
       (dist < INTERACTION_RANGE).then_some(dist as u32)
     },
-    &games
+    &interactable_q
   );
-  if let Some((interact_entity, transform, mut game, oname)) = closest_interactable_thing {
-    let ctx = MiniGameContext {
-      world,
-      selected_option_number: None,
-      current_option_number: 0,
-      display_string: "mini-game object".to_string()
-    };
-    game.0.play_mini_game(&mut ctx);
-
+  if let Some((interact_entity, transform, interact, oname)) = closest_interactable_thing {
     let number_picked =
       find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n), [
         (0, KeyCode::Digit0),
@@ -3025,329 +3072,39 @@ fn play_mini_game(
         (8, KeyCode::Digit8),
         (9, KeyCode::Digit9)
       ]);
-    let (msg, options) = interact_multiple_options.clone().interact();
-    INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
-      (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
-    ))));
-    for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
-      if number_picked == Some(n as u8 + 1) {
-        c.queue(command);
-        *interact_multiple_options = new_interact.clone();
-      }
-    }
+    let InteractionOutput { choices, msg } = interact.interact(world, interact_entity);
+    INTERACT_MESSAGE.set(Some(intersperse_newline(
+      [namefmt(oname), msg, default()]
+        .into_iter()
+        .chain(choices.iter().enumerate().map(|(n, (s, cmd))| format!("{n}: {s}")))
+    )));
+    // match interact.as_mut() {
+    //   Interact::SingleOption(interact_single_option) => {
+    //     let (message, command) = interact_single_option.clone().interact(
+    //       interact_entity,
+    //       namefmt(oname),
+    //       player_inventory
+    //     );
+    //     // ui_data.interact_message = Some(format!("[SPACE: {message}]"));
 
-    INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
-    if keys.just_pressed(KeyCode::Space) {
-      c.queue(command);
-    }
-  } else {
-    INTERACT_MESSAGE.set(None);
-  }
-}
-// fn self_mutating_closure() -> Box<dyn FnMut(&mut World) -> (String, OptionSet)> {
-//   let mut resource_quantity = 0;
-//   let mut durability = 5;
-//   let mut has_dynamite = true;
-//   Box::new(|mut ctx| {
-//     let msg = "theres's a rock here that you can mine".to_string();
-//     ctx.msg(msg);
-//     let mut add_option = |s, f| ctx.add_option(s, f);
-//     if has_dynamite {
-//       add_option("throw dynamite", || {
-//         has_dynamite = false;
-//         resource_quantity += 2;
-//       });
-//     }
-//     if durability > 0 {
-//       add_option("dig", || {
-//         durability -= 1;
-//         resource_quantity += 1;
-//       });
-//     }
-//     add_option("leave", || {
-//       world.give_items_to_player([(Item::SPACEMINERALS, resource_quantity)]);
-//       resource_quantity = 0;
-//     });
-//   });
-// }
-#[derive(Clone)]
-enum InteractMultipleOptions {
-  Salvage { how_much_loot: u8 },
-  WarpGate { name: &'static str },
-  DialogueTree(DialogueTree, &'static str),
-  AsteroidMiningMiniGame { resources_left: u8, tool_durability: u8 }
-}
-impl InteractMultipleOptions {
-  fn interact(self) -> (String, Vec<(String, MyCommand, Self)>) {
-    match self {
-      InteractMultipleOptions::AsteroidMiningMiniGame {
-        resources_left,
-        tool_durability
-      } => {
-        let msg = format!(
-          "You're mining an asteroid. Resources left: {}. Tool durability: {}.",
-          resources_left, tool_durability
-        );
-        let mut options = vec![];
-
-        if resources_left > 0 && tool_durability > 0 {
-          options.push((
-            "Mine carefully".to_string(),
-            MyCommand::multi([
-              MyCommand::message_add("You mine carefully, preserving your tool."),
-              MyCommand::give_item_to_player(Item::SPACEMINERALS)
-            ]),
-            Self::AsteroidMiningMiniGame {
-              resources_left: resources_left - 1,
-              tool_durability
-            }
-          ));
-          options.push((
-            "Mine aggressively".to_string(),
-            MyCommand::multi([
-              MyCommand::message_add(
-                "You mine aggressively, risking your tool for more resources."
-              ),
-              MyCommand::give_item_to_player(Item::SPACEMINERALS),
-              MyCommand::give_item_to_player(Item::SPACEMINERALS)
-            ]),
-            Self::AsteroidMiningMiniGame {
-              resources_left: resources_left - 1,
-              tool_durability: tool_durability - 1
-            }
-          ));
-        }
-
-        options.push((
-          "Leave asteroid".to_string(),
-          MyCommand::end_object_interaction_mini_game(),
-          self.clone()
-        ));
-
-        (msg, options)
-      }
-      InteractMultipleOptions::Salvage { how_much_loot } => {
-        let msg = "It's a destroyed spaceship. Maybe you can find loot in it".to_string();
-        let options = if how_much_loot > 0 {
-          vec![
-            (
-              "take some".to_string(),
-              MyCommand::multi([
-                MyCommand::message_add("You found loot"),
-                MyCommand::give_item_to_player(Item::SPACECOIN)
-              ]),
-              Self::Salvage { how_much_loot: how_much_loot - 1 }
-            ),
-            ("don't take".to_string(), MyCommand::none(), self.clone()),
-            (
-              "leave".to_string(),
-              MyCommand::end_object_interaction_mini_game(),
-              self.clone()
-            ),
-          ]
-        } else {
-          vec![(
-            "leave".to_string(),
-            MyCommand::end_object_interaction_mini_game(),
-            self.clone()
-          )]
-        };
-        (msg, options)
-      }
-      InteractMultipleOptions::DialogueTree(tree, node) => {
-        let msg = "talking npc".to_string();
-        if let Some((_, options)) = tree.iter().find(|(node2, options)| *node2 == node) {
-          let options = options.iter().map(|(new_node, playersay, npcsay, effect)| {
-            (
-              playersay.to_string(),
-              MyCommand::message_add(npcsay.to_string()),
-              InteractMultipleOptions::DialogueTree(tree, *new_node)
-            )
-          });
-          (msg, options.collect())
-        } else {
-          (msg, default())
-        }
-      }
-      // todo!
-      InteractMultipleOptions::WarpGate { name } => {
-        ("this is a warp gate".to_string(), vec![(
-          "...".to_string(),
-          MyCommand::message_add("WIP"),
-          InteractMultipleOptions::WarpGate { name }
-        )])
-      }
-    }
-  }
-}
-// #[derive(Component)]
-// struct NewInteract(Box<dyn std::fmt::Debug>);
-
-#[derive(Clone)]
-enum InteractSingleOption {
-  Message(String),
-  // Salvage { how_much_loot: u8 },
-  ASTEROID,
-  HPBOX,
-  Describe,
-  Item(Item),
-  Trade { inputs: (Item, u32), outputs: (Item, u32) },
-  GATE(Vec3),
-  CONTAINER(Vec<(Item, u32)>)
-}
-
-impl InteractSingleOption {
-  fn interact(
-    self,
-    self_entity: Entity,
-    self_name: String,
-    player_inventory: &Inventory
-  ) -> (String, MyCommand) {
-    match self {
-      InteractSingleOption::Message(m) => ("examine".to_string(), MyCommand::message_add(m)),
-      InteractSingleOption::ASTEROID => {
-        (format!("examine {self_name}"), MyCommand::message_add("it's an asteroid"))
-      }
-      InteractSingleOption::HPBOX => (
-        "take hp box".to_string(),
-        MyCommand::multi([
-          MyCommand::update_player_component(|combat: Combat| Combat {
-            hp: combat.hp + 50,
-            ..combat
-          }),
-          MyCommand::despawn(self_entity)
-        ])
-      ),
-      InteractSingleOption::Describe => {
-        (format!("examine {self_name}"), MyCommand::message_add(self_name))
-      }
-      InteractSingleOption::Item(item) => (
-        format!("take {self_name}"),
-        MyCommand::multi([
-          MyCommand::despawn(self_entity),
-          MyCommand::message_add(format!("You got a {}", debugfmt(item))),
-          MyCommand::give_item_to_player(item)
-        ])
-      ),
-
-      InteractSingleOption::Trade {
-        inputs: (input_item, input_number),
-        outputs: (output_item, output_number)
-      } => (
-        "trade".to_string(),
-        if let Some(&n) = player_inventory.0.get(&input_item)
-          && n >= input_number
-        {
-          MyCommand::multi([
-            MyCommand::mutate_player_component(move |mut inventory: &mut Inventory| {
-              inventory.trade([(input_item, input_number)], [(output_item, output_number)]);
-            }),
-            MyCommand::message_add(format!(
-              "You traded {:?} {:?} for {:?} {:?}s",
-              input_number, input_item, output_number, output_item
-            ))
-          ])
-        } else {
-          MyCommand::message_add("You don't have enough items")
-        }
-      ),
-      InteractSingleOption::GATE(destination_pos) => (
-        "interact".to_string(),
-        MyCommand::update_player_component(move |transform| Transform {
-          translation: destination_pos,
-          ..transform
-        })
-      ),
-      InteractSingleOption::CONTAINER(items) => (
-        "take container".to_string(),
-        MyCommand::multi([
-          MyCommand::despawn(self_entity),
-          MyCommand::message_add("you got things"),
-          MyCommand::mutate_player_component(|mut inventory: &mut Inventory| {
-            inventory.add_contents(items);
-          })
-        ])
-      )
-    }
-  }
-}
-
-#[derive(Component, Clone)]
-enum Interact {
-  SingleOption(InteractSingleOption),
-  MultipleOptions(InteractMultipleOptions)
-}
-
-impl Interact {
-  fn dialogue_tree_default_state(tree: DialogueTree) -> Self {
-    let (node, _) = tree[0];
-    Self::MultipleOptions(InteractMultipleOptions::DialogueTree(tree, node))
-  }
-}
-const INTERACTION_RANGE: f32 = 8.0;
-fn interact(
-  mut playerq: Single<(Entity, &mut Transform, &Combat, &Inventory), With<Player>>,
-  mut interactable_q: Query<
-    (Entity, &Transform, &mut Interact, Option<&Name>),
-    Without<Player>
-  >,
-  gate_q: Query<(&GlobalTransform, &WarpGate)>,
-  mut c: Commands,
-  keys: Res<ButtonInput<KeyCode>>,
-  mut ui_data: ResMut<UIData>
-) {
-  // ui_data.interact_message = None;
-  let (player, player_transform, player_combat, player_inventory) = playerq.into_inner();
-  let player_pos = player_transform.translation;
-  let closest_interactable_thing = filter_least(
-    |tup| {
-      let dist = tup.1.translation.distance(player_pos);
-      (dist < INTERACTION_RANGE).then_some(dist as u32)
-    },
-    &mut interactable_q
-  );
-  if let Some((interact_entity, transform, mut interact, oname)) = closest_interactable_thing
-  {
-    match interact.as_mut() {
-      Interact::SingleOption(interact_single_option) => {
-        let (message, command) = interact_single_option.clone().interact(
-          interact_entity,
-          namefmt(oname),
-          player_inventory
-        );
-        // ui_data.interact_message = Some(format!("[SPACE: {message}]"));
-
-        INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
-        if keys.just_pressed(KeyCode::Space) {
-          c.queue(command);
-        }
-      }
-      Interact::MultipleOptions(interact_multiple_options) => {
-        let (msg, options) = interact_multiple_options.clone().interact();
-        INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
-          (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
-        ))));
-        let number_picked =
-          find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n), [
-            (0, KeyCode::Digit0),
-            (1u8, KeyCode::Digit1),
-            (2, KeyCode::Digit2),
-            (3, KeyCode::Digit3),
-            (4, KeyCode::Digit4),
-            (5, KeyCode::Digit5),
-            (6, KeyCode::Digit6),
-            (7, KeyCode::Digit7),
-            (8, KeyCode::Digit8),
-            (9, KeyCode::Digit9)
-          ]);
-        for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
-          if number_picked == Some(n as u8 + 1) {
-            c.queue(command);
-            *interact_multiple_options = new_interact.clone();
-          }
-        }
-      }
-    }
+    //     INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
+    //     if keys.just_pressed(KeyCode::Space) {
+    //       c.queue(command);
+    //     }
+    //   }
+    //   Interact::MultipleOptions(interact_multiple_options) => {
+    //     let (msg, options) = interact_multiple_options.clone().interact();
+    //     INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
+    //       (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
+    //     ))));
+    //     for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
+    //       if number_picked == Some(n as u8 + 1) {
+    //         c.queue(command);
+    //         *interact_multiple_options = new_interact.clone();
+    //       }
+    //     }
+    //   }
+    // }
   } else {
     INTERACT_MESSAGE.set(None);
   }
@@ -3866,8 +3623,7 @@ impl Object {
           Box::new(move |_m: &mut EntityCommands| {})
         }
         Self::SpaceObject { scale, can_move, visuals, name } => {
-          let collider = Collider::sphere(1.0 * scale); // Scale collider with object scale
-          // Delegate to Empty to insert the base components
+          let collider = Collider::sphere(1.0);
           Self::Empty.insert((
             SpaceObject { scale, ..default() },
             Name::new(name),
@@ -4222,7 +3978,7 @@ impl Object {
           Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name).insert(
             (
               Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }),
-              WarpGate // Marker component
+              WarpGate { name }
             )
           )
         }
@@ -4247,11 +4003,6 @@ fn random_zone_name() -> String {
   String::from_utf8((0..4).map(|_| rangerand(0.0, 30.0) as u8).collect()).unwrap()
   // (0..4).map(|_| random::<char>()).collect()
 }
-#[derive(Component, Clone)]
-#[require(WarpGate)]
-struct GatesConnected(Entity, Entity);
-#[derive(Component, Clone, Default)]
-struct WarpGate;
 fn asteroid_scale() -> f32 { rangerand(1.8, 5.3) }
 fn random_normalized_vector() -> Vec3 { random::<Quat>() * Vec3::X }
 fn prob(p: f32) -> bool { p > random::<f32>() }
@@ -4492,6 +4243,12 @@ pub fn main() {
       avian3d::PhysicsPlugins::default() // QuillPlugin,
                                          // QuillOverlaysPlugin,
     ))
+    .register_component_as::<dyn InteractableTrait, AsteroidMining>()
+    .register_component_as::<dyn InteractableTrait, Salvage>()
+    .register_component_as::<dyn InteractableTrait, DialogueTreeInteract>()
+    .register_component_as::<dyn InteractableTrait, WarpGate>()
+    .register_component_as::<dyn InteractableTrait, TradeInteract>()
+    .register_component_as::<dyn InteractableTrait, Container>()
     // .add_event::<GuiInputEvent>()
     .init_resource::<UIData>()
     .init_resource::<TimeTicks>()
