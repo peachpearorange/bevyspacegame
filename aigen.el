@@ -115,37 +115,37 @@ Writes the potentially cleaned RAW response from the AI directly to the file. Er
       (message "Sending request to GPTel for zone '%s' -> %s (const ZONE)..."
                zone-location-name relative-output-file)
       (gptel-request
-          full-prompt
-        :callback
-        ;; --- Simpler Callback - One Regex Attempt + Fallback ---
-        (lambda (response info)
-          (if (stringp response)
-              (progn ;; Main progn for 'if true'
-                (message "GPTel Raw Response (%s):\n---\n%s\n---" zone-location-name response)
-                (let* ((final-code (my/remove-first-and-last-line response)))
+       full-prompt
+       :callback
+       ;; --- Simpler Callback - One Regex Attempt + Fallback ---
+       (lambda (response info)
+         (if (stringp response)
+             (progn ;; Main progn for 'if true'
+               (message "GPTel Raw Response (%s):\n---\n%s\n---" zone-location-name response)
+               (let* ((final-code (my/remove-first-and-last-line response)))
 
-                  ;; Debug final code before writing
-                  (message "Final code to write:\n---\n%s\n---" final-code)
+                 ;; Debug final code before writing
+                 (message "Final code to write:\n---\n%s\n---" final-code)
 
-                  ;; --- Write the final cleaned code --- Using doom-file-write ---
-                  ;; Assumes directory already exists and doom-file-write is available.
-                  (message "DEBUG: Preparing to write final code using doom-file-write to: %s" relative-output-file)
-                  (condition-case err
-                      ;; Call the Doom function directly with the calculated path and final code string
-                      (doom-file-write (concat (dir!) relative-output-file)  final-code)
-                    ;; Catch standard file errors if doom-file-write signals them
-                    (file-error (message "ERROR during doom-file-write operation: %s" err)))
+                 ;; --- Write the final cleaned code --- Using doom-file-write ---
+                 ;; Assumes directory already exists and doom-file-write is available.
+                 (message "DEBUG: Preparing to write final code using doom-file-write to: %s" relative-output-file)
+                 (condition-case err
+                     ;; Call the Doom function directly with the calculated path and final code string
+                     (doom-file-write (concat (dir!) relative-output-file)  final-code)
+                   ;; Catch standard file errors if doom-file-write signals them
+                   (file-error (message "ERROR during doom-file-write operation: %s" err)))
 
-                  ;; Check file attributes AFTER write attempt
-                  (let ((file-size (nth 7 (file-attributes relative-output-file t))))
-                    (message "Processed GPTel response for '%s'. Attempted write via doom-file-write to %s (Reported Size: %s bytes)"
-                             zone-location-name relative-output-file (or file-size "N/A")))
+                 ;; Check file attributes AFTER write attempt
+                 (let ((file-size (nth 7 (file-attributes relative-output-file t))))
+                   (message "Processed GPTel response for '%s'. Attempted write via doom-file-write to %s (Reported Size: %s bytes)"
+                            zone-location-name relative-output-file (or file-size "N/A")))
 
-                  ))
-            ;; Handle non-string responses
-            (message "GPTel callback for '%s' received non-string response: %S (Info: %S)"
-                     zone-location-name response info)))
-        )
+                 ))
+           ;; Handle non-string responses
+           (message "GPTel callback for '%s' received non-string response: %S (Info: %S)"
+                    zone-location-name response info)))
+       )
       (message "Request initiated for zone '%s'. Waiting for GPTel response..." zone-location-name)
       )
     ))
@@ -205,3 +205,27 @@ Writes the potentially cleaned RAW response from the AI directly to the file. Er
 (my/generate-rust-zone
  "A research station studying a black hole(use the wormhole sprite), with scientists who are making concerning discoveries. Strange phenomena occur near the event horizon, and some researchers appear to be mentally affected by proximity to it."
  "black hole research station")
+
+(my/generate-rust-zone
+ "A dazzling belt of crystal asteroids refracts every nearby starlight beam. Shards drift like glassy snow crystal monsters patrol the larger chunks, jealously guarding luminous alien artifacts embedded in the rock. Hidden signal‑relay satellites record the strange photonic harmonics."
+ "crystal asteroid belt")
+
+(my/generate-rust-zone
+ "A cobalt nebula cloaks an arcane enclave where space wizards conduct experiments. Floating spell circles, crystalline bookshelves, and a grand wizard spaceship hover near a lone signal beacon inscribed with runes."
+ "wizard’s nebula enclave")
+
+(my/generate-rust-zone
+ "Colossal icebergs drift through vacuum, rigged with plasma sails and populated by waddling space‑penguins. Listening posts dot the bergs’ surfaces, monitoring creaking ice while trade sleds ferry fishy cargo between frozen towers."
+ "penguin iceberg convoy")
+
+(my/generate-rust-zone
+ "A micro‑cluster of breathable cloudlets bursts with bioluminescent mushrooms. Nomadic mushroom‑folk barter spores for stories, while wizard‑like drones harvest rare mycelium for distant alchemists."
+ "mushroom cloudlet field")
+
+(my/generate-rust-zone
+ "A tangle of drifting arboreal platforms linked by thick vine‑cables. Treemonsters guard photosynthetic farms; visitors must appease them with water shipments delivered via sleek white exploration ships."
+ "treemonster grove in the void")
+
+(my/generate-rust-zone
+ "Caravans of ramshackle hover‑cars dock at a half‑ruined station lit only by blazing torches. A charismatic spaceman recounts legends of a hidden sun‑forged coin vault somewhere in the maintenance tunnels."
+ "torchlit caravan station")

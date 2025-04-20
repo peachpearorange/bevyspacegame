@@ -2856,6 +2856,7 @@ struct InteractMessage(String);
 #[bevy_trait_query::queryable]
 pub trait InteractableTrait: Send + Sync + 'static {
   fn interact(&self, world: &World, self_entity: Entity) -> InteractionOutput;
+  // fn display(&self, world: &World, self_entity: Entity) -> String;
   // fn play(&self, entity: Entity) -> (String, InteractionOutput);
 }
 // pub trait InteractableTrait: Send + Sync + 'static + Component {
@@ -4392,3 +4393,75 @@ comment! {
     }
   }
 }
+
+
+// Your space game looks impressive! Here are some suggestions for improvements and new features:
+
+// ## Improvements
+
+// 1. **Physics & Movement**
+//    - Implement configurable thruster effects (visual particles when accelerating)
+//    - Add momentum-based drifting for more realistic space movement
+//    - Create ship-specific handling characteristics (some nimble, some heavy)
+
+// 2. **Combat System**
+//    - Add shield visualization when shields are active
+//    - Implement weapon cooldowns with visual indicators
+//    - Create different weapon types with unique effects (EMP, homing missiles, etc.)
+//    - Add critical hit mechanics for more tactical combat
+
+// 3. **Zone Exploration**
+//    - Create reputation system with the various factions
+//    - Add a mini-map or radar system to better visualize nearby objects
+//    - Implement procedural generation for asteroid fields or debris
+
+// 4. **UI & Feedback**
+//    - Add sound effects for interactions, weapons, engines
+//    - Visual damage indication on ships (smoke, fire effects based on HP)
+//    - Add a proper tutorial section explaining the controls
+
+// ## New Features
+
+// 1. **Black Hole Research Expansion**
+//    - Time dilation mini-game where player must complete tasks with distorted time
+//    - Research missions collecting data from specific locations around the black hole
+//    - "Echoes" from another universe that provide cryptic clues or technology
+//    - Escaping researcher rescue missions
+//    - Temporal anomaly zones where physics behave differently
+
+// 2. **Space Economy System**
+//    - Supply and demand fluctuations between stations
+//    - Resource mining and refining chain
+//    - Cargo capacity limitations based on ship type
+//    - Market price changes based on player actions
+
+// 3. **Ship Customization**
+//    - Allow players to upgrade ships with parts found during exploration
+//    - Customize appearance with paint jobs or decals
+//    - Install specialized equipment for different playstyles (research, combat, trading)
+
+// 4. **NPC Relationships**
+//    - Develop a proper dialogue tree relationship system with faction representatives
+//    - Allow hiring NPCs as crew members with special abilities
+//    - Create rivalries with specific NPC characters who remember interactions
+
+// 5. **Environmental Hazards**
+//    - Solar flares that disable shields temporarily
+//    - Radiation zones requiring special equipment
+//    - Asteroid storms that require skillful navigation
+//    - Unstable wormholes that appear randomly and lead to secret areas
+
+// 6. **Mysteries and Secrets**
+//    - Hidden areas accessible only through specific clues
+//    - Ancient alien artifacts with mysterious powers
+//    - Document the missing researchers' fate through scattered logs
+//    - Create a main story arc related to the black hole's true nature
+
+// 7. **Multiplayer Components**
+//    - Allow cooperative exploration
+//    - Shared economy or trading between players
+//    - Fleet combat scenarios
+
+// The Black Hole Research Station has tremendous potential for story development. You could expand on the mysterious disappearances, the temporal anomalies, and the strange messages from "the other side" of the black hole. Perhaps there's an alien intelligence using the black hole as a communication method, or researchers from the future trying to send warnings back.
+
+// Would you like me to elaborate on any of these suggestions in more detail?
