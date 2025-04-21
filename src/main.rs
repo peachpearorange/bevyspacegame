@@ -30,7 +30,8 @@ use {aigen::*,
             ecs::{query, query::QueryData},
             render::render_resource::{Extent3d, TextureViewDescriptor}},
      bevy_sprite3d::Sprite3dParams,
-     bevy_trait_query::RegisterExt};
+     bevy_trait_query::RegisterExt,
+     rust_utils::mapv};
 use {avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
@@ -361,7 +362,7 @@ impl GenMesh {
 }
 const min: fn(f32, f32) -> f32 = f32::min;
 
-#[derive(Component, Clone, PartialEq, Eq)]
+#[derive(Component, Clone, PartialEq, Eq, Default)]
 pub struct TextDisplay(pub String);
 
 impl<T: ToString> From<T> for TextDisplay {
@@ -2848,41 +2849,150 @@ comment! {
 
 const INTERACTION_RANGE: f32 = 8.0;
 
-/// Resource to hold the current interact message
-struct InteractMessage(String);
-
-/// Builder for labelled options and their commands
-
-#[bevy_trait_query::queryable]
-pub trait InteractableTrait: Send + Sync + 'static {
-  fn interact(&self, world: &World, self_entity: Entity) -> InteractionOutput;
-  // fn display(&self, world: &World, self_entity: Entity) -> String;
-  // fn play(&self, entity: Entity) -> (String, InteractionOutput);
-}
-// pub trait InteractableTrait: Send + Sync + 'static + Component {
-//   fn interact(input: InteractionInput) -> InteractionOutput;
-//   // fn play(&self, entity: Entity) -> (String, InteractionOutput);
-// }
 #[derive(Component)]
 struct Salvage {
   loot: u8
 }
-impl InteractableTrait for Salvage {
-  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct InteractImpl(pub fn(&World, Entity) -> InteractionOutput);
+impl InteractImpl {
+  const SALVAGE: InteractImpl = InteractImpl(|w, e| {
+    let &Salvage { loot } = w.get::<Salvage>(e).unwrap();
     InteractionOutput::new()
       .msg("Salvage wreck")
       .add("leave", CMD::message_add("You leave"))
-      .add_if(self.loot > 0, "take loot", [
+      .add_if(loot > 0, "take loot", [
         CMD::message_add("Looted"),
         CMD::give_item_to_player(Item::SPACECOIN),
-        CMD::mutate_component::<Salvage>(self_entity, |mut s| s.loot -= 1)
+        CMD::mutate_component::<Salvage>(e, |mut s| s.loot -= 1)
       ])
-  }
-}
-#[derive(Component)]
-struct MiniGame(Box<dyn InteractableTrait>);
-impl MiniGame {
-  fn new(game: impl InteractableTrait + 'static) -> Self { Self(Box::new(game)) }
+  });
+  const DIALOGUE_TREE: InteractImpl = InteractImpl(|w, e| {
+    let dialogue = w.get::<DialogueTreeInteract>(e).unwrap();
+    let node_opts = dialogue
+      .tree
+      .iter()
+      .find(|&&(id, _)| id == dialogue.current)
+      .map(|&(_, opts)| opts)
+      .unwrap();
+
+    node_opts.iter().fold(
+      InteractionOutput::new().msg(node_opts[0].2),
+      |out, &(next, player_line, npc_line, effect)| {
+        let cmd = MyCommand::from(match effect {
+          Some(eff) => vec![
+            CMD::message_add(npc_line),
+            CMD::mutate_component::<DialogueTreeInteract>(e, move |c| c.current = next),
+            eff(),
+          ],
+          None => vec![
+            CMD::message_add(npc_line),
+            CMD::mutate_component::<DialogueTreeInteract>(e, move |c| c.current = next),
+          ]
+        });
+        out.add(player_line, cmd)
+      }
+    )
+  });
+  const HP_BOX: InteractImpl = InteractImpl(|w, e| {
+    InteractionOutput::new().msg("Health Box").add("Use health box", [
+      CMD::message_add("Health restored"),
+      CMD::mutate_player_component::<Combat>(|c| c.hp += 20),
+      CMD::despawn_entity(e)
+    ])
+  });
+  const DESCRIBE: InteractImpl = InteractImpl(|w, e| {
+    let display_name = namefmt(w.get::<Name>(e));
+    let display_text = w.get::<TextDisplay>(e).cloned().unwrap_or_default().0;
+    InteractionOutput::new().msg(format!("{display_name}: {display_text}"))
+  });
+  // const ITEM_PICKUP: InteractImpl = InteractImpl(|w, e| {
+  //   let container = w.get::<Container>(e).unwrap();
+
+  //   InteractionOutput::new()
+  //     .msg(format!("You found: {}", container.label))
+  //     .add("Take item", [
+  //       CMD::give_item_to_player(container.item.clone()),
+  //       CMD::message_add(format!("You picked up {}", container.label)),
+  //       CMD::despawn_entity(e)
+  //     ])
+  //     .add("Leave it", CMD::none())
+  // });
+  const TRADE: InteractImpl = InteractImpl(|w, e| {
+    let trade = w.get::<TradeInteract>(e).unwrap();
+    let inputs = trade.inputs.clone();
+    let outputs = trade.outputs.clone();
+
+    InteractionOutput::new().msg("Trade terminal").add("trade", [
+      CMD::mutate_player_component::<Inventory>(move |inv| {
+        inv.trade([inputs.clone()], [outputs.clone()])
+      }),
+      CMD::message_add("Trade executed")
+    ])
+  });
+  const CONTAINER: InteractImpl = InteractImpl(|w, e| {
+    let container = w.get::<Container>(e).unwrap();
+    let oname = w.get::<Name>(e);
+    let display_name = namefmt(oname);
+    let loot = container.0.clone();
+
+    InteractionOutput::new().msg(display_name.clone()).add("take", [
+      CMD::despawn_entity(e),
+      CMD::mutate_player_component::<Inventory>(move |inv| inv.add_contents(loot.clone())),
+      CMD::message_add(format!("{} looted", display_name))
+    ])
+  });
+
+  // --- ASTEROID MINING ---
+  const ASTEROID_MINING: InteractImpl = InteractImpl(|w, e| {
+    let mining = w.get::<AsteroidMining>(e).unwrap();
+    let can_mine = mining.resources > 0 && mining.durability > 0;
+
+    InteractionOutput::new()
+      .msg(format!("Mining asteroid: {} res, {} dur", mining.resources, mining.durability))
+      .add_if(can_mine, "mine safe", [
+        CMD::message_add("Safe mine"),
+        CMD::give_item_to_player(Item::SPACEMINERALS),
+        CMD::mutate_component::<AsteroidMining>(e, |mut a| a.resources -= 1)
+      ])
+      .add_if(can_mine, "mine hard", [
+        CMD::message_add("Hard mine"),
+        CMD::give_item_to_player(Item::SPACEMINERALS),
+        CMD::give_item_to_player(Item::SPACEMINERALS),
+        CMD::mutate_component::<AsteroidMining>(e, |a| {
+          a.resources -= 1;
+          a.durability -= 1;
+        })
+      ])
+      .add("leave", CMD::none())
+  });
+
+  // --- WARP GATE ---
+  const WARP_GATE: InteractImpl = InteractImpl(|w, e| {
+    let player_pos = w.get_player_pos().unwrap();
+    let mut gates: Vec<(&WarpGate, Vec3)> = w
+      .iter_entities()
+      .filter_map(|er| {
+        er.get_components::<(&WarpGate, &Transform)>().map(|(wg, tr)| (wg, tr.translation))
+      })
+      .collect();
+
+    gates.sort_by(|a, b| {
+      a.1.distance(player_pos).partial_cmp(&b.1.distance(player_pos)).unwrap()
+    });
+    gates.truncate(4);
+
+    gates
+      .into_iter()
+      .fold(InteractionOutput::new().msg("Select warp gate:"), |out, (gate, pos)| {
+        out.add(gate.name, [
+          CMD::message_add(format!("Warping to {}", gate.name)),
+          CMD::mutate_player_component::<Transform>(move |t| t.translation = pos)
+        ])
+      })
+      .add("leave", CMD::none())
+  });
 }
 
 type DialogueEffect = fn() -> MyCommand;
@@ -2907,78 +3017,27 @@ impl DialogueTreeInteract {
   }
 }
 
-impl InteractableTrait for DialogueTreeInteract {
-  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
-    let node_opts =
-      self.tree.iter().find(|&&(id, _)| id == self.current).map(|&(_, opts)| opts).unwrap();
-
-    node_opts.iter().fold(
-      InteractionOutput::new().msg(node_opts[0].2),
-      |out, &(next, player_line, npc_line, effect)| {
-        let cmd = MyCommand::from(match effect {
-          Some(eff) => vec![
-            CMD::message_add(npc_line),
-            CMD::mutate_component::<DialogueTreeInteract>(self_entity, move |c| {
-              c.current = next
-            }),
-            eff(),
-          ],
-          None => vec![
-            CMD::message_add(npc_line),
-            CMD::mutate_component::<DialogueTreeInteract>(self_entity, move |c| {
-              c.current = next;
-            }),
-          ]
-        });
-        out.add(player_line, cmd)
-      }
-    )
-  }
-}
 struct HPBoxInteract {
   heal: u32
 }
 struct DescribeInteract {
   description: String
 }
-struct ItemInteract {
-  item: Item,
-  label: String
-}
+// #[derive(Component)]
+// struct Loot {
+//   item: Item,
+//   label: String
+// }
 
 // --- Trade ---
 #[derive(Component)]
 pub struct TradeInteract {
-  pub inputs: Vec<(Item, u32)>,
-  pub outputs: Vec<(Item, u32)>
+  pub inputs: (Item, u32),
+  pub outputs: (Item, u32)
 }
 
-impl InteractableTrait for TradeInteract {
-  fn interact(&self, _world: &World, _self_entity: Entity) -> InteractionOutput {
-    InteractionOutput::new().msg("Trade terminal").add("trade", [
-      CMD::mutate_player_component::<Inventory>({
-        let inputs = self.inputs.clone();
-        let outputs = self.outputs.clone();
-        move |inv| inv.trade(inputs, outputs)
-      }),
-      CMD::message_add("Trade executed")
-    ])
-  }
-}
 #[derive(Component)]
 pub struct Container(Vec<(Item, u32)>);
-impl InteractableTrait for Container {
-  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
-    InteractionOutput::new().msg("Cargo container").add("loot container", [
-      CMD::despawn_entity(self_entity),
-      CMD::mutate_player_component::<Inventory>({
-        let loot = self.0.clone();
-        move |inv| inv.add_contents(loot)
-      }),
-      CMD::message_add("Container looted")
-    ])
-  }
-}
 
 // --- Asteroid Mining ---
 #[derive(Component)]
@@ -2987,64 +3046,16 @@ pub struct AsteroidMining {
   pub durability: u8
 }
 
-impl InteractableTrait for AsteroidMining {
-  fn interact(&self, _world: &World, self_entity: Entity) -> InteractionOutput {
-    let can_mine = self.resources > 0 && self.durability > 0;
-    InteractionOutput::new()
-      .msg(format!("Mining asteroid: {} res, {} dur", self.resources, self.durability))
-      .add_if(can_mine, "mine safe", [
-        CMD::message_add("Safe mine"),
-        CMD::give_item_to_player(Item::SPACEMINERALS),
-        CMD::mutate_component::<AsteroidMining>(self_entity, |mut a| a.resources -= 1)
-      ])
-      .add_if(can_mine, "mine hard", [
-        CMD::message_add("Hard mine"),
-        CMD::give_item_to_player(Item::SPACEMINERALS),
-        CMD::give_item_to_player(Item::SPACEMINERALS),
-        CMD::mutate_component::<AsteroidMining>(self_entity, |a| {
-          a.resources -= 1;
-          a.durability -= 1;
-        })
-      ])
-      .add("leave", CMD::none())
-  }
-}
-
 #[derive(Component)]
 pub struct WarpGate {
   pub name: &'static str
 }
 
-impl InteractableTrait for WarpGate {
-  fn interact(&self, world: &World, _self_entity: Entity) -> InteractionOutput {
-    let player_pos = world.get_player_pos().unwrap();
-    let mut gates: Vec<(&WarpGate, Vec3)> = world
-      .iter_entities()
-      .filter_map(|er: EntityRef<'_>| {
-        er.get_components::<(&WarpGate, &Transform)>().map(|(wg, tr)| (wg, tr.translation))
-      })
-      .collect();
-    gates.sort_by(|a, b| {
-      a.1.distance(player_pos).partial_cmp(&b.1.distance(player_pos)).unwrap()
-    });
-    gates.truncate(4);
-
-    gates
-      .into_iter()
-      .fold(InteractionOutput::new().msg("Select warp gate:"), |out, (gate, pos)| {
-        out.add(gate.name, [
-          CMD::message_add(format!("Warping to {}", gate.name)),
-          CMD::mutate_player_component::<Transform>(move |t| t.translation = pos)
-        ])
-      })
-      .add("leave", CMD::none())
-  }
-}
 fn interact(
   world: &World,
   mut playerq: Single<(Entity, &Transform), With<Player>>,
   mut interactable_q: Query<
-    (Entity, &Transform, bevy_trait_query::One<&dyn InteractableTrait>, Option<&Name>),
+    (Entity, &Transform, &InteractImpl, Option<&Name>),
     Without<Player>
   >,
   mut c: Commands,
@@ -3059,10 +3070,18 @@ fn interact(
     },
     &interactable_q
   );
-  if let Some((interact_entity, transform, interact, oname)) = closest_interactable_thing {
-    let number_picked =
+
+  if let Some((interact_entity, transform, interact_impl, oname)) =
+    closest_interactable_thing
+  {
+    let InteractionOutput { mut choices, msg } = (interact_impl.0)(world, interact_entity);
+
+    let single_choice = choices.len() == 1;
+    let number_picked = if single_choice && keys.just_pressed(KeyCode::Space) {
+      Some(1)
+    } else {
       find_map(|(n, key): (u8, KeyCode)| keys.just_pressed(key).then_some(n), [
-        (0, KeyCode::Digit0),
+        // (0, KeyCode::Digit0),
         (1u8, KeyCode::Digit1),
         (2, KeyCode::Digit2),
         (3, KeyCode::Digit3),
@@ -3072,40 +3091,22 @@ fn interact(
         (7, KeyCode::Digit7),
         (8, KeyCode::Digit8),
         (9, KeyCode::Digit9)
-      ]);
-    let InteractionOutput { choices, msg } = interact.interact(world, interact_entity);
+      ])
+    };
+    let choices_list = if single_choice {
+      vec![format!("SPACE: {}", choices[0].0)]
+    } else {
+      mapv(|(i, (s, cmd))| format!("{}: {}", i + 1, s), choices.iter().enumerate())
+    };
     INTERACT_MESSAGE.set(Some(intersperse_newline(
-      [namefmt(oname), msg, default()]
-        .into_iter()
-        .chain(choices.iter().enumerate().map(|(n, (s, cmd))| format!("{n}: {s}")))
+      [namefmt(oname), msg, default()].into_iter().chain(choices_list)
     )));
-    // match interact.as_mut() {
-    //   Interact::SingleOption(interact_single_option) => {
-    //     let (message, command) = interact_single_option.clone().interact(
-    //       interact_entity,
-    //       namefmt(oname),
-    //       player_inventory
-    //     );
-    //     // ui_data.interact_message = Some(format!("[SPACE: {message}]"));
-
-    //     INTERACT_MESSAGE.set(Some(format!("[SPACE: {message}]")));
-    //     if keys.just_pressed(KeyCode::Space) {
-    //       c.queue(command);
-    //     }
-    //   }
-    //   Interact::MultipleOptions(interact_multiple_options) => {
-    //     let (msg, options) = interact_multiple_options.clone().interact();
-    //     INTERACT_MESSAGE.set(Some(intersperse_newline([msg, default()].into_iter().chain(
-    //       (&options).into_iter().enumerate().map(|(n, tup)| format!("{}: {}", n + 1, tup.0))
-    //     ))));
-    //     for (n, (string, command, new_interact)) in options.into_iter().enumerate() {
-    //       if number_picked == Some(n as u8 + 1) {
-    //         c.queue(command);
-    //         *interact_multiple_options = new_interact.clone();
-    //       }
-    //     }
-    //   }
-    // }
+    if let Some(n) = number_picked {
+      let index = n - 1;
+      if index < choices.len() as u8 {
+        c.queue(choices.remove(index as usize).1);
+      }
+    }
   } else {
     INTERACT_MESSAGE.set(None);
   }
@@ -3456,6 +3457,13 @@ enum Object {
     can_move: bool,
     visuals: Visuals
   },
+  InteractableObject {
+    name: &'static str,
+    scale: f32,
+    can_move: bool,
+    visuals: Visuals,
+    interact: InteractImpl
+  },
   NPC {
     name: &'static str,
     hp: u32,
@@ -3657,10 +3665,11 @@ impl Object {
         Self::TalkingPerson { name, sprite, dialogue_tree } => {
           // Construct the base SpaceObject, then delegate
           Self::space_object(1.7, true, Visuals::sprite(sprite), name).insert((
-            Interact::dialogue_tree_default_state(dialogue_tree),
-            // Maybe add NPC components too if they can move/interact beyond talking?
-            // Navigation::speed(NORMAL_NPC_SPEED * 0.5), // Example: slow speed
-            // NPC { faction: Faction::TRADERS, ..default() }, // Example faction
+            DialogueTreeInteract::new(dialogue_tree),
+            InteractImpl::DIALOGUE_TREE // Interact::dialogue_tree_default_state(dialogue_tree),
+                                        // Maybe add NPC components too if they can move/interact beyond talking?
+                                        // Navigation::speed(NORMAL_NPC_SPEED * 0.5), // Example: slow speed
+                                        // NPC { faction: Faction::TRADERS, ..default() }, // Example faction
           ))
         }
         Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => {
@@ -3679,8 +3688,18 @@ impl Object {
         }
         Self::LootObject { sprite, scale, name, item_type } => {
           Self::space_object(scale, true, Visuals::sprite(sprite), name)
-            .insert((Interact::SingleOption(InteractSingleOption::Item(item_type)),))
+            .insert((Container(vec![(item_type, 1)]), InteractImpl::CONTAINER))
         }
+        Self::TreasureContainer => Self::space_object(
+          2.1,
+          true,
+          Visuals::sprite(MySprite::GPT4O_CONTAINER),
+          "container"
+        )
+        .insert((
+          InteractImpl::CONTAINER,
+          Container(vec![(Item::SPACECOIN, 4), (Item::COFFEE, 1)])
+        )),
         Self::Explorer => Self::NPC {
           name: "explorer",
           hp: 50,
@@ -3753,26 +3772,25 @@ impl Object {
           sprite: MySprite::MUSHROOMMAN
         }
         .insert(()),
-        Self::SpaceCowboy => Self::space_object(
-          NORMAL_NPC_SCALE,
-          true, // Can move
-          Visuals::sprite(MySprite::SPACECOWBOY),
-          "space cowboy"
-        )
-        .insert((Interact::dialogue_tree_default_state(SPACE_COWBOY_DIALOGUE),)),
+        Self::SpaceCowboy => Self::TalkingPerson {
+          name: "space cowboy",
+          sprite: MySprite::SPACECOWBOY,
+          dialogue_tree: SPACE_COWBOY_DIALOGUE
+        }
+        .insert(()),
         Self::Sign { text } => Self::space_object(
           1.5,
           false, // Static
-          Visuals::sprite(MySprite::SIGN),
-          "sign" // Name could include text? Name::new(format!("sign: {}", text))
+          Visuals::sprite(MySprite::GPT4O_SIGN),
+          "sign"
         )
-        .insert((
-          Interact::SingleOption(InteractSingleOption::Describe),
-          TextDisplay(text.to_string())
-        )),
+        .insert((InteractImpl::DESCRIBE, TextDisplay(text.to_string()))),
+        Self::InteractableObject { name, scale, can_move, visuals, interact } => {
+          Self::space_object(scale, can_move, visuals, name).insert(interact)
+        }
         Self::Wormhole => {
           Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE), "wormhole")
-            .insert((Interact::SingleOption(InteractSingleOption::Describe),)) // Should probably do something! Maybe WarpGate interaction?
+            .insert((InteractImpl::DESCRIBE, TextDisplay("this is a wormhole".to_string())))
         }
         Self::Asteroid => Self::space_object(
           asteroid_scale(),
@@ -3781,10 +3799,8 @@ impl Object {
           "Asteroid"
         )
         .insert((
-          Interact::MultipleOptions(InteractMultipleOptions::AsteroidMiningMiniGame {
-            resources_left: 5,  // Should probably be randomized
-            tool_durability: 5  // Should this be on player?
-          }),
+          InteractImpl::ASTEROID_MINING,
+          AsteroidMining { resources: 5, durability: 5 },
           CanBeFollowedByNPC // Why would NPCs follow an asteroid? Maybe for mining?
         )),
         Self::SpaceCat => {
@@ -3830,46 +3846,31 @@ impl Object {
           "lesser crystal monster"
         )
         .insert((
-          Interact::SingleOption(InteractSingleOption::Describe),
-          // Maybe add Combat { hp: 50, is_hostile: false } ?
-          // Or maybe it becomes hostile if attacked? Requires more complex state.
+          InteractImpl::DESCRIBE,
+          TextDisplay("it's a lesser crystal monster".to_string())
         )),
         Self::HpBox => {
           Self::space_object(0.9, true, Visuals::sprite(MySprite::HPBOX), "hp box")
-            .insert((Interact::SingleOption(InteractSingleOption::HPBOX),))
+            .insert(InteractImpl::HP_BOX)
         }
-        Self::TreasureContainer => {
-          Self::space_object(2.1, true, Visuals::sprite(MySprite::CONTAINER), "container")
-            .insert((Interact::SingleOption(InteractSingleOption::CONTAINER(vec![
-              (Item::SPACECOIN, 4),
-              (Item::COFFEE, 1),
-            ])),))
-        } // Note the extra comma for the tuple bundle
-        Self::SphericalCow => Self::space_object(
-          1.7,
-          true,
-          Visuals::sprite(MySprite::GPT4O_SPHERICAL_COW),
-          "spherical cow"
-        )
-        .insert((Interact::dialogue_tree_default_state(SPHERICAL_SPACE_COW_DIALOGUE),)),
+        Self::SphericalCow => Self::TalkingPerson {
+          name: "spherical cow",
+          sprite: MySprite::GPT4O_SPHERICAL_COW,
+          dialogue_tree: SPHERICAL_SPACE_COW_DIALOGUE
+        }
+        .insert(()),
         Self::TradeStation => {
           let (trade_interaction, text) = if prob(0.5) {
             let &trade_buy =
               pick(&[Item::DIHYDROGENMONOXIDE, Item::CRYSTAL, Item::SPACECAT]).unwrap();
             (
-              Interact::SingleOption(InteractSingleOption::Trade {
-                inputs: (trade_buy, 1),        // Station buys 1 unit
-                outputs: (Item::SPACECOIN, 5)  // Station pays 5 coins
-              }),
+              TradeInteract { inputs: (trade_buy, 1), outputs: (Item::SPACECOIN, 5) },
               format!("space station\nbuys {:?}", trade_buy)
             )
           } else {
             let &trade_sell = pick(&[Item::SPICE, Item::COFFEE, Item::ROCK]).unwrap();
             (
-              Interact::SingleOption(InteractSingleOption::Trade {
-                inputs: (Item::SPACECOIN, 5), // Player pays 5 coins
-                outputs: (trade_sell, 1)      // Player gets 1 unit
-              }),
+              TradeInteract { inputs: (Item::SPACECOIN, 5), outputs: (trade_sell, 1) },
               format!("space station\nsells {:?}", trade_sell)
             )
           };
@@ -3880,20 +3881,22 @@ impl Object {
             "space station"
           )
           .insert((
+            InteractImpl::TRADE,
             CanBeFollowedByNPC, // NPCs can dock/interact?
             trade_interaction,
             TextDisplay::from(text)
           ))
         }
-        Self::FloatingIsland => {
-          Self::space_object(
-            3.4,
-            false, // Static
-            Visuals::sprite(MySprite::FLOATINGISLAND),
-            "floating island"
-          )
-          .insert((Interact::SingleOption(InteractSingleOption::Describe),))
-        }
+        Self::FloatingIsland => Self::space_object(
+          3.4,
+          false, // Static
+          Visuals::sprite(MySprite::FLOATINGISLAND),
+          "floating island"
+        )
+        .insert((
+          InteractImpl::DESCRIBE,
+          TextDisplay("it's a floating island in space".to_string())
+        )),
         Self::Sun => {
           Self::space_object(
             300.0,
@@ -3922,9 +3925,7 @@ impl Object {
             Visuals::sprite(MySprite::SPACESHIPABANDONED),
             "abandoned ship"
           )
-          .insert((Interact::MultipleOptions(InteractMultipleOptions::Salvage {
-            how_much_loot: 3
-          }),))
+          .insert((InteractImpl::SALVAGE, Salvage { loot: 5 }))
         }
         Self::Player => Self::space_object(
           PLAYER_SCALE,
@@ -3953,8 +3954,9 @@ impl Object {
           "space pirate base"
         )
         .insert((
-          Combat { hp: 120, is_hostile: false, ..default() }, // Base might be non-hostile until attacked?
-          Interact::SingleOption(InteractSingleOption::Describe)  // Can interact? Raid?
+          Combat { hp: 120, is_hostile: false, ..default() },
+          InteractImpl::DESCRIBE,
+          TextDisplay("it's a space pirate base".to_string())
         )),
         Self::SpaceStation => Self::space_object(
           4.0,
@@ -3964,7 +3966,8 @@ impl Object {
         )
         .insert((
           Combat { hp: 120, is_hostile: false, ..default() }, // Non-hostile
-          Interact::SingleOption(InteractSingleOption::Describe) // Should have Trade interaction? Maybe merge with TradeStation?
+          InteractImpl::DESCRIBE,
+          TextDisplay("it's a space station".to_string())
         )),
         Self::Nomad => Self::npc(
           NORMAL_NPC_SCALE,
@@ -3974,14 +3977,10 @@ impl Object {
           35,
           MySprite::GPT4O_GREEN_CAR_SHIP
         )
-        .insert(()), // npc constructor adds necessary components
+        .insert(()),
         Self::WarpGate { name } => {
-          Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name).insert(
-            (
-              Interact::MultipleOptions(InteractMultipleOptions::WarpGate { name }),
-              WarpGate { name }
-            )
-          )
+          Self::space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name)
+            .insert((InteractImpl::WARP_GATE, WarpGate { name }))
         }
       })(m); // Execute the returned closure
     })
@@ -4072,10 +4071,10 @@ pub fn setup(
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut c: Commands
 ) {
-  let sun_pos = Vec3::ZERO;
-  Object::Player.spawn_at(&mut c, Vec3::Y * 1000.0);
-  Object::Sun.spawn_at(&mut c, sun_pos);
-  for (pos, zone) in aigen::ZONES {
+  // let sun_pos = Vec3::ZERO;
+  // Object::Player.spawn_at(&mut c, Vec3::Y * 1000.0);
+  // Object::Sun.spawn_at(&mut c, sun_pos);
+  for (pos, zone) in aigen::solar_system::ZONES {
     zone.spawn_at(&mut c, Vec3::from_array(*pos));
   }
 
@@ -4127,7 +4126,7 @@ pub fn setup(
       // orbit_sensitivity: todo!(),
       orbit_smoothness: 0.0,
       pan_sensitivity: 0.0,
-      pan_smoothness: 0.85,
+      pan_smoothness: 0.7,
       zoom_sensitivity: 2.5,
       // zoom_smoothness: todo!(),
       // button_orbit: todo!(),
@@ -4244,12 +4243,12 @@ pub fn main() {
       avian3d::PhysicsPlugins::default() // QuillPlugin,
                                          // QuillOverlaysPlugin,
     ))
-    .register_component_as::<dyn InteractableTrait, AsteroidMining>()
-    .register_component_as::<dyn InteractableTrait, Salvage>()
-    .register_component_as::<dyn InteractableTrait, DialogueTreeInteract>()
-    .register_component_as::<dyn InteractableTrait, WarpGate>()
-    .register_component_as::<dyn InteractableTrait, TradeInteract>()
-    .register_component_as::<dyn InteractableTrait, Container>()
+    // .register_component_as::<dyn InteractableTrait, AsteroidMining>()
+    // .register_component_as::<dyn InteractableTrait, Salvage>()
+    // .register_component_as::<dyn InteractableTrait, DialogueTreeInteract>()
+    // .register_component_as::<dyn InteractableTrait, WarpGate>()
+    // .register_component_as::<dyn InteractableTrait, TradeInteract>()
+    // .register_component_as::<dyn InteractableTrait, Container>()
     // .add_event::<GuiInputEvent>()
     .init_resource::<UIData>()
     .init_resource::<TimeTicks>()
@@ -4393,75 +4392,3 @@ comment! {
     }
   }
 }
-
-
-// Your space game looks impressive! Here are some suggestions for improvements and new features:
-
-// ## Improvements
-
-// 1. **Physics & Movement**
-//    - Implement configurable thruster effects (visual particles when accelerating)
-//    - Add momentum-based drifting for more realistic space movement
-//    - Create ship-specific handling characteristics (some nimble, some heavy)
-
-// 2. **Combat System**
-//    - Add shield visualization when shields are active
-//    - Implement weapon cooldowns with visual indicators
-//    - Create different weapon types with unique effects (EMP, homing missiles, etc.)
-//    - Add critical hit mechanics for more tactical combat
-
-// 3. **Zone Exploration**
-//    - Create reputation system with the various factions
-//    - Add a mini-map or radar system to better visualize nearby objects
-//    - Implement procedural generation for asteroid fields or debris
-
-// 4. **UI & Feedback**
-//    - Add sound effects for interactions, weapons, engines
-//    - Visual damage indication on ships (smoke, fire effects based on HP)
-//    - Add a proper tutorial section explaining the controls
-
-// ## New Features
-
-// 1. **Black Hole Research Expansion**
-//    - Time dilation mini-game where player must complete tasks with distorted time
-//    - Research missions collecting data from specific locations around the black hole
-//    - "Echoes" from another universe that provide cryptic clues or technology
-//    - Escaping researcher rescue missions
-//    - Temporal anomaly zones where physics behave differently
-
-// 2. **Space Economy System**
-//    - Supply and demand fluctuations between stations
-//    - Resource mining and refining chain
-//    - Cargo capacity limitations based on ship type
-//    - Market price changes based on player actions
-
-// 3. **Ship Customization**
-//    - Allow players to upgrade ships with parts found during exploration
-//    - Customize appearance with paint jobs or decals
-//    - Install specialized equipment for different playstyles (research, combat, trading)
-
-// 4. **NPC Relationships**
-//    - Develop a proper dialogue tree relationship system with faction representatives
-//    - Allow hiring NPCs as crew members with special abilities
-//    - Create rivalries with specific NPC characters who remember interactions
-
-// 5. **Environmental Hazards**
-//    - Solar flares that disable shields temporarily
-//    - Radiation zones requiring special equipment
-//    - Asteroid storms that require skillful navigation
-//    - Unstable wormholes that appear randomly and lead to secret areas
-
-// 6. **Mysteries and Secrets**
-//    - Hidden areas accessible only through specific clues
-//    - Ancient alien artifacts with mysterious powers
-//    - Document the missing researchers' fate through scattered logs
-//    - Create a main story arc related to the black hole's true nature
-
-// 7. **Multiplayer Components**
-//    - Allow cooperative exploration
-//    - Shared economy or trading between players
-//    - Fleet combat scenarios
-
-// The Black Hole Research Station has tremendous potential for story development. You could expand on the mysterious disappearances, the temporal anomalies, and the strange messages from "the other side" of the black hole. Perhaps there's an alien intelligence using the black hole as a communication method, or researchers from the future trying to send warnings back.
-
-// Would you like me to elaborate on any of these suggestions in more detail?
