@@ -1210,6 +1210,7 @@ fn player_target_interaction(
 ) {
   let shoot_time_between = 60;
   let can_see_target = |e| true;
+
   let (
     player_entity,
     mut player,
