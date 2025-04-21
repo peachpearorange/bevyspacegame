@@ -134,7 +134,7 @@ impl MySprite {
   const BLOCKTEXTURES: Self = Self::new("pixelc/block_textures.png");
   const BRICKS: Self = Self::new("pixelc/bricks.png");
   const BROWNGASGIANT: Self = Self::new("pixelc/browngasgiant.png");
-  const CAR: Self = Self::new("car.png");
+  // const CAR: Self = Self::new("car.png");
   const CHEST: Self = Self::new("pixelc/chest.png");
   const COFFEE: Self = Self::new("coffee.png");
   const COIN: Self = Self::new("coin.png");
@@ -1203,7 +1203,7 @@ const ENEMY_SEE_PLAYER_RANGE: f32 = 100.0;
 fn player_target_interaction(
   keys: Res<ButtonInput<KeyCode>>,
   mut playerq: Single<(Entity, &mut Player, &Transform, &mut Combat)>,
-  mut hostileq: Query<(Entity, &IsHostile, &Transform)>,
+  mut hostileq: Query<(Entity, &Combat, &Transform),Without<Player>>,
   mut c: Commands,
   time: Res<TimeTicks>,
   targetq: Query<(&Transform,)>
@@ -1223,11 +1223,11 @@ fn player_target_interaction(
     Object::MushroomMan.spawn_at(&mut c, player_pos);
   }
   if keys.just_pressed(KeyCode::KeyT) {
-    todo!("fix this");
+    // todo!("fix this");
     println("pressed t");
     if let Some((e, _, _)) = filter_least(
-      |(e, hostile, transform)| {
-        hostile.0.then_some(transform.translation.distance(player_pos) as u32)
+      |(e, combat, transform)| {
+        combat.is_hostile.then_some(transform.translation.distance(player_pos) as u32)
       },
       &hostileq
     ) {
@@ -3138,46 +3138,3 @@ pub fn main() {
 // cargo check --target wasm32-unknown-unknown
 // cargo run --target x86_64-unknown-linux-gnu
 // cargo check --target x86_64-unknown-linux-gnu
-
-enum Temperature {
-  Permafrost,
-  Cold,
-  Medium,
-  Warm,
-  Hot
-}
-pub struct Region {
-  is_mountain: bool,
-  temperature: Temperature,
-  land_area: f32
-}
-enum Ideology {
-  Communism,
-  Fascism,
-  Democracy
-}
-pub struct Country {
-  regions: Vec<Region>,
-  ideology: Ideology
-}
-pub struct WorldMap(Vec<Country>);
-// pub fn integration_parameters() -> IntegrationSet {
-//     IntegrationParameters { damping_ratio: 4.0,
-//                             // dt: todo!(),
-//                             // min_ccd_dt: todo!(),
-//                             // erp: todo!(),
-//                             // joint_erp: todo!(),
-//                             // joint_damping_ratio: todo!(),
-//                             // warmstart_coefficient: todo!(),
-//                             // length_unit: todo!(),
-//                             // normalized_allowed_linear_error: todo!(),
-//                             // normalized_max_penetration_correction: todo!(),
-//                             // normalized_prediction_distance: todo!(),
-//                             // num_solver_iterations: todo!(),
-//                             // num_additional_friction_iterations: todo!(),
-//                             // num_internal_pgs_iterations: todo!(),
-//                             // num_internal_stabilization_iterations: todo!(),
-//                             // min_island_size: todo!(),
-//                             // max_ccd_substeps: todo!(),
-//                             ..default() }
-//   }

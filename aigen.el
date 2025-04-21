@@ -69,8 +69,9 @@ Context files provide definitions (src/main.rs) relevant to the generation task.
   "The detailed prompt for generating a complete solar system game world in Rust.")
 
 (defconst my/zone-descriptions
-  ;; --- Zone Description Collection --- take these as inspiration. You don't have to stick to them exactly
-  '("An area near planet Arrakis. Stations store spice and The Guild is there and other references to Dune. preferably with some dialogue that references the setting and stuff. other relevant stuff that you think makes thematic sense"
+  '(
+    ;; --- Zone Description Collection --- take these as inspiration. You don't have to stick to them exactly
+    "An area near planet Arrakis. Stations store spice and The Guild is there and other references to Dune. preferably with some dialogue that references the setting and stuff. other relevant stuff that you think makes thematic sense"
     "An area near planet Mustafar. Star-Wars-y stuff. other relevant stuff that you think makes thematic sense"
     "A floating island in space with a person living on it. get creative."
     "Space prison where the most dangerous criminals are contained. Get creative."
@@ -89,7 +90,8 @@ Context files provide definitions (src/main.rs) relevant to the generation task.
     "Colossal icebergs drift through vacuum, rigged with plasma sails and populated by waddling space‑penguins. Listening posts dot the bergs' surfaces, monitoring creaking ice while trade sleds ferry fishy cargo between frozen towers."
     "A micro‑cluster of breathable cloudlets bursts with bioluminescent mushrooms. Nomadic mushroom‑folk barter spores for stories, while wizard‑like drones harvest rare mycelium for distant alchemists."
     "A tangle of drifting arboreal platforms linked by thick vine‑cables. Treemonsters guard photosynthetic farms; visitors must appease them with water shipments delivered via sleek white exploration ships."
-    "Caravans of ramshackle hover‑cars dock at a half‑ruined station lit only by blazing torches. A charismatic spaceman recounts legends of a hidden sun‑forged coin vault somewhere in the maintenance tunnels.")
+    "Caravans of ramshackle hover‑cars dock at a half‑ruined station lit only by blazing torches. A charismatic spaceman recounts legends of a hidden sun‑forged coin vault somewhere in the maintenance tunnels."
+    )
   "Collection of zone descriptions to incorporate into the solar system.")
 
 (defun my/format-zone-descriptions (descriptions)
