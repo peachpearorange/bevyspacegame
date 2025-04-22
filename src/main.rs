@@ -25,14 +25,7 @@ pub mod bundletree;
 mod aigen;
 pub use bevy::prelude::Name;
 use {aigen::*,
-     bevy::{asset::LoadState,
-            core_pipeline::Skybox,
-            ecs::{query, query::QueryData},
-            render::render_resource::{Extent3d, TextureViewDescriptor}},
-     bevy_sprite3d::Sprite3dParams,
-     bevy_trait_query::RegisterExt,
-     rust_utils::mapv};
-use {avian3d::prelude::*,
+     avian3d::prelude::*,
      bevy::{app::AppExit,
             asset::{AssetServer, Handle},
             core_pipeline::bloom::{Bloom, BloomCompositeMode, BloomPrefilter},
@@ -44,6 +37,9 @@ use {avian3d::prelude::*,
             render::primitives::CubemapFrusta,
             utils::{HashMap, HashSet},
             window::WindowMode},
+     bevy::{asset::LoadState,
+            core_pipeline::Skybox,
+            render::render_resource::{Extent3d, TextureViewDescriptor}},
      bevy_embedded_assets::*,
      // bevy_mod_billboard::{BillboardDepth, BillboardLockAxis, BillboardMeshHandle,
      //                      BillboardTextBundle, BillboardTextureBundle,
@@ -51,12 +47,14 @@ use {avian3d::prelude::*,
      // ,
      bevy_panorbit_camera::PanOrbitCamera,
      bevy_sprite3d::Sprite3dBuilder,
+     bevy_sprite3d::Sprite3dParams,
      // bevy_quill::{prelude::*, QuillPlugin, ViewChild},
      // bevy_quill_overlays::QuillOverlaysPlugin,
      dynamics::solver::SolverConfig,
      fancy_constructor::new,
      haalka::prelude::*,
      rand::{Rng, random, thread_rng},
+     rust_utils::mapv,
      rust_utils::{comment, concat_strings, debugfmt, filter_map, find_map, map, println,
                   sum, vec},
      std::f32::consts::PI};
@@ -1203,7 +1201,7 @@ const ENEMY_SEE_PLAYER_RANGE: f32 = 100.0;
 fn player_target_interaction(
   keys: Res<ButtonInput<KeyCode>>,
   mut playerq: Single<(Entity, &mut Player, &Transform, &mut Combat)>,
-  mut hostileq: Query<(Entity, &Combat, &Transform),Without<Player>>,
+  mut hostileq: Query<(Entity, &Combat, &Transform), Without<Player>>,
   mut c: Commands,
   time: Res<TimeTicks>,
   targetq: Query<(&Transform,)>
@@ -2198,7 +2196,7 @@ fn signal_strength(player_pos: Vec3, pos: Vec3, scale: f32) -> f32 {
 }
 
 // please finish rewriting the various local variables in fn ui by using TargetData and a lot of method chains and filter_map and such
-#[derive(QueryData)]
+#[derive(bevy::ecs::query::QueryData)]
 struct TargetData {
   entity: Entity,
   transform: &'static Transform,
@@ -3132,7 +3130,7 @@ pub fn main() {
     .run();
 }
 
-// trunk build --release --public-url "bevyspacegame" --filehash false
+// trunk build --release --minify --public-url "bevyspacegame" --filehash false
 
 // trunk serve
 
