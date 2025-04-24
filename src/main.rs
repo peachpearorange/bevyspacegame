@@ -24,6 +24,11 @@ pub mod bundletree;
 // pub mod ui;
 mod aigen;
 pub use bevy::prelude::Name;
+use bevy::{pbr::{MaterialPipeline, MaterialPipelineKey},
+           render::{mesh::{MeshVertexBufferLayout, MeshVertexBufferLayoutRef},
+                    render_resource::{AsBindGroup, CompareFunction, Face,
+                                      RenderPipelineDescriptor, ShaderRef,
+                                      SpecializedMeshPipelineError}}};
 use {aigen::*,
      avian3d::prelude::*,
      bevy::{app::AppExit,
@@ -2332,6 +2337,13 @@ fn npc_movement(
     //   let dist = pos.distance(npc_pos);
     //   dist > NPC_FOLLOW_RANGE_MIN && dist < NPC_FOLLOW_RANGE_MAX
     // };
+    enum Asdf {
+      Asd { k: i32 }
+    }
+    let k = Asdf::Asd { k: 5 };
+    // match k {
+    //   Asdf::Asd { k: i32 } => {}
+    // };
     let in_range = |e: Entity| {
       get_target_pos(e).map_or(false, |pos: Vec3| {
         let dist = pos.distance(npc_pos);
@@ -2348,6 +2360,7 @@ fn npc_movement(
     }
   }
 }
+// const INC2: fn(i32) -> i32 = rust_utils::comp(rust_utils::inc, rust_utils::inc);
 
 #[derive(Clone, Component, Debug)]
 struct Planet {
@@ -2384,6 +2397,283 @@ impl PlanetType {
   pub const BROWNGASGIANT: Self = Self::new(MySprite::BROWNGASGIANT);
 }
 
+pub trait ObjectSpec {
+  fn insert(&self, ec: &mut EntityCommands);
+}
+#[macro_export]
+macro_rules! object_spec {
+  (
+    $spec_name:ident {
+      $($field_name:ident : $field_ty:ty),* $(,)?
+    },
+    $body:expr,$extra:expr
+  ) => {
+    #[derive(Debug, Clone,Copy)]
+    pub struct $spec_name {
+      $(pub $field_name : $field_ty),*
+    }
+    impl ObjectSpec for $spec_name {
+      fn insert(&self, ec: &mut EntityCommands){
+        let &$spec_name{ $($field_name),*} = self;
+        let body = $body;
+        ObjectSpec::insert(&body,ec);
+        // body.insert(ec);
+        let extra = $extra;
+        ec.insert(extra);
+      }
+    }
+  };
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EmptySpec {}
+impl ObjectSpec for EmptySpec {
+  fn insert(&self, ec: &mut EntityCommands) {}
+}
+object_spec!(
+SpaceObjectSpec {
+  name: &'static str,
+  scale: f32,
+  can_move: bool,
+  visuals: Visuals
+},
+  EmptySpec{},
+{
+  let collider = Collider::sphere(1.0);
+  (
+    SpaceObject { scale, ..default() },
+    Name::new(name),
+    FacingMode::Position,
+    visuals,
+    LockedAxes::ROTATION_LOCKED,
+    ColliderMassProperties::from_shape(&collider, 1.0),
+    collider,
+    if can_move { RigidBody::Dynamic } else { RigidBody::Static },
+    LinearDamping(1.6),
+    AngularDamping(1.2),
+    LinearVelocity::default(),
+    AngularVelocity::default(),
+    ExternalForce::default().with_persistence(false),
+    ExternalImpulse::default(),
+    Visibility::Visible
+  )});
+
+pub const fn space_object(
+  scale: f32,
+  can_move: bool,
+  visuals: Visuals,
+  name: &'static str
+) -> SpaceObjectSpec {
+  SpaceObjectSpec { scale, can_move, visuals, name }
+}
+object_spec!(
+  NPCSpec {
+    name: &'static str,
+    scale: f32,
+    speed: f32,
+    faction: Faction,
+    hp: u32,
+    sprite: MySprite
+  },
+  SpaceObjectSpec {
+    name,
+    scale,
+    can_move: true,
+    visuals: Visuals::sprite(sprite)
+  },
+  (Navigation::speed(speed),
+   NPC { follow_target: None, faction },
+   Combat { hp, is_hostile: false, ..default() }));
+object_spec!(
+  LootObjectSpec {
+    scale: f32,
+    name: &'static str,
+    sprite: MySprite,
+    item_type: Item // Assuming Item is Copy
+  },
+  SpaceObjectSpec{name,scale,can_move:true,visuals:Visuals::sprite(sprite)},
+  (Container(vec![(item_type, 1)]), // Use item_type field
+   InteractImpl::CONTAINER));
+
+// Helper constructor for LootObjectSpec
+pub const fn loot_object(
+  scale: f32,
+  name: &'static str,
+  sprite: MySprite,
+  item_type: Item
+) -> LootObjectSpec {
+  LootObjectSpec { scale, name, sprite, item_type }
+}
+
+// Enemy Spec
+object_spec!(
+  EnemySpec {
+    name: &'static str,
+    hp: u32,
+    speed: f32,
+    sprite: MySprite
+  },
+  // Body: Base on SpaceObjectSpec (movable, uses constant scale)
+  space_object(NORMAL_NPC_SCALE, true, Visuals::sprite(sprite), name),
+  // Extra: Navigation, NPC (hostile pirate faction), Combat (hostile)
+  (
+    Navigation::new(speed), // Use speed field
+    NPC { follow_target: None, faction: Faction::SPACE_PIRATES }, // Fixed faction
+    Combat { hp, is_hostile: true, ..default() } // Use hp field, explicitly hostile
+  )
+);
+
+// Helper constructor for EnemySpec
+pub const fn enemy(name: &'static str, hp: u32, speed: f32, sprite: MySprite) -> EnemySpec {
+  EnemySpec { name, hp, speed, sprite }
+}
+
+// Talking Person Spec
+object_spec!(
+  TalkingPersonSpec {
+    name: &'static str,
+    sprite: MySprite,
+    dialogue_tree: DialogueTree // Assuming DialogueTree is Copy
+  },
+  // Body: Base on SpaceObjectSpec (movable, fixed scale 1.7)
+  space_object(1.7, true, Visuals::sprite(sprite), name),
+  // Extra: Dialogue and Interaction components
+  (
+    DialogueTreeInteract::new(dialogue_tree), // Use dialogue_tree field
+    InteractImpl::DIALOGUE_TREE
+  )
+);
+
+// Helper constructor for TalkingPersonSpec
+pub const fn talking_person(
+  name: &'static str,
+  sprite: MySprite,
+  dialogue_tree: DialogueTree
+) -> TalkingPersonSpec {
+  TalkingPersonSpec { name, sprite, dialogue_tree }
+}
+
+// Planet Spec
+object_spec!(
+  PlanetSpec {
+    sprite: MySprite,
+    radius: f32,
+    population: u32,
+    name: &'static str
+  },
+  // Body: Base on SpaceObjectSpec (static/not movable)
+  space_object(radius, false, Visuals::sprite(sprite), name),
+  // Extra: Planet component
+  (
+    Planet { population }, // Use population field
+  )
+);
+
+// Helper constructor for PlanetSpec
+pub const fn planet(
+  sprite: MySprite,
+  radius: f32,
+  population: u32,
+  name: &'static str
+) -> PlanetSpec {
+  PlanetSpec { sprite, radius, population, name }
+}
+
+// Sign Spec
+object_spec!(
+  SignSpec {
+    text: &'static str
+  },
+  // Body: Base on SpaceObjectSpec (static, fixed scale/sprite/name)
+  space_object(1.5, false, Visuals::sprite(MySprite::GPT4O_SIGN), "sign"),
+  // Extra: Interaction and TextDisplay components
+  (
+    InteractImpl::DESCRIBE,
+    TextDisplay(text.to_string()) // Use text field
+  )
+);
+
+pub const fn sign(text: &'static str) -> SignSpec { SignSpec { text } }
+
+// Warp Gate Spec
+object_spec!(
+  WarpGateSpec {name: &'static str},
+  space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name),
+  (InteractImpl::WARP_GATE,
+   WarpGate { name }));
+
+// Helper constructor for WarpGateSpec
+pub const fn warp_gate(name: &'static str) -> WarpGateSpec { WarpGateSpec { name } }
+
+object_spec!(
+  SunSpec {}, // No fields needed
+  space_object(600.0, false, Visuals::material_sphere(MyMaterial::GLOWY_2), "sun"),
+  (CubemapVisibleEntities::default(), CubemapFrusta::default(), PointLight {
+    intensity: 3_000_000.0,
+    radius: 1.0,
+    range: 10000.0,
+    shadows_enabled: true,
+    color: Color::srgb(0.9, 0.8, 0.6),
+    ..default()
+  })
+);
+// No constructor needed, just use SunSpec
+
+// Asteroid Spec (Fixed parameters, but uses a function for scale)
+object_spec!(
+  AsteroidSpec {},
+  space_object(
+    asteroid_scale(),
+    false,
+    Visuals::sprite(MySprite::GPT4O_ASTEROID),
+    "Asteroid"
+  ),
+  (
+    InteractImpl::ASTEROID_MINING,
+    AsteroidMining { resources: 5, durability: 5 }, // Fixed mining values
+    CanBeFollowedByNPC // Keep if necessary, maybe for mining drones?)
+  )
+);
+object_spec!(
+  CrystalMonsterSpec {},
+  space_object(2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER), "crystal monster"),
+  (
+    Combat { hp: 100, is_hostile: true, ..default() },
+    NPC { faction: Faction::SPACE_PIRATES, ..default() },
+    Navigation::speed(NORMAL_NPC_SPEED * 1.2)
+  )
+);
+object_spec!(
+  PlayerSpecDef {},
+  space_object(
+    PLAYER_SCALE, // Use const
+    true,
+    Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP),
+    "You"
+  ),
+  (
+    Player::default(),
+    Combat { hp: 400, is_hostile: false, ..default() }, // Player stats
+    Inventory::default(),
+    Navigation::new(PLAYER_FORCE), // Use const
+    CanBeFollowedByNPC
+  )
+);
+
+// Const reference to the player spec instance (as in original code)
+// Using the unit struct value directly is often simpler unless you specifically need a trait object.
+// Let's provide both options:
+pub const PLAYER_SPEC_INSTANCE: PlayerSpecDef = PlayerSpecDef {}; // Direct instance
+pub const PLAYER_SPEC: &dyn ObjectSpec = &PLAYER_SPEC_INSTANCE; // Trait object reference
+
+// --- Example Usage (similar to Object::spawn_at) ---
+
+// You would now use the Spec structs directly, perhaps with a helper function:
+pub fn spawn_spec_at(c: &mut Commands, spec: &impl ObjectSpec, pos: Vec3) -> Entity {
+  let mut ec = c.spawn(Transform::from_translation(pos));
+  spec.insert(&mut ec);
+  ec.id()
+}
 #[derive(Clone, Copy, Debug)]
 enum Object {
   Empty,
@@ -2939,8 +3229,16 @@ pub fn setup(
   serv: Res<AssetServer>,
   mut meshes: ResMut<Assets<Mesh>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
+  mut space_shader_materials: ResMut<Assets<SpaceShaderMaterial>>,
   mut c: Commands
 ) {
+  // c.spawn(GenMesh::SPHERE.generate().transformed_by(transform))
+
+  c.spawn((
+    Mesh3d(meshes.add(Cuboid::new(3000.0, 1000.0, 1000.0))),
+    MeshMaterial3d(space_shader_materials.add(SpaceShaderMaterial {})),
+    Transform::from_xyz(0.0, 0.0, 0.0)
+  ));
   spawn_world_layout(aigen::solar_system::WORLD_LAYOUT, &mut c);
 
   let colorful_mat = serv.add(StandardMaterial::from(serv.add(colorful_texture())));
@@ -2988,6 +3286,59 @@ pub fn setup(
   c.spawn(camera);
   println("spawned camera");
   println("setup");
+}
+
+// #[derive(Clone)]
+// struct SpaceShaderMaterial;
+
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+struct SpaceShaderMaterial {}
+impl Material for SpaceShaderMaterial {
+  fn fragment_shader() -> ShaderRef {
+    "space_shader.wgsl".into() // Make sure this path is correct
+  }
+  fn vertex_shader() -> ShaderRef {
+    "space_shader.wgsl".into() // Make sure this path is correct
+  }
+  fn alpha_mode(&self) -> AlphaMode { AlphaMode::Opaque }
+
+  // *** Implement specialize to fix culling and depth ***
+  fn specialize(
+    _pipeline: &MaterialPipeline<Self>,
+    descriptor: &mut RenderPipelineDescriptor,
+    _layout: &MeshVertexBufferLayoutRef, // Use the Ref type from the trait source
+    _key: MaterialPipelineKey<Self>
+  ) -> Result<(), SpecializedMeshPipelineError> {
+    // Use the correct error type
+
+    // --- 1. Fix Culling ---
+    // We are inside the cube, looking out. The cube's front faces point outward.
+    // We need to see the inward-pointing faces (the back faces).
+    // We tell the GPU to cull the *front* faces instead of the back faces.
+    descriptor.primitive.cull_mode = Some(Face::Front);
+    // Alternatively, disable culling completely:
+    // descriptor.primitive.cull_mode = None; // Usually 'Front' is slightly better
+
+    // --- 2. Set Correct Depth State ---
+    // We want the skybox to draw only where nothing closer has been drawn.
+    // The vertex shader sets depth to 1.0 (far plane).
+    if let Some(depth_stencil) = descriptor.depth_stencil.as_mut() {
+      // Use LessEqual comparison: Draw if the incoming fragment depth (1.0)
+      // is Less than or Equal to the existing depth in the buffer.
+      // This ensures it draws over the clear depth (1.0) but gets correctly
+      // overwritten by any scene objects closer than the far plane.
+      depth_stencil.depth_compare = CompareFunction::LessEqual;
+
+      // IMPORTANT: Keep depth writes ENABLED. If the skybox pixel passes the
+      // test (i.e., in empty space), it should write 1.0 to the depth buffer.
+      // Disabling writes can cause issues where objects drawn *after* the
+      // skybox might incorrectly render "behind" it if they happen to fall
+      // in pixels where the skybox should have been but didn't write depth.
+      depth_stencil.depth_write_enabled = true;
+    }
+
+    Ok(())
+  }
 }
 
 fn spawn_skybox(
@@ -3077,6 +3428,7 @@ pub fn main() {
           ..default()
         }),
       HaalkaPlugin,
+      MaterialPlugin::<SpaceShaderMaterial>::default(),
       // bevy_vox_scene::VoxScenePlugin,
       bevy_sprite3d::Sprite3dPlugin,
       bevy_panorbit_camera::PanOrbitCameraPlugin,
