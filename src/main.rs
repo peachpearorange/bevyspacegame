@@ -1779,148 +1779,6 @@ struct Salvage {
   loot: u8
 }
 
-#[derive(Component, Clone, Copy, Debug)]
-pub struct InteractImpl(pub fn(&World, Entity) -> InteractionOutput);
-impl InteractImpl {
-  const SALVAGE: InteractImpl = InteractImpl(|w, e| {
-    let &Salvage { loot } = w.get::<Salvage>(e).unwrap();
-    InteractionOutput::new()
-      .msg("Salvage wreck")
-      .add("leave", CMD::message_add("You leave"))
-      .add_if(loot > 0, "take loot", [
-        CMD::message_add("Looted"),
-        CMD::give_item_to_player(Item::SPACECOIN),
-        CMD::mutate_component::<Salvage>(e, |mut s| s.loot -= 1)
-      ])
-  });
-  const DIALOGUE_TREE: InteractImpl = InteractImpl(|w, e| {
-    let dialogue = w.get::<DialogueTreeInteract>(e).unwrap();
-    let display_name = w.get::<Name>(e).cloned().unwrap_or(Name::new("talking NPC"));
-
-    let node_opts = dialogue
-      .tree
-      .iter()
-      .find(|&&(id, _)| id == dialogue.current)
-      .map(|&(_, opts)| opts)
-      .unwrap();
-
-    node_opts.iter().fold(
-      InteractionOutput::new().msg(display_name),
-      |out, &(next, player_line, npc_line, effect)| {
-        let cmd = MyCommand::from(match effect {
-          Some(eff) => vec![
-            CMD::message_add(npc_line),
-            CMD::mutate_component::<DialogueTreeInteract>(e, move |c| c.current = next),
-            eff(),
-          ],
-          None => vec![
-            CMD::message_add(npc_line),
-            CMD::mutate_component::<DialogueTreeInteract>(e, move |c| c.current = next),
-          ]
-        });
-        out.add(player_line, cmd)
-      }
-    )
-  });
-  const HP_BOX: InteractImpl = InteractImpl(|w, e| {
-    InteractionOutput::new().msg("Health Box").add("Use health box", [
-      CMD::message_add("Health restored"),
-      CMD::mutate_player_component::<Combat>(|c| c.hp += 20),
-      CMD::despawn_entity(e)
-    ])
-  });
-  const DESCRIBE: InteractImpl = InteractImpl(|w, e| {
-    let display_name = namefmt(w.get::<Name>(e));
-    let display_text = w.get::<TextDisplay>(e).cloned().unwrap_or_default().0;
-    InteractionOutput::new().msg(format!("{display_name}: {display_text}"))
-  });
-  // const ITEM_PICKUP: InteractImpl = InteractImpl(|w, e| {
-  //   let container = w.get::<Container>(e).unwrap();
-
-  //   InteractionOutput::new()
-  //     .msg(format!("You found: {}", container.label))
-  //     .add("Take item", [
-  //       CMD::give_item_to_player(container.item.clone()),
-  //       CMD::message_add(format!("You picked up {}", container.label)),
-  //       CMD::despawn_entity(e)
-  //     ])
-  //     .add("Leave it", CMD::none())
-  // });
-  const TRADE: InteractImpl = InteractImpl(|w, e| {
-    let trade = w.get::<TradeInteract>(e).unwrap();
-    let inputs = trade.inputs.clone();
-    let outputs = trade.outputs.clone();
-
-    InteractionOutput::new().msg("Trade terminal").add("trade", [
-      CMD::mutate_player_component::<Inventory>(move |inv| {
-        inv.trade([inputs.clone()], [outputs.clone()])
-      }),
-      CMD::message_add("Trade executed")
-    ])
-  });
-  const CONTAINER: InteractImpl = InteractImpl(|w, e| {
-    let container = w.get::<Container>(e).unwrap();
-    let oname = w.get::<Name>(e);
-    let display_name = namefmt(oname);
-    let loot = container.0.clone();
-
-    InteractionOutput::new().msg(display_name.clone()).add("take", [
-      CMD::despawn_entity(e),
-      CMD::mutate_player_component::<Inventory>(move |inv| inv.add_contents(loot.clone())),
-      CMD::message_add(format!("{} looted", display_name))
-    ])
-  });
-
-  // --- ASTEROID MINING ---
-  const ASTEROID_MINING: InteractImpl = InteractImpl(|w, e| {
-    let mining = w.get::<AsteroidMining>(e).unwrap();
-    let can_mine = mining.resources > 0 && mining.durability > 0;
-
-    InteractionOutput::new()
-      .msg(format!("Mining asteroid: {} res, {} dur", mining.resources, mining.durability))
-      .add_if(can_mine, "mine safe", [
-        CMD::message_add("Safe mine"),
-        CMD::give_item_to_player(Item::SPACEMINERALS),
-        CMD::mutate_component::<AsteroidMining>(e, |mut a| a.resources -= 1)
-      ])
-      .add_if(can_mine, "mine hard", [
-        CMD::message_add("Hard mine"),
-        CMD::give_item_to_player(Item::SPACEMINERALS),
-        CMD::give_item_to_player(Item::SPACEMINERALS),
-        CMD::mutate_component::<AsteroidMining>(e, |a| {
-          a.resources -= 1;
-          a.durability -= 1;
-        })
-      ])
-      .add("leave", CMD::none())
-  });
-
-  // --- WARP GATE ---
-  const WARP_GATE: InteractImpl = InteractImpl(|w, e| {
-    let player_pos = w.get_player_pos().unwrap();
-    let mut gates: Vec<(&WarpGate, Vec3)> = w
-      .iter_entities()
-      .filter_map(|er| {
-        er.get_components::<(&WarpGate, &Transform)>().map(|(wg, tr)| (wg, tr.translation))
-      })
-      .collect();
-
-    gates.sort_by(|a, b| {
-      a.1.distance(player_pos).partial_cmp(&b.1.distance(player_pos)).unwrap()
-    });
-    gates.truncate(4);
-
-    gates
-      .into_iter()
-      .fold(InteractionOutput::new().msg("Select warp gate:"), |out, (gate, pos)| {
-        out.add(gate.name, [
-          CMD::message_add(format!("Warping to {}", gate.name)),
-          CMD::mutate_player_component::<Transform>(move |t| t.translation = pos)
-        ])
-      })
-      .add("leave", CMD::none())
-  });
-}
 /*
 
 
@@ -1993,6 +1851,298 @@ pub struct WarpGate {
   pub name: &'static str
 }
 
+#[derive(Component, Clone, Copy, Debug)]
+pub enum InteractImpl {
+  Salvage,
+  DialogueTree,
+  HPBox,
+  Describe,
+  Trade,
+  Container,
+  AsteroidMining,
+  WarpGate,
+  Custom(fn(&World, Entity) -> InteractionOutput)
+}
+
+impl InteractImpl {
+  pub fn interact(&self, world: &World, entity: Entity) -> InteractionOutput {
+    match *self {
+      InteractImpl::Salvage => {
+        let &Salvage { loot } = world.get::<Salvage>(entity).unwrap();
+        InteractionOutput::new()
+          .msg("Salvage wreck")
+          .add("leave", CMD::message_add("You leave"))
+          .add_if(loot > 0, "take loot", [
+            CMD::message_add("Looted"),
+            CMD::give_item_to_player(Item::SPACECOIN),
+            CMD::mutate_component::<Salvage>(entity, |mut s| s.loot -= 1)
+          ])
+      }
+      InteractImpl::DialogueTree => {
+        let dialogue = world.get::<DialogueTreeInteract>(entity).unwrap();
+        let display_name =
+          world.get::<Name>(entity).cloned().unwrap_or(Name::new("talking NPC"));
+        let node_opts = dialogue
+          .tree
+          .iter()
+          .find(|&&(id, _)| id == dialogue.current)
+          .map(|&(_, opts)| opts)
+          .unwrap();
+        node_opts.iter().fold(
+          InteractionOutput::new().msg(display_name),
+          |out, &(next, player_line, npc_line, effect)| {
+            let cmd = MyCommand::from(match effect {
+              Some(eff) => vec![
+                CMD::message_add(npc_line),
+                CMD::mutate_component::<DialogueTreeInteract>(entity, move |c| {
+                  c.current = next
+                }),
+                eff(),
+              ],
+              None => vec![
+                CMD::message_add(npc_line),
+                CMD::mutate_component::<DialogueTreeInteract>(entity, move |c| {
+                  c.current = next
+                }),
+              ]
+            });
+            out.add(player_line, cmd)
+          }
+        )
+      }
+      InteractImpl::HPBox => {
+        InteractionOutput::new().msg("Health Box").add("Use health box", [
+          CMD::message_add("Health restored"),
+          CMD::mutate_player_component::<Combat>(|c| c.hp += 20),
+          CMD::despawn_entity(entity)
+        ])
+      }
+
+      InteractImpl::Describe => {
+        let display_name = namefmt(world.get::<Name>(entity));
+        let display_text = world.get::<TextDisplay>(entity).cloned().unwrap_or_default().0;
+        InteractionOutput::new().msg(format!("{display_name}: {display_text}"))
+      }
+      InteractImpl::Trade => {
+        let trade = world.get::<TradeInteract>(entity).unwrap();
+        let inputs = trade.inputs.clone();
+        let outputs = trade.outputs.clone();
+        InteractionOutput::new().msg("Trade terminal").add("trade", [
+          CMD::mutate_player_component::<Inventory>(move |inv| {
+            inv.trade([inputs.clone()], [outputs.clone()])
+          }),
+          CMD::message_add("Trade executed")
+        ])
+      }
+      InteractImpl::Container => {
+        let container = world.get::<Container>(entity).unwrap();
+        let oname = world.get::<Name>(entity);
+        let display_name = namefmt(oname);
+        let loot = container.0.clone();
+        InteractionOutput::new().msg(display_name.clone()).add("take", [
+          CMD::despawn_entity(entity),
+          CMD::mutate_player_component::<Inventory>(move |inv| {
+            inv.add_contents(loot.clone())
+          }),
+          CMD::message_add(format!("{} looted", display_name))
+        ])
+      }
+      InteractImpl::AsteroidMining => {
+        let mining = world.get::<AsteroidMining>(entity).unwrap();
+        let can_mine = mining.resources > 0 && mining.durability > 0;
+        InteractionOutput::new()
+          .msg(format!(
+            "Mining asteroid: {} res, {} dur",
+            mining.resources, mining.durability
+          ))
+          .add_if(can_mine, "mine safe", [
+            CMD::message_add("Safe mine"),
+            CMD::give_item_to_player(Item::SPACEMINERALS),
+            CMD::mutate_component::<AsteroidMining>(entity, |mut a| a.resources -= 1)
+          ])
+          .add_if(can_mine, "mine hard", [
+            CMD::message_add("Hard mine"),
+            CMD::give_item_to_player(Item::SPACEMINERALS),
+            CMD::give_item_to_player(Item::SPACEMINERALS),
+            CMD::mutate_component::<AsteroidMining>(entity, |a| {
+              a.resources -= 1;
+              a.durability -= 1;
+            })
+          ])
+          .add("leave", CMD::none())
+      }
+      InteractImpl::WarpGate => {
+        let player_pos = world.get_player_pos().unwrap();
+        let mut gates: Vec<(&WarpGate, Vec3)> = world
+          .iter_entities()
+          .filter_map(|er| {
+            er.get_components::<(&WarpGate, &Transform)>()
+              .map(|(wg, tr)| (wg, tr.translation))
+          })
+          .collect();
+        gates.sort_by(|a, b| {
+          a.1.distance(player_pos).partial_cmp(&b.1.distance(player_pos)).unwrap()
+        });
+        gates.truncate(4);
+        let output = gates.into_iter().fold(
+          InteractionOutput::new().msg("Select warp gate:"),
+          |out, (gate, pos)| {
+            out.add(gate.name, [
+              CMD::message_add(format!("Warping to {}", gate.name)),
+              CMD::mutate_player_component::<Transform>(move |t| t.translation = pos)
+            ])
+          }
+        );
+        output.add("leave", CMD::none())
+      }
+      InteractImpl::Custom(func) => func(world, entity)
+    }
+  }
+}
+comment! {
+  #[derive(Component, Clone, Copy, Debug)]
+  pub struct InteractImpl(pub fn(&World, Entity) -> InteractionOutput);
+  impl InteractImpl {
+    const SALVAGE: InteractImpl = InteractImpl(|w, e| {
+      let &Salvage { loot } = w.get::<Salvage>(e).unwrap();
+      InteractionOutput::new()
+        .msg("Salvage wreck")
+        .add("leave", CMD::message_add("You leave"))
+        .add_if(loot > 0, "take loot", [
+          CMD::message_add("Looted"),
+          CMD::give_item_to_player(Item::SPACECOIN),
+          CMD::mutate_component::<Salvage>(e, |mut s| s.loot -= 1)
+        ])
+    });
+    const DIALOGUE_TREE: InteractImpl = InteractImpl(|w, e| {
+      let dialogue = w.get::<DialogueTreeInteract>(e).unwrap();
+      let display_name = w.get::<Name>(e).cloned().unwrap_or(Name::new("talking NPC"));
+
+      let node_opts = dialogue
+        .tree
+        .iter()
+        .find(|&&(id, _)| id == dialogue.current)
+        .map(|&(_, opts)| opts)
+        .unwrap();
+
+      node_opts.iter().fold(
+        InteractionOutput::new().msg(display_name),
+        |out, &(next, player_line, npc_line, effect)| {
+          let cmd = MyCommand::from(match effect {
+            Some(eff) => vec![
+              CMD::message_add(npc_line),
+              CMD::mutate_component::<DialogueTreeInteract>(e, move |c| c.current = next),
+              eff(),
+            ],
+            None => vec![
+              CMD::message_add(npc_line),
+              CMD::mutate_component::<DialogueTreeInteract>(e, move |c| c.current = next),
+            ]
+          });
+          out.add(player_line, cmd)
+        }
+      )
+    });
+    const HP_BOX: InteractImpl = InteractImpl(|w, e| {
+      InteractionOutput::new().msg("Health Box").add("Use health box", [
+        CMD::message_add("Health restored"),
+        CMD::mutate_player_component::<Combat>(|c| c.hp += 20),
+        CMD::despawn_entity(e)
+      ])
+    });
+    const DESCRIBE: InteractImpl = InteractImpl(|w, e| {
+      let display_name = namefmt(w.get::<Name>(e));
+      let display_text = w.get::<TextDisplay>(e).cloned().unwrap_or_default().0;
+      InteractionOutput::new().msg(format!("{display_name}: {display_text}"))
+    });
+    // const ITEM_PICKUP: InteractImpl = InteractImpl(|w, e| {
+    //   let container = w.get::<Container>(e).unwrap();
+
+    //   InteractionOutput::new()
+    //     .msg(format!("You found: {}", container.label))
+    //     .add("Take item", [
+    //       CMD::give_item_to_player(container.item.clone()),
+    //       CMD::message_add(format!("You picked up {}", container.label)),
+    //       CMD::despawn_entity(e)
+    //     ])
+    //     .add("Leave it", CMD::none())
+    // });
+    const TRADE: InteractImpl = InteractImpl(|w, e| {
+      let trade = w.get::<TradeInteract>(e).unwrap();
+      let inputs = trade.inputs.clone();
+      let outputs = trade.outputs.clone();
+
+      InteractionOutput::new().msg("Trade terminal").add("trade", [
+        CMD::mutate_player_component::<Inventory>(move |inv| {
+          inv.trade([inputs.clone()], [outputs.clone()])
+        }),
+        CMD::message_add("Trade executed")
+      ])
+    });
+    const CONTAINER: InteractImpl = InteractImpl(|w, e| {
+      let container = w.get::<Container>(e).unwrap();
+      let oname = w.get::<Name>(e);
+      let display_name = namefmt(oname);
+      let loot = container.0.clone();
+
+      InteractionOutput::new().msg(display_name.clone()).add("take", [
+        CMD::despawn_entity(e),
+        CMD::mutate_player_component::<Inventory>(move |inv| inv.add_contents(loot.clone())),
+        CMD::message_add(format!("{} looted", display_name))
+      ])
+    });
+
+    // --- ASTEROID MINING ---
+    const ASTEROID_MINING: InteractImpl = InteractImpl(|w, e| {
+      let mining = w.get::<AsteroidMining>(e).unwrap();
+      let can_mine = mining.resources > 0 && mining.durability > 0;
+
+      InteractionOutput::new()
+        .msg(format!("Mining asteroid: {} res, {} dur", mining.resources, mining.durability))
+        .add_if(can_mine, "mine safe", [
+          CMD::message_add("Safe mine"),
+          CMD::give_item_to_player(Item::SPACEMINERALS),
+          CMD::mutate_component::<AsteroidMining>(e, |mut a| a.resources -= 1)
+        ])
+        .add_if(can_mine, "mine hard", [
+          CMD::message_add("Hard mine"),
+          CMD::give_item_to_player(Item::SPACEMINERALS),
+          CMD::give_item_to_player(Item::SPACEMINERALS),
+          CMD::mutate_component::<AsteroidMining>(e, |a| {
+            a.resources -= 1;
+            a.durability -= 1;
+          })
+        ])
+        .add("leave", CMD::none())
+    });
+
+    // --- WARP GATE ---
+    const WARP_GATE: InteractImpl = InteractImpl(|w, e| {
+      let player_pos = w.get_player_pos().unwrap();
+      let mut gates: Vec<(&WarpGate, Vec3)> = w
+        .iter_entities()
+        .filter_map(|er| {
+          er.get_components::<(&WarpGate, &Transform)>().map(|(wg, tr)| (wg, tr.translation))
+        })
+        .collect();
+
+      gates.sort_by(|a, b| {
+        a.1.distance(player_pos).partial_cmp(&b.1.distance(player_pos)).unwrap()
+      });
+      gates.truncate(4);
+
+      gates
+        .into_iter()
+        .fold(InteractionOutput::new().msg("Select warp gate:"), |out, (gate, pos)| {
+          out.add(gate.name, [
+            CMD::message_add(format!("Warping to {}", gate.name)),
+            CMD::mutate_player_component::<Transform>(move |t| t.translation = pos)
+          ])
+        })
+        .add("leave", CMD::none())
+    });
+  }
+}
 fn interact(
   world: &World,
   mut playerq: Single<(Entity, &Transform), With<Player>>,
@@ -2016,7 +2166,8 @@ fn interact(
   if let Some((interact_entity, transform, interact_impl, oname)) =
     closest_interactable_thing
   {
-    let InteractionOutput { mut choices, msg } = (interact_impl.0)(world, interact_entity);
+    let InteractionOutput { mut choices, msg } =
+      interact_impl.interact(world, interact_entity);
 
     let single_choice = choices.len() == 1;
     let number_picked = if single_choice && keys.just_pressed(KeyCode::Space) {
@@ -2493,7 +2644,7 @@ object_spec!(
   },
   SpaceObjectSpec{name,scale,can_move:true,visuals:Visuals::sprite(sprite)},
   (Container(vec![(item_type, 1)]), // Use item_type field
-   InteractImpl::CONTAINER));
+   InteractImpl::Container));
 
 // Helper constructor for LootObjectSpec
 pub const fn loot_object(
@@ -2540,7 +2691,7 @@ object_spec!(
   // Extra: Dialogue and Interaction components
   (
     DialogueTreeInteract::new(dialogue_tree), // Use dialogue_tree field
-    InteractImpl::DIALOGUE_TREE
+    InteractImpl::DialogueTree
   )
 );
 
@@ -2588,7 +2739,7 @@ object_spec!(
   space_object(1.5, false, Visuals::sprite(MySprite::GPT4O_SIGN), "sign"),
   // Extra: Interaction and TextDisplay components
   (
-    InteractImpl::DESCRIBE,
+    InteractImpl::Describe,
     TextDisplay(text.to_string()) // Use text field
   )
 );
@@ -2599,7 +2750,7 @@ pub const fn sign(text: &'static str) -> SignSpec { SignSpec { text } }
 object_spec!(
   WarpGateSpec {name: &'static str},
   space_object(3.0, false, Visuals::sprite(MySprite::GPT4O_GATE), name),
-  (InteractImpl::WARP_GATE,
+  (InteractImpl::WarpGate,
    WarpGate { name }));
 
 // Helper constructor for WarpGateSpec
@@ -2629,7 +2780,7 @@ object_spec!(
     "Asteroid"
   ),
   (
-    InteractImpl::ASTEROID_MINING,
+    InteractImpl::AsteroidMining,
     AsteroidMining { resources: 5, durability: 5 }, // Fixed mining values
     CanBeFollowedByNPC // Keep if necessary, maybe for mining drones?)
   )
@@ -2845,10 +2996,10 @@ impl Object {
           // Construct the base SpaceObject, then delegate
           Self::space_object(1.7, true, Visuals::sprite(sprite), name).insert((
             DialogueTreeInteract::new(dialogue_tree),
-            InteractImpl::DIALOGUE_TREE // Interact::dialogue_tree_default_state(dialogue_tree),
-                                        // Maybe add NPC components too if they can move/interact beyond talking?
-                                        // Navigation::speed(NORMAL_NPC_SPEED * 0.5), // Example: slow speed
-                                        // NPC { faction: Faction::TRADERS, ..default() }, // Example faction
+            InteractImpl::DialogueTree // Interact::dialogue_tree_default_state(dialogue_tree),
+                                       // Maybe add NPC components too if they can move/interact beyond talking?
+                                       // Navigation::speed(NORMAL_NPC_SPEED * 0.5), // Example: slow speed
+                                       // NPC { faction: Faction::TRADERS, ..default() }, // Example faction
           ))
         }
         Self::ScaledNPC { scale, name, speed, faction, hp, sprite } => {
@@ -2867,7 +3018,7 @@ impl Object {
         }
         Self::LootObject { sprite, scale, name, item_type } => {
           Self::space_object(scale, true, Visuals::sprite(sprite), name)
-            .insert((Container(vec![(item_type, 1)]), InteractImpl::CONTAINER))
+            .insert((Container(vec![(item_type, 1)]), InteractImpl::Container))
         }
         Self::TreasureContainer => Self::space_object(
           2.1,
@@ -2876,7 +3027,7 @@ impl Object {
           "container"
         )
         .insert((
-          InteractImpl::CONTAINER,
+          InteractImpl::Container,
           Container(vec![(Item::SPACECOIN, 4), (Item::COFFEE, 1)])
         )),
         Self::Explorer => Self::NPC {
@@ -2963,13 +3114,13 @@ impl Object {
           Visuals::sprite(MySprite::GPT4O_SIGN),
           "sign"
         )
-        .insert((InteractImpl::DESCRIBE, TextDisplay(text.to_string()))),
+        .insert((InteractImpl::Describe, TextDisplay(text.to_string()))),
         Self::InteractableObject { name, scale, can_move, visuals, interact } => {
           Self::space_object(scale, can_move, visuals, name).insert(interact)
         }
         Self::Wormhole => {
           Self::space_object(4.0, false, Visuals::sprite(MySprite::WORMHOLE), "wormhole")
-            .insert((InteractImpl::DESCRIBE, TextDisplay("this is a wormhole".to_string())))
+            .insert((InteractImpl::Describe, TextDisplay("this is a wormhole".to_string())))
         }
         Self::Asteroid => Self::space_object(
           asteroid_scale(),
@@ -2978,7 +3129,7 @@ impl Object {
           "Asteroid"
         )
         .insert((
-          InteractImpl::ASTEROID_MINING,
+          InteractImpl::AsteroidMining,
           AsteroidMining { resources: 5, durability: 5 },
           CanBeFollowedByNPC // Why would NPCs follow an asteroid? Maybe for mining?
         )),
