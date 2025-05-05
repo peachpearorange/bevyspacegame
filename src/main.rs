@@ -2554,443 +2554,675 @@ impl PlanetType {
 }
 
 #[macro_export]
-macro_rules! define_object_specs_enum_tt {
-  ( $( ( $spec:tt $( $fields:tt )?, $body:expr, $extra:expr ) ),* $(,)? ) => {
+macro_rules! define_object_specs_enum {
+  // Entry point: Capture all spec definitions $( spec ),*
+  ( $( $spec_input:tt ),* $(,)? ) => {
+    // 1. Define the Enum
     #[derive(Debug, Clone, Copy)]
     pub enum ObjectSpecEnum {
-      Empty, // Base case for recursion
+      Empty, // Base case for recursion in the `insert` method logic
+
+      // Use top-level repetition $(...)* to process each captured $spec_input
       $(
-        $spec $($fields)?, // Attempt to paste the token tree directly
+        // Call the internal rule to generate the enum variant for a single spec
+        define_object_specs_enum!(@enum_single_variant $spec_input);
       )*
     }
-    pub const fn empty_spec() -> ObjectSpecEnum { ObjectSpecEnum::Empty }
+
+    // 2. Implement the `insert` method
     impl ObjectSpecEnum {
       pub fn insert(self, ec: &mut EntityCommands) {
         match self {
           ObjectSpecEnum::Empty => {},
 
-          // WARNING: The following match arm generation is fundamentally flawed
-          //          within macro_rules! limitations.
+          // Use top-level repetition $(...)* to process each captured $spec_input
           $(
-            // PROBLEM 1: Cannot extract VariantName from $spec:tt.
-            //            `ObjectSpecEnum::$spec` is invalid syntax.
-            // PROBLEM 2: Cannot generate the correct pattern (struct/tuple/unit) from $spec:tt.
-            //            Using a generic `{ .. }` is incorrect and only matches structs.
-            // PROBLEM 3: Field names are NOT bound by `{ .. }`.
-            // PROBLEM 4: $body and $extra CANNOT access variant fields.
-            ObjectSpecEnum::$spec $($fields)? => { // <<< THIS WILL LIKELY CAUSE COMPILATION ERRORS
-              // Attempting to use $spec as path segment & assuming struct pattern
-
-              // Evaluate the body expression.
-              // NOTE: $body CANNOT use any fields from the matched variant (e.g., scale, name)
-              //       because they are not in scope.
-              let body_spec = $body;
-              body_spec.insert(ec); // Recursive call
-
-              // Evaluate the extra expression.
-              // NOTE: $extra CANNOT use any fields from the matched variant.
-              let extra_components = $extra;
-              ec.insert(extra_components);
-            }
+            // Call the internal rule to generate the match arm for a single spec
+            define_object_specs_enum!(@match_single_arm $spec_input);
           )*
         }
       }
-    }
-    impl ObjectSpecEnum {
       pub fn spawn_at(self, c: &mut Commands, pos: Vec3) -> Entity {
         let mut ec = c.spawn(Transform::from_translation(pos));
         self.insert(&mut ec);
         ec.id()
       }
-      pub const fn space_object(
-        name: &'static str,
-        scale: f32,
-        can_move: bool,
-        visuals: Visuals
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::SpaceObjectSpec { scale, can_move, visuals, name }
-      }
-      pub const fn loot_object(
-        scale: f32,
-        name: &'static str,
-        sprite: MySprite,
-        item_type: Item
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::LootObjectSpec { scale, name, sprite, item_type }
-      }
-      pub const fn enemy(
-        name: &'static str,
-        hp: u32,
-        speed: f32,
-        sprite: MySprite
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::EnemySpec { name, hp, speed, sprite }
-      }
-      pub const fn talking_person(
-        name: &'static str,
-        sprite: MySprite,
-        dialogue_tree: DialogueTree
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::TalkingPersonSpec { name, sprite, dialogue_tree }
-      }
-      pub const fn planet(
-        sprite: MySprite,
-        radius: f32,
-        population: u32,
-        name: &'static str
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::PlanetSpec { sprite, radius, population, name }
-      }
-      pub const fn sign(text: &'static str) -> ObjectSpecEnum {
-        ObjectSpecEnum::SignSpec { text }
-      }
-
-      pub const fn warp_gate(name: &'static str) -> ObjectSpecEnum {
-        ObjectSpecEnum::WarpGateSpec { name }
-      }
-      // Add other helpers similarly...
-      pub const fn scaled_npc(
-        scale: f32,
-        name: &'static str,
-        speed: f32,
-        faction: Faction,
-        hp: u32,
-        sprite: MySprite
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::ScaledNPCSpec { scale, name, speed, faction, hp, sprite }
-      }
-      pub const fn npc_spec(
-        name: &'static str,
-        scale: f32,
-        speed: f32,
-        faction: Faction,
-        hp: u32,
-        sprite: MySprite
-      ) -> ObjectSpecEnum {
-        ObjectSpecEnum::NPCSpec { name, scale, speed, faction, hp, sprite }
-      }
-      // --- Constant definitions using the new enum ---
-      // You can define constants for frequently used specs if needed
-      pub const PLAYER_SPEC: ObjectSpecEnum = ObjectSpecEnum::PlayerSpecDef {};
-      pub const SUN_SPEC: ObjectSpecEnum = ObjectSpecEnum::SunSpec {};
     }
+
+    // 3. Define Helper functions (kept manual for simplicity)
+    pub const fn empty_spec() -> ObjectSpecEnum { ObjectSpecEnum::Empty }
+
+  };
+  // Handle STRUCT variant enum definition: ( StructName { ... }, body, extra )
+  (@enum_single_variant ( $spec_name:ident { $($fname:ident : $fty:ty),* $(,)? }, $body:expr, $extra:expr )) => {
+    $spec_name { $( pub $fname : $fty ),* },
+  };
+  // Handle TUPLE variant enum definition: ( TupleName ( fname: Type, ... ), body, extra )
+  // NOTE: Ignores fname here, uses fty. Requires pub fields for tuple elements.
+  (@enum_single_variant ( $spec_name:ident ( $($fname:ident : $fty:ty),* $(,)? ), $body:expr, $extra:expr )) => {
+    $spec_name ( $( pub $fty ),* ),
+  };
+  // Handle UNIT variant enum definition: ( UnitName, body, extra )
+  (@enum_single_variant ( $spec_name:ident, $body:expr, $extra:expr )) => {
+    $spec_name,
+  };
+
+  // Handle STRUCT variant match arm: ( StructName { ... }, body, extra )
+  (@match_single_arm ( $spec_name:ident { $($fname:ident : $fty:ty),* $(,)? }, $body:expr, $extra:expr )) => {
+    #[allow(unused_variables)] // Fields might only be used in $body/$extra
+    ObjectSpecEnum::$spec_name { $($fname),* } => { // Destructure by field name
+      let body_spec = $body;
+      body_spec.insert(ec);
+      let extra_components = $extra;
+      // Use mem::size_of_val to check if the tuple is non-empty before inserting
+      if mem::size_of_val(&extra_components) > 0 { ec.insert(extra_components); }
+    },
+  };
+  // Handle TUPLE variant match arm: ( TupleName ( fname: Type, ... ), body, extra )
+  // NOTE: Uses fname for pattern binding.
+  (@match_single_arm ( $spec_name:ident ( $($fname:ident : $fty:ty),* $(,)? ), $body:expr, $extra:expr )) => {
+    #[allow(unused_variables)]
+    ObjectSpecEnum::$spec_name ( $($fname),* ) => { // Destructure by field name provided in macro input
+      let body_spec = $body;
+      body_spec.insert(ec);
+      let extra_components = $extra;
+      ec.insert(extra_components);
+    },
+  };
+  // Handle UNIT variant match arm: ( UnitName, body, extra )
+  (@match_single_arm ( $spec_name:ident, $body:expr, $extra:expr )) => {
+    ObjectSpecEnum::$spec_name => { // No fields to destructure
+      let body_spec = $body;
+      body_spec.insert(ec);
+      let extra_components = $extra;
+      ec.insert(extra_components);
+    },
   };
 }
+
+// #[macro_export]
+// macro_rules! define_object_specs_enum_tt {
+//   ( $( ( $spec:tt $( $fields:tt )?, $body:expr, $extra:expr ) ),* $(,)? ) => {
+//     #[derive(Debug, Clone, Copy)]
+//     pub enum ObjectSpecEnum {
+//       Empty, // Base case for recursion
+//       $(
+//         $spec $($fields)?, // Attempt to paste the token tree directly
+//       )*
+//     }
+//     pub const fn empty_spec() -> ObjectSpecEnum { ObjectSpecEnum::Empty }
+//     impl ObjectSpecEnum {
+//       pub fn insert(self, ec: &mut EntityCommands) {
+//         match self {
+//           ObjectSpecEnum::Empty => {},
+
+//           // WARNING: The following match arm generation is fundamentally flawed
+//           //          within macro_rules! limitations.
+//           $(
+//             // PROBLEM 1: Cannot extract VariantName from $spec:tt.
+//             //            `ObjectSpecEnum::$spec` is invalid syntax.
+//             // PROBLEM 2: Cannot generate the correct pattern (struct/tuple/unit) from $spec:tt.
+//             //            Using a generic `{ .. }` is incorrect and only matches structs.
+//             // PROBLEM 3: Field names are NOT bound by `{ .. }`.
+//             // PROBLEM 4: $body and $extra CANNOT access variant fields.
+//             ObjectSpecEnum::$spec $($fields)? => { // <<< THIS WILL LIKELY CAUSE COMPILATION ERRORS
+//               // Attempting to use $spec as path segment & assuming struct pattern
+
+//               // Evaluate the body expression.
+//               // NOTE: $body CANNOT use any fields from the matched variant (e.g., scale, name)
+//               //       because they are not in scope.
+//               let body_spec = $body;
+//               body_spec.insert(ec); // Recursive call
+
+//               // Evaluate the extra expression.
+//               // NOTE: $extra CANNOT use any fields from the matched variant.
+//               let extra_components = $extra;
+//               ec.insert(extra_components);
+//             }
+//           )*
+//         }
+//       }
+//     }
+//     impl ObjectSpecEnum {
+//       pub fn spawn_at(self, c: &mut Commands, pos: Vec3) -> Entity {
+//         let mut ec = c.spawn(Transform::from_translation(pos));
+//         self.insert(&mut ec);
+//         ec.id()
+//       }
+//       pub const fn space_object(
+//         name: &'static str,
+//         scale: f32,
+//         can_move: bool,
+//         visuals: Visuals
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::SpaceObjectSpec { scale, can_move, visuals, name }
+//       }
+//       pub const fn loot_object(
+//         scale: f32,
+//         name: &'static str,
+//         sprite: MySprite,
+//         item_type: Item
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::LootObjectSpec { scale, name, sprite, item_type }
+//       }
+//       pub const fn enemy(
+//         name: &'static str,
+//         hp: u32,
+//         speed: f32,
+//         sprite: MySprite
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::EnemySpec { name, hp, speed, sprite }
+//       }
+//       pub const fn talking_person(
+//         name: &'static str,
+//         sprite: MySprite,
+//         dialogue_tree: DialogueTree
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::TalkingPersonSpec { name, sprite, dialogue_tree }
+//       }
+//       pub const fn planet(
+//         sprite: MySprite,
+//         radius: f32,
+//         population: u32,
+//         name: &'static str
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::PlanetSpec { sprite, radius, population, name }
+//       }
+//       pub const fn sign(text: &'static str) -> ObjectSpecEnum {
+//         ObjectSpecEnum::SignSpec { text }
+//       }
+
+//       pub const fn warp_gate(name: &'static str) -> ObjectSpecEnum {
+//         ObjectSpecEnum::WarpGateSpec { name }
+//       }
+//       // Add other helpers similarly...
+//       pub const fn scaled_npc(
+//         scale: f32,
+//         name: &'static str,
+//         speed: f32,
+//         faction: Faction,
+//         hp: u32,
+//         sprite: MySprite
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::ScaledNPCSpec { scale, name, speed, faction, hp, sprite }
+//       }
+//       pub const fn npc_spec(
+//         name: &'static str,
+//         scale: f32,
+//         speed: f32,
+//         faction: Faction,
+//         hp: u32,
+//         sprite: MySprite
+//       ) -> ObjectSpecEnum {
+//         ObjectSpecEnum::NPCSpec { name, scale, speed, faction, hp, sprite }
+//       }
+//       // --- Constant definitions using the new enum ---
+//       // You can define constants for frequently used specs if needed
+//       pub const PLAYER_SPEC: ObjectSpecEnum = ObjectSpecEnum::PlayerSpecDef {};
+//       pub const SUN_SPEC: ObjectSpecEnum = ObjectSpecEnum::SunSpec {};
+//     }
+//   };
+// }
 type StaticStr = &'static str;
 define_object_specs_enum_tt!(
-  // Base Spec (equivalent to the old trait impl)
-  (SpaceObjectSpec { name: StaticStr, scale: f32, can_move: bool, visuals: Visuals },
-   SpaceObjectSpec::
-   empty_spec(), // Base case for this spec uses Empty
-   {
-     let collider = Collider::sphere(scale);
-     (
-       SpaceObjectComponent { scale, ..default() },
-       Name::new(name.to_string()), // Bevy Name component needs String
-       FacingMode::Position,
-       visuals,
-       LockedAxes::ROTATION_LOCKED,
-       ColliderMassProperties::from_shape(&collider, 1.0),
-       collider,
-       if can_move { RigidBody::Dynamic } else { RigidBody::Static },
-       LinearDamping(1.6),
-       AngularDamping(1.2),
-       LinearVelocity::default(),
-       AngularVelocity::default(),
-       ExternalForce::default().with_persistence(false),
-       ExternalImpulse::default(),
-       // Visibility::Visible // Usually added by default with visuals? Check Bevy PBR specifics
-     )
-   }
+  (
+    SpaceObjectSpec { name: StaticStr, scale: f32, can_move: bool, visuals: Visuals },
+    SpaceObjectSpec::EmptySpec, // Base case for this spec uses Empty
+    {
+      let collider = Collider::sphere(scale);
+      (
+        SpaceObjectComponent { scale, ..default() },
+        Name::new(name.to_string()), // Bevy Name component needs String
+        FacingMode::Position,
+        visuals,
+        LockedAxes::ROTATION_LOCKED,
+        ColliderMassProperties::from_shape(&collider, 1.0),
+        collider,
+        if can_move { RigidBody::Dynamic } else { RigidBody::Static },
+        LinearDamping(1.6),
+        AngularDamping(1.2),
+        LinearVelocity::default(),
+        AngularVelocity::default(),
+        ExternalForce::default().with_persistence(false),
+        ExternalImpulse::default() // Visibility::Visible // Usually added by default with visuals? Check Bevy PBR specifics
+      )
+    }
   ),
   // Other Specs referencing SpaceObjectSpec or other specs as their body
-  (NPCSpec { name: StaticStr, scale: f32,
-             speed: f32, faction: Faction, hp: u32, sprite: MySprite },
-   Self::space_object(name, scale, true, Visuals::sprite(sprite)), // Use helper
-   (
-     Navigation::speed(speed),
-     NPC { follow_target: None, faction },
-     Combat { hp, is_hostile: false, ..default() }
-   )
+  (
+    NPCSpec {
+      name: StaticStr,
+      scale: f32,
+      speed: f32,
+      faction: Faction,
+      hp: u32,
+      sprite: MySprite
+    },
+    Self::space_object(name, scale, true, Visuals::sprite(sprite)), // Use helper
+    (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
+      hp,
+      is_hostile: false,
+      ..default()
+    })
   ),
-  (LootObjectSpec { scale: f32, name: StaticStr, sprite: MySprite, item_type: Item },
-   Self::space_object(name, scale, true, Visuals::sprite(sprite)), // Use helper
-   (
-     Container(vec![(item_type, 1)]),
-     InteractImpl::Container
-   )
+  (
+    LootObjectSpec { scale: f32, name: StaticStr, sprite: MySprite, item_type: Item },
+    Self::space_object(name, scale, true, Visuals::sprite(sprite)), // Use helper
+    (Container(vec![(item_type, 1)]), InteractImpl::Container)
   ),
-  (EnemySpec { name: StaticStr, hp: u32, speed: f32, sprite: MySprite },
-   Self::space_object(name, NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)), // Use helper
-   (
-     Navigation::new(speed),
-     NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
-     Combat { hp, is_hostile: true, ..default() }
-   )
+  (
+    EnemySpec { name: StaticStr, hp: u32, speed: f32, sprite: MySprite },
+    Self::space_object(name, NORMAL_NPC_SCALE, true, Visuals::sprite(sprite)), // Use helper
+    (
+      Navigation::new(speed),
+      NPC { follow_target: None, faction: Faction::SPACE_PIRATES },
+      Combat { hp, is_hostile: true, ..default() }
+    )
   ),
-  (TalkingPersonSpec { name: StaticStr, sprite: MySprite, dialogue_tree: DialogueTree },
-   Self::space_object(name, 1.7, true, Visuals::sprite(sprite)), // Use helper
-   (
-     DialogueTreeInteract::new(dialogue_tree),
-     InteractImpl::DialogueTree
-   )
+  (
+    TalkingPersonSpec { name: StaticStr, sprite: MySprite, dialogue_tree: DialogueTree },
+    Self::space_object(name, 1.7, true, Visuals::sprite(sprite)), // Use helper
+    (DialogueTreeInteract::new(dialogue_tree), InteractImpl::DialogueTree)
   ),
-  (PlanetSpec { sprite: MySprite, radius: f32, population: u32, name: StaticStr },
-   Self::space_object(name, radius, false, Visuals::sprite(sprite)), // Use helper
-   (Planet { population },) // Note the trailing comma to make it a tuple
+  (
+    PlanetSpec { sprite: MySprite, radius: f32, population: u32, name: StaticStr },
+    Self::space_object(name, radius, false, Visuals::sprite(sprite)), // Use helper
+    (Planet { population },) // Note the trailing comma to make it a tuple
   ),
-  (SignSpec { text: StaticStr },
-   Self::space_object("sign", 1.5, false, Visuals::sprite(MySprite::GPT4O_SIGN)), // Use helper
-   (
-     InteractImpl::Describe,
-     TextDisplay(text.to_string()) // TextDisplay expects String
-   )
+  (
+    SignSpec { text: StaticStr },
+    Self::space_object("sign", 1.5, false, Visuals::sprite(MySprite::GPT4O_SIGN)), // Use helper
+    (
+      InteractImpl::Describe,
+      TextDisplay(text.to_string()) // TextDisplay expects String
+    )
   ),
-  (WarpGateSpec { name: StaticStr },
-   Self::space_object(name, 3.0, false, Visuals::sprite(MySprite::GPT4O_GATE)), // Use helper
-   (
-     InteractImpl::WarpGate,
-     WarpGate { name }
-   )
+  (
+    WarpGateSpec { name: StaticStr },
+    Self::space_object(name, 3.0, false, Visuals::sprite(MySprite::GPT4O_GATE)), // Use helper
+    (InteractImpl::WarpGate, WarpGate { name })
   ),
-  (SunSpec {}, // No fields
-   Self::space_object("sun", 600.0, false, Visuals::material_sphere(MyMaterial::GLOWY_2)), // Use helper
-   (
-     CubemapVisibleEntities::default(),
-     CubemapFrusta::default(),
-     PointLight {
-       intensity: 3_000_000.0,
-       radius: 1.0,
-       range: 10000.0,
-       shadows_enabled: true,
-       color: Color::srgb(0.9, 0.8, 0.6),
-       ..default()
-     }
-   )
+  (
+    SunSpec {}, // No fields
+    Self::space_object("sun", 600.0, false, Visuals::material_sphere(MyMaterial::GLOWY_2)), // Use helper
+    (CubemapVisibleEntities::default(), CubemapFrusta::default(), PointLight {
+      intensity: 3_000_000.0,
+      radius: 1.0,
+      range: 10000.0,
+      shadows_enabled: true,
+      color: Color::srgb(0.9, 0.8, 0.6),
+      ..default()
+    })
   ),
-  (AsteroidSpec {},
-   Self::space_object("Asteroid", asteroid_scale(), false, Visuals::sprite(MySprite::GPT4O_ASTEROID)), // Use helper
-   (
-     InteractImpl::AsteroidMining,
-     AsteroidMining { resources: 5, durability: 5 },
-     CanBeFollowedByNPC
-   )
+  (
+    AsteroidSpec {},
+    Self::space_object(
+      "Asteroid",
+      asteroid_scale(),
+      false,
+      Visuals::sprite(MySprite::GPT4O_ASTEROID)
+    ), // Use helper
+    (
+      InteractImpl::AsteroidMining,
+      AsteroidMining { resources: 5, durability: 5 },
+      CanBeFollowedByNPC
+    )
   ),
-  (CrystalMonsterSpec {},
-   Self::space_object("crystal monster", 2.1, true, Visuals::sprite(MySprite::CRYSTALMONSTER)), // Use helper
-   (
-     Combat { hp: 100, is_hostile: true, ..default() },
-     NPC { faction: Faction::SPACE_PIRATES, ..default() },
-     Navigation::speed(NORMAL_NPC_SPEED * 1.2)
-   )
+  (
+    CrystalMonsterSpec {},
+    Self::space_object(
+      "crystal monster",
+      2.1,
+      true,
+      Visuals::sprite(MySprite::CRYSTALMONSTER)
+    ), // Use helper
+    (
+      Combat { hp: 100, is_hostile: true, ..default() },
+      NPC { faction: Faction::SPACE_PIRATES, ..default() },
+      Navigation::speed(NORMAL_NPC_SPEED * 1.2)
+    )
   ),
-  (PlayerSpecDef {},
-   Self::space_object("You", PLAYER_SCALE, true, Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP)), // Use helper
-   (
-     Player::default(),
-     Combat { hp: 400, is_hostile: false, ..default() },
-     Inventory::default(),
-     Navigation::new(PLAYER_FORCE),
-     CanBeFollowedByNPC
-   )
+  (
+    PlayerSpecDef {},
+    Self::space_object(
+      "You",
+      PLAYER_SCALE,
+      true,
+      Visuals::sprite(MySprite::IMAGEN3WHITESPACESHIP)
+    ), // Use helper
+    (
+      Player::default(),
+      Combat { hp: 400, is_hostile: false, ..default() },
+      Inventory::default(),
+      Navigation::new(PLAYER_FORCE),
+      CanBeFollowedByNPC
+    )
   ),
-
   // --- Generic specs ---
-  (InteractableObjectSpec { name: StaticStr, scale: f32, can_move: bool, visuals: Visuals, interact: InteractImpl },
-   Self::space_object(name, scale, can_move, visuals), // Use helper
-   (interact,) // Trailing comma for single-element tuple
+  (
+    InteractableObjectSpec {
+      name: StaticStr,
+      scale: f32,
+      can_move: bool,
+      visuals: Visuals,
+      interact: InteractImpl
+    },
+    Self::space_object(name, scale, can_move, visuals), // Use helper
+    (interact,) // Trailing comma for single-element tuple
   ),
-  (ScaledNPCSpec { scale: f32, name: StaticStr, speed: f32, faction: Faction, hp: u32, sprite: MySprite },
-   Self::space_object(name, scale, true, Visuals::sprite(sprite)), // Use helper
-   (
-     Navigation::speed(speed),
-     NPC { follow_target: None, faction },
-     Combat { hp, is_hostile: false, ..default() }
-   )
+  (
+    ScaledNPCSpec {
+      scale: f32,
+      name: StaticStr,
+      speed: f32,
+      faction: Faction,
+      hp: u32,
+      sprite: MySprite
+    },
+    Self::space_object(name, scale, true, Visuals::sprite(sprite)), // Use helper
+    (Navigation::speed(speed), NPC { follow_target: None, faction }, Combat {
+      hp,
+      is_hostile: false,
+      ..default()
+    })
   ),
-
   // --- Concrete specs using other specs ---
-  (ExplorerSpec {},
-   // Use the specific helper that returns the correct enum variant
-   Self::scaled_npc(NORMAL_NPC_SCALE, "explorer", NORMAL_NPC_SPEED, Faction::EXPLORERS, 50, MySprite::GPT4O_WHITE_EXPLORATION_SHIP),
-   () // Empty tuple for no extra components
+  (
+    ExplorerSpec {},
+    // Use the specific helper that returns the correct enum variant
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "explorer",
+      NORMAL_NPC_SPEED,
+      Faction::EXPLORERS,
+      50,
+      MySprite::GPT4O_WHITE_EXPLORATION_SHIP
+    ),
+    () // Empty tuple for no extra components
   ),
-  (TraderSpec {},
-   Self::scaled_npc(NORMAL_NPC_SCALE, "Trader", NORMAL_NPC_SPEED, Faction::TRADERS, 30, MySprite::SPACESHIPWHITE2),
-   ()
+  (
+    TraderSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "Trader",
+      NORMAL_NPC_SPEED,
+      Faction::TRADERS,
+      30,
+      MySprite::SPACESHIPWHITE2
+    ),
+    ()
   ),
-  (SpaceCopSpec {},
-   Self::scaled_npc(NORMAL_NPC_SCALE, "space cop", NORMAL_NPC_SPEED, Faction::SPACE_POLICE, 70, MySprite::GPT4O_POLICE_SPACE_SHIP),
-   ()
+  (
+    SpaceCopSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "space cop",
+      NORMAL_NPC_SPEED,
+      Faction::SPACE_POLICE,
+      70,
+      MySprite::GPT4O_POLICE_SPACE_SHIP
+    ),
+    ()
   ),
-  (SpaceWizardSpec {},
-   Self::scaled_npc(NORMAL_NPC_SCALE, "space wizard", NORMAL_NPC_SPEED, Faction::SPACEWIZARDS, 40, MySprite::IMAGEN3WIZARDSPACESHIP),
-   ()
+  (
+    SpaceWizardSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "space wizard",
+      NORMAL_NPC_SPEED,
+      Faction::SPACEWIZARDS,
+      40,
+      MySprite::IMAGEN3WIZARDSPACESHIP
+    ),
+    ()
   ),
-  (MinerSpec {},
-   Self::scaled_npc(NORMAL_NPC_SCALE, "miner", NORMAL_NPC_SPEED, Faction::TRADERS, 35, MySprite::GPT4O_MINING_SHIP),
-   ()
+  (
+    MinerSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "miner",
+      NORMAL_NPC_SPEED,
+      Faction::TRADERS,
+      35,
+      MySprite::GPT4O_MINING_SHIP
+    ),
+    ()
   ),
-  (AlienSoldierSpec {},
-   Self::scaled_npc(NORMAL_NPC_SCALE, "alien soldier", NORMAL_NPC_SPEED, Faction::INVADERS, 80, MySprite::PURPLEENEMYSHIP),
-   ()
+  (
+    AlienSoldierSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "alien soldier",
+      NORMAL_NPC_SPEED,
+      Faction::INVADERS,
+      80,
+      MySprite::PURPLEENEMYSHIP
+    ),
+    ()
   ),
-  (MinerNpcSpec {},
-   Self::scaled_npc( NORMAL_NPC_SCALE, "miner npc",NORMAL_NPC_SPEED * 0.8, Faction::TRADERS, 45, MySprite::GPT4O_MINING_SHIP), // Use npc_spec helper
-   ()
+  (
+    MinerNpcSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "miner npc",
+      NORMAL_NPC_SPEED * 0.8,
+      Faction::TRADERS,
+      45,
+      MySprite::GPT4O_MINING_SHIP
+    ), // Use npc_spec helper
+    ()
   ),
-  (MushroomManSpec {},
-   Self::scaled_npc(NORMAL_NPC_SCALE, "mushroom man", NORMAL_NPC_SPEED * 0.9, Faction::TRADERS, 40, MySprite::MUSHROOMMAN),
-   ()
+  (
+    MushroomManSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "mushroom man",
+      NORMAL_NPC_SPEED * 0.9,
+      Faction::TRADERS,
+      40,
+      MySprite::MUSHROOMMAN
+    ),
+    ()
   ),
-  (NomadSpec {},
-   Self::scaled_npc( NORMAL_NPC_SCALE, "nomad",NORMAL_NPC_SPEED, Faction::WANDERERS, 35, MySprite::GPT4O_GREEN_CAR_SHIP), // Use npc_spec helper
-   ()
+  (
+    NomadSpec {},
+    Self::scaled_npc(
+      NORMAL_NPC_SCALE,
+      "nomad",
+      NORMAL_NPC_SPEED,
+      Faction::WANDERERS,
+      35,
+      MySprite::GPT4O_GREEN_CAR_SHIP
+    ), // Use npc_spec helper
+    ()
   ),
-
   // --- Lootable / resource‑style objects ---
-  (SpaceCatSpec {},
-   loot_object(1.3, "space cat", MySprite::GPT4O_SPACE_CAT, Item::SPACECAT),
-   ()
+  (
+    SpaceCatSpec {},
+    loot_object(1.3, "space cat", MySprite::GPT4O_SPACE_CAT, Item::SPACECAT),
+    ()
   ),
-  (SpacemanSpec {},
-   loot_object(1.3, "spaceman", MySprite::GPT4O_SPACE_MAN, Item::PERSON),
-   ()
+  (
+    SpacemanSpec {},
+    loot_object(1.3, "spaceman", MySprite::GPT4O_SPACE_MAN, Item::PERSON),
+    ()
   ),
-  (SpaceCoinSpec {},
-   loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN),
-   ()
+  (SpaceCoinSpec {}, loot_object(1.7, "space coin", MySprite::COIN, Item::SPACECOIN), ()),
+  (
+    IceAsteroidSpec {},
+    loot_object(
+      asteroid_scale(),
+      "ice asteroid",
+      MySprite::GPT4O_ICE_ASTEROID,
+      Item::DIHYDROGENMONOXIDE
+    ),
+    ()
   ),
-  (IceAsteroidSpec {},
-   loot_object(asteroid_scale(), "ice asteroid", MySprite::GPT4O_ICE_ASTEROID, Item::DIHYDROGENMONOXIDE),
-   ()
+  (
+    CrystalAsteroidSpec {},
+    loot_object(
+      asteroid_scale(),
+      "crystal asteroid",
+      MySprite::CRYSTALASTEROID,
+      Item::CRYSTAL
+    ),
+    ()
   ),
-  (CrystalAsteroidSpec {},
-   loot_object(asteroid_scale(), "crystal asteroid", MySprite::CRYSTALASTEROID, Item::CRYSTAL),
-   ()
-  ),
-
   // --- Hostile or descriptive world objects ---
-  (CrystalMonster2Spec {},
-   Self::space_object("lesser crystal monster", 1.7, true, Visuals::sprite(MySprite::CRYSTALMONSTER)),
-   (
-     InteractImpl::Describe,
-     TextDisplay("it's a lesser crystal monster".to_string())
-   )
+  (
+    CrystalMonster2Spec {},
+    Self::space_object(
+      "lesser crystal monster",
+      1.7,
+      true,
+      Visuals::sprite(MySprite::CRYSTALMONSTER)
+    ),
+    (InteractImpl::Describe, TextDisplay("it's a lesser crystal monster".to_string()))
   ),
-  (FloatingIslandSpec {},
-   Self::space_object("floating island", 3.4, false, Visuals::sprite(MySprite::FLOATINGISLAND)),
-   (
-     InteractImpl::Describe,
-     TextDisplay("it's a floating island in space".to_string())
-   )
+  (
+    FloatingIslandSpec {},
+    Self::space_object(
+      "floating island",
+      3.4,
+      false,
+      Visuals::sprite(MySprite::FLOATINGISLAND)
+    ),
+    (InteractImpl::Describe, TextDisplay("it's a floating island in space".to_string()))
   ),
-  (HpBoxSpec {},
-   Self::space_object("hp box", 0.9, true, Visuals::sprite(MySprite::HPBOX)),
-   (InteractImpl::HP_BOX,)
+  (
+    HpBoxSpec {},
+    Self::space_object("hp box", 0.9, true, Visuals::sprite(MySprite::HPBOX)),
+    (InteractImpl::HP_BOX,)
   ),
-  (TreasureContainerSpec {},
-   Self::space_object("container", 2.1, true, Visuals::sprite(MySprite::GPT4O_CONTAINER)),
-   (
-     InteractImpl::Container,
-     Container(vec![(Item::SPACECOIN, 4), (Item::COFFEE, 1)])
-   )
+  (
+    TreasureContainerSpec {},
+    Self::space_object("container", 2.1, true, Visuals::sprite(MySprite::GPT4O_CONTAINER)),
+    (InteractImpl::Container, Container(vec![(Item::SPACECOIN, 4), (Item::COFFEE, 1)]))
   ),
-  (WormholeSpec {},
-   Self::space_object("wormhole", 4.0, false, Visuals::sprite(MySprite::WORMHOLE)),
-   (
-     InteractImpl::Describe,
-     TextDisplay("this is a wormhole".to_string())
-   )
+  (
+    WormholeSpec {},
+    Self::space_object("wormhole", 4.0, false, Visuals::sprite(MySprite::WORMHOLE)),
+    (InteractImpl::Describe, TextDisplay("this is a wormhole".to_string()))
   ),
-  (AbandonedShipSpec {},
-   Self::space_object("abandoned ship", 2.0, false, Visuals::sprite(MySprite::SPACESHIPABANDONED)),
-   (InteractImpl::Salvage, Salvage { loot: 5 })
+  (
+    AbandonedShipSpec {},
+    Self::space_object(
+      "abandoned ship",
+      2.0,
+      false,
+      Visuals::sprite(MySprite::SPACESHIPABANDONED)
+    ),
+    (InteractImpl::Salvage, Salvage { loot: 5 })
   ),
-  (SpacePirateSpec {},
-   enemy("Space Pirate", 60, NORMAL_NPC_SPEED * 1.1, MySprite::PURPLEENEMYSHIP), // Use enemy helper
-   ()
+  (
+    SpacePirateSpec {},
+    enemy("Space Pirate", 60, NORMAL_NPC_SPEED * 1.1, MySprite::PURPLEENEMYSHIP), // Use enemy helper
+    ()
   ),
-  (SpacePirateBaseSpec {},
-   Self::space_object("space pirate base", 4.0, false, Visuals::sprite(MySprite::GPT4O_PIRATE_STATION)),
-   (
-     Combat { hp: 120, is_hostile: false, ..default() }, // Assuming non-hostile until attacked?
-     InteractImpl::Describe,
-     TextDisplay("it's a space pirate base".to_string())
-   )
+  (
+    SpacePirateBaseSpec {},
+    Self::space_object(
+      "space pirate base",
+      4.0,
+      false,
+      Visuals::sprite(MySprite::GPT4O_PIRATE_STATION)
+    ),
+    (
+      Combat { hp: 120, is_hostile: false, ..default() }, // Assuming non-hostile until attacked?
+      InteractImpl::Describe,
+      TextDisplay("it's a space pirate base".to_string())
+    )
   ),
-  (SpaceStationSpec {},
-   Self::space_object("space station", 4.0, false, Visuals::sprite(MySprite::GPT4O_TRADING_STATION)),
-   (
-     Combat { hp: 120, is_hostile: false, ..default() },
-     InteractImpl::Describe,
-     TextDisplay("it's a space station".to_string())
-   )
+  (
+    SpaceStationSpec {},
+    Self::space_object(
+      "space station",
+      4.0,
+      false,
+      Visuals::sprite(MySprite::GPT4O_TRADING_STATION)
+    ),
+    (
+      Combat { hp: 120, is_hostile: false, ..default() },
+      InteractImpl::Describe,
+      TextDisplay("it's a space station".to_string())
+    )
   ),
-  (TradeStationSpec {},
-   Self::space_object("space station", 3.0, false, Visuals::sprite(MySprite::IMAGEN3SPACESTATION)),
-   { // Use block to compute components
-     let (trade_interaction, text) = if prob(0.5) {
-       let &trade_buy = pick(&[Item::DIHYDROGENMONOXIDE,
-                               Item::CRYSTAL, Item::SPACECAT]).unwrap();
-       (TradeInteract { inputs: (trade_buy, 1), outputs: (Item::SPACECOIN, 5) },
-        format!("space station\nbuys {:?}", trade_buy))
-     } else {
-       let &trade_sell = pick(&[Item::SPICE, Item::COFFEE, Item::ROCK]).unwrap();
-       (TradeInteract { inputs: (Item::SPACECOIN, 5), outputs: (trade_sell, 1) },
-        format!("space station\nsells {:?}", trade_sell))
-     };
-     ( // Return the tuple of components
-       InteractImpl::TRADE,
-       CanBeFollowedByNPC,
-       trade_interaction,
-       TextDisplay::from(text)
-     )
-   }
+  (
+    TradeStationSpec {},
+    Self::space_object(
+      "space station",
+      3.0,
+      false,
+      Visuals::sprite(MySprite::IMAGEN3SPACESTATION)
+    ),
+    {
+      // Use block to compute components
+      let (trade_interaction, text) = if prob(0.5) {
+        let &trade_buy =
+          pick(&[Item::DIHYDROGENMONOXIDE, Item::CRYSTAL, Item::SPACECAT]).unwrap();
+        (
+          TradeInteract { inputs: (trade_buy, 1), outputs: (Item::SPACECOIN, 5) },
+          format!("space station\nbuys {:?}", trade_buy)
+        )
+      } else {
+        let &trade_sell = pick(&[Item::SPICE, Item::COFFEE, Item::ROCK]).unwrap();
+        (
+          TradeInteract { inputs: (Item::SPACECOIN, 5), outputs: (trade_sell, 1) },
+          format!("space station\nsells {:?}", trade_sell)
+        )
+      };
+      (
+        // Return the tuple of components
+        InteractImpl::TRADE,
+        CanBeFollowedByNPC,
+        trade_interaction,
+        TextDisplay::from(text)
+      )
+    }
   )
 );
 
-pub trait ObjectSpec {
-  fn insert(&self, ec: &mut EntityCommands);
-}
-#[macro_export]
-macro_rules! object_spec {
-  (
-    // $spec_:tt,
-    // $spec_name:ident $spec_fields:tt,
-    $spec_name:ident {
-      $($field_name:ident : $field_ty:ty),* $(,)?
-    },
-    $body:expr,
-    $extra:expr
-  ) => {
-    #[derive(Debug, Clone,Copy)]
-    // pub struct $spec_name $spec_fields
-    // #[derive(Debug, Clone,Copy)]
-    pub struct $spec_name {
-      $(pub $field_name : $field_ty),*
-    }
-    impl ObjectSpec for $spec_name {
-      fn insert(&self, ec: &mut EntityCommands){
-        let &$spec_name{ $($field_name),*} = self;
-        // let &$spec_name $spec_fields = self;
-        let body = $body;
-        ObjectSpec::insert(&body,ec);
-        // body.insert(ec);
-        let extra = $extra;
-        ec.insert(extra);
-      }
-    }
-  };
-}
-#[macro_export]
-macro_rules! object_specs {
-  ( $( ( $spec_name:ident { $( $field_name:ident : $field_ty:ty ),* $(,)? }, $body:expr, $extra:expr ) ),* $(,)? ) => {
-    $(
-      object_spec!( $spec_name { $( $field_name : $field_ty ),* }, $body, $extra );
-    )*
-  };
-}
+// pub trait ObjectSpec {
+//   fn insert(&self, ec: &mut EntityCommands);
+// }
+// #[macro_export]
+// macro_rules! object_spec {
+//   (
+//     // $spec_:tt,
+//     // $spec_name:ident $spec_fields:tt,
+//     $spec_name:ident {
+//       $($field_name:ident : $field_ty:ty),* $(,)?
+//     },
+//     $body:expr,
+//     $extra:expr
+//   ) => {
+//     #[derive(Debug, Clone,Copy)]
+//     // pub struct $spec_name $spec_fields
+//     // #[derive(Debug, Clone,Copy)]
+//     pub struct $spec_name {
+//       $(pub $field_name : $field_ty),*
+//     }
+//     impl ObjectSpec for $spec_name {
+//       fn insert(&self, ec: &mut EntityCommands){
+//         let &$spec_name{ $($field_name),*} = self;
+//         // let &$spec_name $spec_fields = self;
+//         let body = $body;
+//         ObjectSpec::insert(&body,ec);
+//         // body.insert(ec);
+//         let extra = $extra;
+//         ec.insert(extra);
+//       }
+//     }
+//   };
+// }
+// #[macro_export]
+// macro_rules! object_specs {
+//   ( $( ( $spec_name:ident { $( $field_name:ident : $field_ty:ty ),* $(,)? }, $body:expr, $extra:expr ) ),* $(,)? ) => {
+//     $(
+//       object_spec!( $spec_name { $( $field_name : $field_ty ),* }, $body, $extra );
+//     )*
+//   };
+// }
 
 #[derive(Debug, Clone, Copy)]
 pub struct EmptySpec {}
